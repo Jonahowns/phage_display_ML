@@ -1,0 +1,6 @@
+-- Pig tissue study--
+- N1 = base library phage exposed to uninjured pig tissue and gelatin coated slides
+- b3 = domain antiody library, amplified 3x
+- NP1 = negative positive screen. negative library phage exposed to gelatin, uninjured, and then injured pig tissue
+- NP2 = NP1 library phage exposed to gelatin, uninjured, and then injured pig tissue
+- NP3 = NP2 library phage exposed to gelatin, uninjured, and then injured pig tissue

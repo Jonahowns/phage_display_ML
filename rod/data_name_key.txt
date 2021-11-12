@@ -1,0 +1,5 @@
+- 4 rounds of biopanning, "a" and "b" refer to duplicates
+- r1 = rod1 phage screened against HTS wells and trypsinized from rod microglia
+- r2 = rod2 phage screened against HTS wells and uninjured mouse brain tissue and trypsinized from rod microglia
+- r3 = rod3 phage screened against HTS wells and uninjured mouse brain tissue and trypsinized from rod microglia
+- r4 = rod4 phage screened against HTS wells and uninjured mouse brain tissue and trypsinized from rod microglia

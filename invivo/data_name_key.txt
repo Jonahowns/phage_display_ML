@@ -1,0 +1,9 @@
+--In vivo phage display--
+- acute = 1 day post-injury
+- subacute = 7 days post-injury
+- chronic = 21 days post-injury
+- dab = domain antibody library, no target used in biopanning
+- ipsi = brain tissue, ipsilateral (injured) hemisphere
+- contra = brain tissue, contralateral (non-injured) hemisphere
+- 1 = after 1st round of biopanning
+- 2 = after 2nd round of biopanning
