@@ -8,9 +8,9 @@
 #SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
 #SBATCH --mail-user=jprocyk@asu.edu     #send to my email
-#SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/ProteinMotifRBM/agave_submit/
+#SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/ProteinMotifRBM/
 
-
+#module load anaconda2/5.2.0
 source activate rbm
 
-python RBM_trainer.py b3_c2 ../../pig_tissue/b3_c2.fasta ../../pig_tissue/trained_rbms/ 100
+python RBM_trainer.py b3_c2 ../pig_tissue/b3_c2.fasta ../pig_tissue/trained_rbms/ 100

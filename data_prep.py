@@ -225,9 +225,9 @@ def extract_data(i, cnum, c_indices):
 #### Prepare Submission Scripts
 
 if focus == "pig":
-    # path is from ProteinMotifRBM/agave_sbumit/ to /pig_tissue/trained_rbms/
-    dest_path = "../../pig_tissue/trained_rbms/"
-    src_path = "../../pig_tissue/"
+    # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/
+    dest_path = "../pig_tissue/trained_rbms/"
+    src_path = "../pig_tissue/"
 
     c1 = [x + '_c1.fasta' for x in rounds]
     c2 = [x + '_c2.fasta' for x in rounds]
@@ -245,8 +245,8 @@ if focus == "pig":
 
 elif focus == "invivo":
     # path is from ProteinMotifRBM/agave_sbumit/ to /pig_tissue/trained_rbms/
-    dest_path = "../../invivo/trained_rbms/"
-    src_path = "../../invivo/"
+    dest_path = "../invivo/trained_rbms/"
+    src_path = "../invivo/"
 
     c1 = [x + '_c1.fasta' for x in rounds]
     c2 = [x + '_c2.fasta' for x in rounds]
