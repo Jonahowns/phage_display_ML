@@ -35,12 +35,14 @@ def error_check(seq, error_possibilities):
     else:
         return -1
 
+
 def write_fasta(seqs, affs, out):
     o = open(out, 'w')
     for xid, x in enumerate(seqs):
         print('>seq' + str(xid) + '-' + str(affs[xid]), file=o)
         print(x, file=o)
     o.close()
+
 
 def fasta_read(fastafile):
     o = open(fastafile)
@@ -52,6 +54,7 @@ def fasta_read(fastafile):
             seqs.append(line.rstrip())
     o.close()
     return seqs
+
 
 def data_prop(seqs, outfile=sys.stdout):
     if outfile != sys.stdout:
@@ -72,6 +75,7 @@ def data_prop(seqs, outfile=sys.stdout):
                 c+=1
         print('Length:', x, 'Number of Sequences', c, file=outfile)
     return useqs, cpy_num
+
 
 def corrector(seqs, mutations, lmin=0, lmax=10):
     fseqs = prep_data(seqs, lmin=lmin, lmax=lmax)
@@ -166,6 +170,7 @@ def gap_adder(seqs, maxlen):
         nseqs.append(seq.replace("*", "-") + "".join(["-" for i in range(maxlen - len(seq))]))
     return nseqs
 
+
 def extractor(seqs, cnum, lenindices, outdir, cpy_num):
     for i in range(cnum):
         print(i, lenindices[i][0], lenindices[i][1])
@@ -174,7 +179,7 @@ def extractor(seqs, cnum, lenindices, outdir, cpy_num):
         write_fasta(c_adj, caffs, outdir + '_c' + str(i+1) + '.fasta')
 
 
-focus = 'invivo'
+focus = 'pig'
 mfolder = '/mnt/D1/phage_display_analysis/'
 
 # Fix this up (correct dirs)
@@ -263,28 +268,40 @@ elif focus == "invivo":
     paths_to_data = [src_path + x for x in all_data_files]
 
 
-def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus):
+def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(rbmnames)):
-        o = open('./ProteinMotifRBM/rbm_train.sh', 'r')
+        o = open('./rbm_torch/rbm_train.sh', 'r')
         filedata = o.read()
         o.close()
+
+        if str(1) in rbmnames[i]: # cluster 1 has 22 visible units
+            vis = 22
+        elif str(2) in rbmnames[i]:# cluster 2 has 22 visible units
+            vis = 45
         
         # Replace the Strings we want
         filedata = filedata.replace("NAME", rbmnames[i])
+        filedata = filedata.replace("FOCUS", focus)
+        filedata = filedata.replace("MOLECULE", "protein")
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
         filedata = filedata.replace("DESTINATION", destination)
         filedata = filedata.replace("HIDDEN", str(hiddenunits))
+        filedata = filedata.replace("VISIBLE", str(vis))
+        filedata = filedata.replace("PARTITION", "sulcgpu2")
+        filedata = filedata.replace("QUEUE", "sulcgpu1")
+        filedata = filedata.replace("GPU_NUM", str(1))
+        filedata = filedata.replace("EPOCHS", str(epochs))
 
-        with open("./ProteinMotifRBM/agave_submit/" + script_names[i], 'w+') as file:
+        with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
             file.write(filedata)
 
-    with open("./ProteinMotifRBM/agave_submit/submit" + focus + ".sh", 'w+') as file:
+    with open("./rbm_torch/agave_submit/submit" + focus + ".sh", 'w+') as file:
         file.write("#!/bin/bash\n")
         for i in range(len(script_names)):
-            file.write("sbatch " + script_names[i] + ".sh\n")
+            file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 100, focus)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 100, focus, 200)
 
 

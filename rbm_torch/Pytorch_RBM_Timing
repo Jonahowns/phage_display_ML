@@ -1,0 +1,17 @@
+# core: i7
+# Same Dataset 3615 seqs, Same Number of MC moves, 100 iterations, batch_size: 800, 10 hidden, 22 visible
+Test 1 -> CPU Only
+Original: total time: 74.77s     epoch avg: 0.65 s
+Pytorch:  total time: 59.31s     epoch avg: 0.51 s
+Pytorch 1 GPU: toal time: 48.30    epoch avg: 0.42 s
+
+
+
+
+
+
+
+# Dataset 2 116384 seqs, batch_size = 10,000
+Original: total time: 1444.12    epoch avg: 12.35 (Dataloading time was significant)
+Pytorch:  total time: 828.1s     epoch avg: 
+Pytorch 1 GPU: toal time: 264.5    epoch avg: 

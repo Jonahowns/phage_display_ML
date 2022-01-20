@@ -22,7 +22,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 import copy
-
+import os
 ## Implementation inspired from https://stackoverflow.com/questions/42615527/sequence-logos-in-matplotlib-aligning-xticks
 ## Color choice inspired from: http://weblogo.threeplusone.com/manual.html
 

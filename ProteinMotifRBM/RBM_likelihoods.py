@@ -7,6 +7,8 @@ import subprocess as sp
 sys.path.append('RBM/')
 sys.path.append('utilities/')
 
+import Proteins_utils, Proteins_RBM_utils, utilities, plots_utils, sequence_logo
+
 try:
     import rbm
 except:
@@ -20,7 +22,7 @@ except:
     import rbm
 
 
-import Proteins_utils, Proteins_RBM_utils, utilities, plots_utils, sequence_logo
+
 
 key = {0:'A', 1:'C', 2:'G', 3:'T', 3:'U', 4:'-'}
 keyr = {'A':0, 'C':1, 'G':2, 'T':3, 'U':3, '-':4}
