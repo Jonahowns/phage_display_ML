@@ -36,12 +36,13 @@ dnadict = {dna[k]: k for k in range(len(dna))}
 rna = ['A', 'C', 'G', 'U', '-']
 rnadict = {rna[k]: k for k in range(len(rna))}
 
-aadict['X'] = len(aa)
+# Changing X to be the same value as a gap as it can mean any amino acid
+aadict['X'] = aadict['-']
 aadict['B'] = len(aa)
 aadict['Z'] = len(aa)
 for k, key in enumerate(['a', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'y']):
     aadict[key] = aadict[aa[k]]
-aadict['x'] = len(aa)
+aadict['x'] = aadict['-']
 aadict['b'] = len(aa)
 aadict['z'] = -1
 aadict['.'] = -1

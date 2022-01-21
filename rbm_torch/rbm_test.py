@@ -33,7 +33,7 @@ from rbm_utils import aadict, dnadict, rnadict
 class RBMCaterogical(Dataset):
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu'):
+    def __init__(self, dataset, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu', one_hot=False):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -56,12 +56,13 @@ class RBMCaterogical(Dataset):
         self.device = device # Makes sure everything is on correct device
 
         self.max_length = max_length # Number of Visible Nodes
-
+        self.oh = one_hot
         # self.train_labels = self.dataset.binary.to_numpy()
         self.total = len(self.dataset.index)
         self.seq_data = self.dataset.sequence.to_numpy()
         self.train_data = self.categorical(self.seq_data)
-        self.train_oh = self.one_hot(self.train_data)
+        if self.oh:
+            self.train_oh = self.one_hot(self.train_data)
 
         if weights is not None:
             if len(self.train_data) == len(weights):
@@ -82,10 +83,13 @@ class RBMCaterogical(Dataset):
 
         seq = self.seq_data[index]
         cat_seq = self.train_data[index]
-        one_hot = self.train_oh[index]
         weight = self.train_weights[index]
 
-        return seq, cat_seq, one_hot, weight
+        if self.oh:
+            one_hot = self.train_oh[index]
+            return seq, cat_seq, one_hot, weight
+        else:
+            return seq, cat_seq, weight
 
     def categorical(self, seq_dataset):
         cat_np = torch.zeros((seq_dataset.shape[0], self.max_length), dtype=torch.long)
@@ -736,7 +740,7 @@ class RBM(pl.LightningModule):
 
     ## This works but not the exact quantity we want to maximize
     def training_step_CD_energy(self, batch, batch_idx):
-        seqs, V_pos, one_hot, seq_weights = batch
+        seqs, V_pos, seq_weights = batch
         weights = seq_weights.clone.detach()
         V_pos = V_pos.clone().detach()
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
@@ -769,7 +773,7 @@ class RBM(pl.LightningModule):
         return batch_out
 
     def training_step_PT_free_energy(self, batch, batch_idx):
-        seqs, V_pos, one_hot, seq_weights = batch
+        seqs, V_pos, seq_weights = batch
         V_pos = V_pos.clone().detach()
         V_neg, h_neg, V_pos, h_pos = self.forward(V_pos)
         weights = seq_weights.clone().detach()
@@ -802,7 +806,8 @@ class RBM(pl.LightningModule):
         return batch_out
 
     def training_step_CD_free_energy(self, batch, batch_idx):
-        seqs, V_pos, one_hot, seq_weights = batch
+        # seqs, V_pos, one_hot, seq_weights = batch
+        seqs, V_pos, seq_weights = batch
         weights = seq_weights.clone()
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 

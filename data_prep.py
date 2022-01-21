@@ -275,9 +275,9 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         filedata = o.read()
         o.close()
 
-        if str(1) in rbmnames[i]: # cluster 1 has 22 visible units
+        if "c"+str(1) in rbmnames[i]: # cluster 1 has 22 visible units
             vis = 22
-        elif str(2) in rbmnames[i]:# cluster 2 has 22 visible units
+        elif "c"+str(2) in rbmnames[i]:# cluster 2 has 22 visible units
             vis = 45
         
         # Replace the Strings we want
