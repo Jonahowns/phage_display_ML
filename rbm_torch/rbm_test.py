@@ -24,6 +24,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
+import multiprocessing # Just to set the worker number
 
 
 
@@ -652,11 +653,11 @@ class RBM(pl.LightningModule):
             print(f"Current Directory '{os.curdir}'")
             exit()
 
-        # train, validate = train_test_split(data, test_size=0.2, random_state=seed)
-        # self.validation_data = validate
-        # self.training_data = train
+        train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
+        self.validation_data = validate
+        self.training_data = train
 
-        self.training_data = data  # still pandas dataframe
+        # self.training_data = data  # still pandas dataframe
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
@@ -671,7 +672,7 @@ class RBM(pl.LightningModule):
 
     ## Loads Training Data
     def train_dataloader(self):
-        train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id="protein", device=self.device)
+        train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id=self.base_to_id, device=self.device)
 
         # initialize fields from data
         with torch.no_grad():
@@ -687,8 +688,27 @@ class RBM(pl.LightningModule):
         train_loader = torch.utils.data.DataLoader(
             train_reader,
             batch_size=self.batch_size,
-            num_workers=12,  # Set to 0 to view tensors while debugging
-            # num_workers=12,
+            num_workers=multiprocessing.cpu_count(),  # Set to 0 to view tensors while debugging
+            # num_workers=0,
+            pin_memory=pin_mem,
+            shuffle=True
+        )
+
+        return train_loader
+
+    def val_dataloader(self):
+        val_reader = RBMCaterogical(self.validation_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id="protein", device=self.device)
+
+        if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
+            pin_mem = self.trainer.on_gpu
+        else:
+            pin_mem = False
+
+        train_loader = torch.utils.data.DataLoader(
+            val_reader,
+            batch_size=self.batch_size,
+            num_workers=multiprocessing.cpu_count(),  # Set to 0 to view tensors while debugging
+            # num_workers=0,
             pin_memory=pin_mem,
             shuffle=False
         )
@@ -736,6 +756,7 @@ class RBM(pl.LightningModule):
 
         # Added for raytune support
         if self.raytune:
+            # Only way I could get training_iteration in raytune to increment
             tune.report(psuedolikelihood=psuedolikelihood, train_loss=avg_loss)
 
     ## This works but not the exact quantity we want to maximize
@@ -887,7 +908,7 @@ class RBM(pl.LightningModule):
     ## For debugging of main functions
     def sampling_test(self):
         self.prepare_data()
-        train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id="protein", device=self.device)
+        train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id=self.base_to_id, device=self.device)
 
         # initialize fields from data
         with torch.no_grad():
