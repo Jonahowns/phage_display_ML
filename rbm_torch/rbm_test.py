@@ -1313,7 +1313,7 @@ def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
 if __name__ == '__main__':
     # pytorch lightning loop
     data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
-    large_data_file = './chronic1_spleen_c1.fasta' # gpu is faster
+    large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
 
     config = {"fasta_file": data_file,
@@ -1360,21 +1360,6 @@ if __name__ == '__main__':
     # model.load_state_dict(checkpoint['state_dict'])
 
 
-
-
-
-    # rbm = RBM.load_from_checkpoint(checkpoint)
-
-
-
-
-
-
-
-
-    # rbm = RBM(config)
-    # all_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
-    # rbm.AIS(verbose=2)
 
     ## Need to finish debugging AIS
     # rbm = RBM(config)
@@ -1423,42 +1408,6 @@ if __name__ == '__main__':
     # plt = pl.Trainer(profiler='advanced', max_epochs=10)
     # plt = pl.Trainer(max_epochs=1)
     # plt.fit(rbm)
-
-    # Memory Debugging yay
-    # rbm.prepare_data()
-    # d = rbm.train_dataloader()
-    # total = 0
-    # for e in range(epochs):
-    #     for i, batch in enumerate(d):
-    #     # if i == 0:
-    #         # rbm.testing()
-    #         # rbm.training_step(batch, i)
-    #
-    #         seqs, tensors, weights = batch
-    #
-    #         weights = weights.clone()
-    #         V_neg, h_neg, V_pos, h_pos = rbm(tensors)
-    #         # V_neg.detach()
-    #         # h_neg.detach()
-    #         V_pos.detach()
-    #         h_pos.detach()
-    #         del V_neg
-    #         del h_neg
-    #         del V_pos
-    #         del h_pos
-
-            # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-            # F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-            # F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
-            # cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
-            #
-            # psuedolikelihood = (self.psuedolikelihood(V_pos) * weights).sum() / weights.sum()
-            #
-            # reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
-            # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
-            # reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
-            #
-            # loss = cd_loss + reg1 + reg2
 
 
     # total = 0
