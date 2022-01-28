@@ -391,6 +391,34 @@ class RBM(pl.LightningModule):
                 1) + 0.5 * np.log(2 * np.pi) * self.h_num
         # return y
 
+    def energy_per_state(self):
+        # inputs 21 x v_num
+        inputs = torch.arange(self.q).unsqueeze(1).expand(-1, self.v_num)
+
+
+        indexTensor = inputs.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
+        expandedweights = self.W.unsqueeze(0).expand(inputs.shape[0], -1, -1, -1)
+        output = torch.gather(expandedweights, 3, indexTensor).squeeze(3)
+        out = torch.swapaxes(output, 1, 2)
+        energy = torch.zeros((self.q, self.v_num, self.h_num))
+        for i in range(self.q):
+            for j in range(self.v_num):
+                energy[i, j, :] = self.logpartition_h(out[i, j, :])
+
+        # Iu_flat = output.reshape((self.q*self.h_num, self.v_num))
+        # Iu = self.compute_output_v(inputs)
+
+        e_h = F.normalize(energy, dim=0)
+        view = torch.swapaxes(e_h, 0, 2)
+
+        W = self.get_param("W")
+
+        rbm_utils.Sequence_logo_all(W, name="allweights" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+        rbm_utils.Sequence_logo_all(view.detach(), name="energything" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+
+
+
+
     ## Marginal over visible units
     def logpartition_v(self, inputs, beta=1):
         if beta == 1:
@@ -1269,7 +1297,7 @@ if __name__ == '__main__':
               "batch_size": 10000,
               "mc_moves": 6,
               "seed": 38,
-              "lr": 0.05,
+              "lr": 0.0065,
               "lr_final": None,
               "decay_after": 0.75,
               "loss_type": "free_energy",
@@ -1278,8 +1306,8 @@ if __name__ == '__main__':
               "optimizer": "AdamW",
               "epochs": 100,
               "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.25,
-              "lf": 0.001,
+              "l1_2": 0.185,
+              "lf": 0.002,
               "raytune": False  # Only for hyperparameter optimization
               }
 
@@ -1296,7 +1324,8 @@ if __name__ == '__main__':
     # checkpoint = get_checkpoint(version, dir="./tb_logs/lattice_trial/")
     checkpoint = "/mnt/D1/globus/rbm_hyperparam_results/train_rbm_ad5d7_00005_5_l1_2=0.3832,lf=0.00011058,lr=0.065775,weight_decay=0.086939_2022-01-18_11-02-53/checkpoints/epoch=99-step=499.ckpt"
     rbm = RBM.load_from_checkpoint(checkpoint)
-    all_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
+    # rbm.energy_per_state()
+    # all_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
 
     # checkpoint = torch.load(checkpoint_file)
     # model.prepare_data()

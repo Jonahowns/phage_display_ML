@@ -130,14 +130,6 @@ class RBM(pgm.PGM):
         super(RBM,self).update_betas(beta=beta)
 
 
-
-
-
-
-
-
-
-
     def markov_step(self,(v,h),beta =1):
          h = self.hlayer.sample_from_inputs( self.vlayer.compute_output(v,self.weights, direction ='up') , beta = beta )
          v = self.vlayer.sample_from_inputs( self.hlayer.compute_output(h,self.weights,direction='down') , beta = beta )
@@ -631,6 +623,7 @@ class RBM(pgm.PGM):
             weights_neg = None
         else:
             F = self.free_energy(V_neg)
+            F -= F.min()
             F -= F.min()
             weights_neg = np.exp(-F)
             weights_neg /= weights_neg.sum()

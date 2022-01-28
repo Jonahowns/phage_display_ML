@@ -33,7 +33,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
     :param fasta_file: is the data file, must provide absolute path because of ray tune's nonsense
     :param hyperparams_of_interest: dictionary providing the hyperparameters and values will be altered
     during this hyperparameter optimization run. The hyperparmater name which must match the config exactly
-    are the keys of the dictionary. The values are the corresponding tune distribution type fowther the range
+    are the keys of the dictionary. The values are the corresponding tune distribution type with the corresponding range
     :param num_samples:
     :param num_epochs:
     :param gpus_per_trial:
@@ -41,48 +41,29 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
     :return:
     '''
 
-    sample_hyperparams_of_interest = {
-        "h_num": 100,  # number of hidden units, can be variable
-        "batch_size": 10000,
-        "mc_moves": 6,
-        "lr": tune.uniform(1e-5, 1e-1),
-        "lr_final": None,  # defaults to lr * 1e-2
-        "decay_after": 0.75,  # Fraction of epochs to have exponential decay after
-        "loss_type": "free_energy",
-        "sample_type": "gibbs",
-        "optimizer": "AdamW",
-        "epochs": num_epochs,
-        "weight_decay": tune.uniform(1e-5, 1e-1),
-        "l1_2": tune.uniform(0.15, 0.6),
-        "lf": tune.uniform(1e-5, 1e-2),
-    }
-
-
-
-
-
-
-
+    # Default Values
     config = {"fasta_file": fasta_file,
-              "h_num": 100,  # number of hidden units, can be variable
+              "h_num": 10,  # number of hidden units, can be variable
               "v_num": 27,
               "q": 21,
               "batch_size": 10000,
               "mc_moves": 6,
               "seed": 38,
-              "lr": tune.uniform(1e-5, 1e-1),
-              "lr_final": None,  # defaults to lr * 1e-2
-              "decay_after": 0.75,  # Fraction of epochs to have exponential decay after
+              "lr": 0.0065,
+              "lr_final": None,
+              "decay_after": 0.75,
               "loss_type": "free_energy",
               "sample_type": "gibbs",
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": num_epochs,
-              "weight_decay": tune.uniform(1e-5, 1e-1),
-              "l1_2": tune.uniform(0.15, 0.6),
-              "lf": tune.uniform(1e-5, 1e-2),
-              "raytune": True}
+              "epochs": 100,
+              "weight_decay": 0.001,  # l2 norm on all parameters
+              "l1_2": 0.185,
+              "lf": 0.002,
+              "raytune": True  # Only for hyperparameter optimization
+              }
 
+    hyper_param_mut = {}
 
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
@@ -91,65 +72,32 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
         for subkey, subval in value.iteritems():
             if subkey == "uniform":
                 config[key] = tune.uniform(subval[0], subval[1])
+                hyper_param_mut[key] = lambda: np.random.uniform(subval[0], subval[1])
             elif subkey == "choice":
                 config[key] = tune.choice(subval)
+                hyper_param_mut[key] = subval
             elif subkey == "grid":
                 config[key] = subval
+                hyper_param_mut[key] = subval
 
-
-
-
-
-
-    # random
-    # rand int
-    # uniform
-    # choice
-
-
-    if
-
-
-
-
-
-
-    config = {"fasta_file": fasta_file,
-              "h_num": 100,  # number of hidden units, can be variable
-              "v_num": 27,
-              "q": 21,
-              "batch_size": 10000,
-              "mc_moves": 6,
-              "seed": 38,
-              "lr": tune.uniform(1e-5, 1e-1),
-              "lr_final": None,  # defaults to lr * 1e-2
-              "decay_after": 0.75,  # Number of epochs to decay after
-              "loss_type": "free_energy",
-              "sample_type": "gibbs",
-              "sequence_weights": None,
-              "optimizer": "AdamW",
-              "epochs": num_epochs,
-              "weight_decay": tune.uniform(1e-5, 1e-1),
-              "l1_2": tune.uniform(0.15, 0.6),
-              "lf": tune.uniform(1e-5, 1e-2),
-              "raytune": True}
 
     scheduler = PopulationBasedTraining(
         time_attr="training_iteration",
         perturbation_interval=10,
-        hyperparam_mutations={
-            # distribution for resampling
-            "lr": lambda: np.random.uniform(1e-5, 0.1),
-            "l1_2": lambda: np.random.uniform(0.15, 0.6),
-            "lf": lambda: np.random.uniform(1e-5, 1e-2),
-            "weight_decay": lambda: np.random.uniform(1e-5, 1e-1),
-            # allow perturbations within this set of categorical values
-            # "momentum": [0.8, 0.9, 0.99],
-        })
+        hyperparam_mutations=hyper_param_mut)
+        # hyperparam_mutations={
+        #     # distribution for resampling
+        #     "lr": lambda: np.random.uniform(1e-5, 0.1),
+        #     "l1_2": lambda: np.random.uniform(0.15, 0.6),
+        #     "lf": lambda: np.random.uniform(1e-5, 1e-2),
+        #     "weight_decay": lambda: np.random.uniform(1e-5, 1e-1),
+        #     # allow perturbations within this set of categorical values
+        #     # "momentum": [0.8, 0.9, 0.99],
+        # })
 
     reporter = CLIReporter(
-        parameter_columns=["lr", "l1_2", "lf", "weight_decay"],
-        metric_columns=["train_loss", "psuedolikelihood", "training_iteration"])
+        parameter_columns=list(hyper_param_mut.keys()),
+        metric_columns=["train_loss", "train_psuedolikelihood", "val_psuedolikelihood", "training_iteration"])
 
     stopper = CustomStopper()
 
@@ -162,7 +110,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
             "cpu": cpus_per_trial,
             "gpu": gpus_per_trial
         },
-        metric="psuedolikelihood",
+        metric="val_psuedolikelihood",
         mode="max",
         local_dir="./ray_results/",
         config=config,
@@ -173,10 +121,10 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
         verbose=1,
         stop=stopper,
         # export_formats=[ExportFormat.MODEL],
-        checkpoint_score_attr="psuedolikelihood",
+        checkpoint_score_attr="val_psuedolikelihood",
         keep_checkpoints_num=4)
 
-    print("Best hyperparameters found were: ", analysis.get_best_config(metric="psuedolikelihood", mode="max"))
+    print("Best hyperparameters found were: ", analysis.get_best_config(metric="val_psuedolikelihood", mode="max"))
 
 
 
@@ -187,7 +135,7 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
         # If fractional GPUs passed in, convert to int.
         gpus=num_gpus,
         logger=TensorBoardLogger(
-            save_dir=tune.get_trial_dir(), name="", version="."),
+            save_dir=tune.get_trial_dir(), name="tb", version="."),
         progress_bar_refresh_rate=0,
         # callbacks=[
         #     TuneReportCheckpointCallback(
@@ -215,6 +163,40 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
     
     
 if __name__ == '__main__':
+    # All hyperparameters that can be optimized via population based
+    sample_hyperparams_of_interest = {
+        "h_num": {"grid": [10, 120, 250, 1000]},  # number of hidden units, can be variable
+        "batch_size": {"choice": [5000, 10000, 20000]},
+        "mc_moves": {"grid": [4, 8]},
+        "lr": {"uniform": [1e-5, 1e-1]},
+        "decay_after": {"grid": [0.5, 0.75, 0.9]},  # Fraction of epochs to have exponential decay after
+        "loss_type": {"choice": ["free_energy", "energy"]},
+        "sample_type": {"choice": ["gibbs", "pt"]},
+        "optimizer": {"choice": ["AdamW", "SGD", "Adagrad"]},
+        "epochs": {"choice": [100, 200, 1000]},
+        "weight_decay": {"uniform": [1e-5, 1e-1]},
+        "l1_2": {"uniform": [0.15, 0.6]},
+        "lf": {"uniform": [1e-5, 1e-2]},
+    }
+
+    # hyperparams of interest
+    hidden_opt = {
+        "h_num": {"grid": [10, 60, 120, 250, 1000]},
+        "batch_size": {"choice": [5000, 10000, 20000]},
+        "mc_moves": {"grid": [4, 6, 8]},
+    }
+
+    reg_opt = {
+        "weight_decay": {"uniform": [1e-5, 1e-1]},
+        "l1_2": {"uniform": [0.15, 0.6]},
+        "lf": {"uniform": [1e-5, 1e-2]},
+        "lr": {"uniform": [1e-5, 1e-1]}
+    }
+
+
+
+
+
     # local Test
     # pbt_rbm("/home/jonah/PycharmProjects/ML_for_aptamers/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta", 10, 100, 1, 1)
     # Server Run
