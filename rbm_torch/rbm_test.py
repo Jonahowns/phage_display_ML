@@ -730,6 +730,22 @@ class RBM(pl.LightningModule):
                 print("Energy Loss with Parallel Tempering is currently unsupported")
                 exit(1)
 
+    def validation_step(self, batch, batch_idx):
+        seqs, V_pos, seq_weights = batch
+        psuedolikelihood = (self.psuedolikelihood(V_pos) * seq_weights).sum() / seq_weights.sum()
+
+        batch_out = {
+             "val_psuedolikelihood": psuedolikelihood.detach()
+        }
+
+        return batch_out
+
+    def validation_epoch_end(self, outputs):
+        avg_pl = torch.stack([x['val_psuedolikelihood'] for x in outputs]).mean()
+        self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl)
+
+        if self.raytune:
+            tune.report(val_psuedolikelihood=avg_pl)
 
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
     def training_epoch_end(self, outputs):
@@ -757,7 +773,7 @@ class RBM(pl.LightningModule):
         # Added for raytune support
         if self.raytune:
             # Only way I could get training_iteration in raytune to increment
-            tune.report(psuedolikelihood=psuedolikelihood, train_loss=avg_loss)
+            tune.report(train_psuedolikelihood=psuedolikelihood, train_loss=avg_loss)
 
     ## This works but not the exact quantity we want to maximize
     def training_step_CD_energy(self, batch, batch_idx):

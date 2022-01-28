@@ -25,8 +25,94 @@ class CustomStopper(tune.Stopper):
     def stop_all(self):
         return self.should_stop
 
+# fasta_file #
+def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
 
-def pbt_rbm(fasta_file, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
+    '''
+
+    :param fasta_file: is the data file, must provide absolute path because of ray tune's nonsense
+    :param hyperparams_of_interest: dictionary providing the hyperparameters and values will be altered
+    during this hyperparameter optimization run. The hyperparmater name which must match the config exactly
+    are the keys of the dictionary. The values are the corresponding tune distribution type fowther the range
+    :param num_samples:
+    :param num_epochs:
+    :param gpus_per_trial:
+    :param cpus_per_trial:
+    :return:
+    '''
+
+    sample_hyperparams_of_interest = {
+        "h_num": 100,  # number of hidden units, can be variable
+        "batch_size": 10000,
+        "mc_moves": 6,
+        "lr": tune.uniform(1e-5, 1e-1),
+        "lr_final": None,  # defaults to lr * 1e-2
+        "decay_after": 0.75,  # Fraction of epochs to have exponential decay after
+        "loss_type": "free_energy",
+        "sample_type": "gibbs",
+        "optimizer": "AdamW",
+        "epochs": num_epochs,
+        "weight_decay": tune.uniform(1e-5, 1e-1),
+        "l1_2": tune.uniform(0.15, 0.6),
+        "lf": tune.uniform(1e-5, 1e-2),
+    }
+
+
+
+
+
+
+
+    config = {"fasta_file": fasta_file,
+              "h_num": 100,  # number of hidden units, can be variable
+              "v_num": 27,
+              "q": 21,
+              "batch_size": 10000,
+              "mc_moves": 6,
+              "seed": 38,
+              "lr": tune.uniform(1e-5, 1e-1),
+              "lr_final": None,  # defaults to lr * 1e-2
+              "decay_after": 0.75,  # Fraction of epochs to have exponential decay after
+              "loss_type": "free_energy",
+              "sample_type": "gibbs",
+              "sequence_weights": None,
+              "optimizer": "AdamW",
+              "epochs": num_epochs,
+              "weight_decay": tune.uniform(1e-5, 1e-1),
+              "l1_2": tune.uniform(0.15, 0.6),
+              "lf": tune.uniform(1e-5, 1e-2),
+              "raytune": True}
+
+
+    for key, value in hyperparams_of_interest.items():
+        assert key in config.keys()
+        assert key not in ["sequence_weights", "seed", "q", "v_num", "raytune", "fasta_file"] # these you can't really change for now
+        # This dictionary contains type of hyperparameter it is and the parameters associated with each type
+        for subkey, subval in value.iteritems():
+            if subkey == "uniform":
+                config[key] = tune.uniform(subval[0], subval[1])
+            elif subkey == "choice":
+                config[key] = tune.choice(subval)
+            elif subkey == "grid":
+                config[key] = subval
+
+
+
+
+
+
+    # random
+    # rand int
+    # uniform
+    # choice
+
+
+    if
+
+
+
+
+
 
     config = {"fasta_file": fasta_file,
               "h_num": 100,  # number of hidden units, can be variable
