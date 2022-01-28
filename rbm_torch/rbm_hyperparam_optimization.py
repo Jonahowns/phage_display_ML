@@ -18,7 +18,7 @@ class CustomStopper(tune.Stopper):
 
     def __call__(self, trial_id, result):
         max_iter = 1000
-        if not self.should_stop and result["psuedolikelihood"] > 0.96:
+        if not self.should_stop and result["val_psuedolikelihood"] > 0.96:
             self.should_stop = True
         return self.should_stop or result["training_iteration"] >= max_iter
 
@@ -29,20 +29,22 @@ class CustomStopper(tune.Stopper):
 def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
 
     '''
+    Launches Population Based Hyperparameter Optimization
 
     :param fasta_file: is the data file, must provide absolute path because of ray tune's nonsense
     :param hyperparams_of_interest: dictionary providing the hyperparameters and values will be altered
     during this hyperparameter optimization run. The hyperparmater name which must match the config exactly
     are the keys of the dictionary. The values are the corresponding tune distribution type with the corresponding range
-    :param num_samples:
-    :param num_epochs:
-    :param gpus_per_trial:
-    :param cpus_per_trial:
-    :return:
+    :param num_samples: How many trials will be run
+    :param num_epochs: How many training iterations
+    :param gpus_per_trial: Number of gpus to be dedicated PER trial (usually 0 or 1)
+    :param cpus_per_trial: Number of cpus to be dedicated PER trial
+    :return: Nothing
     '''
 
     # Default Values
     config = {"fasta_file": fasta_file,
+              "molecule": "protein",
               "h_num": 10,  # number of hidden units, can be variable
               "v_num": 27,
               "q": 21,
@@ -67,9 +69,9 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
 
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
-        assert key not in ["sequence_weights", "seed", "q", "v_num", "raytune", "fasta_file"] # these you can't really change for now
+        assert key not in ["sequence_weights", "seed", "q", "v_num", "raytune", "fasta_file", "molecule"] # these you can't really change for now
         # This dictionary contains type of hyperparameter it is and the parameters associated with each type
-        for subkey, subval in value.iteritems():
+        for subkey, subval in value.items():
             if subkey == "uniform":
                 config[key] = tune.uniform(subval[0], subval[1])
                 hyper_param_mut[key] = lambda: np.random.uniform(subval[0], subval[1])
@@ -77,7 +79,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
                 config[key] = tune.choice(subval)
                 hyper_param_mut[key] = subval
             elif subkey == "grid":
-                config[key] = subval
+                config[key] = tune.grid_search(subval)
                 hyper_param_mut[key] = subval
 
 
@@ -163,7 +165,8 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
     
     
 if __name__ == '__main__':
-    # All hyperparameters that can be optimized via population based
+
+    # All hyperparameters that can be optimized via population based Tuning
     sample_hyperparams_of_interest = {
         "h_num": {"grid": [10, 120, 250, 1000]},  # number of hidden units, can be variable
         "batch_size": {"choice": [5000, 10000, 20000]},
@@ -193,12 +196,19 @@ if __name__ == '__main__':
         "lr": {"uniform": [1e-5, 1e-1]}
     }
 
+    ### If using Grid
+    # Number of Trials = Number of Samples * Number of Grid Parameter Combinations
 
-
+    ### If using Random Choice Only
+    # Number of Trials = Number of Samples
 
 
     # local Test
-    # pbt_rbm("/home/jonah/PycharmProjects/ML_for_aptamers/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta", 10, 100, 1, 1)
+    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
+    #         hidden_opt, 1, 150, 1, 1)
     # Server Run
     os.environ["SLURM_JOB_NAME"] = "bash"
-    pbt_rbm("/scratch/jprocyk/machine_learning/ML_for_aptamers/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta", 10, 100, 1, 2)
+    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
+    #         hidden_opt, 1, 150, 1, 2)
+    pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+            hidden_opt, 1, 150, 1, 2)

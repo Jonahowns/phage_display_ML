@@ -1,4 +1,6 @@
 import time
+
+import numpy
 import pandas as pd
 import pytorch_lightning.profiler
 import seaborn
@@ -69,8 +71,8 @@ class RBMCaterogical(Dataset):
             if len(self.train_data) == len(weights):
                 print("Provided Weights are not the correct length")
                 exit(1)
-            self.train_weights = self.dataset.sequence_count.to_numpy()
-            self.train_weights /= self.train_weights.mean()
+            self.train_weights = np.asarray(weights)
+            self.train_weights /= np.linalg.norm(self.train_weights)
         else:
             # all equally weighted
             self.train_weights = np.asarray([1. for x in range(self.total)])
@@ -132,7 +134,7 @@ class RBMCaterogical(Dataset):
 
 
 class RBM(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, debug=False):
         super().__init__()
         self.h_num = config['h_num']  # Number of hidden nodes, can be variable
         self.v_num = config['v_num']   # Number of visible nodes,
@@ -145,8 +147,19 @@ class RBM(pl.LightningModule):
 
         # Data Input
         self.fasta_file = config['fasta_file']
+        self.molecule = config['molecule'] # can be protein, rna or dna currently
+        assert self.molecule in ["dna", "rna", "protein"]
 
-        self.raytune = config['raytune']  # Only use for hyperparam optimization
+
+        # Only use for hyperparam optimization
+        self.raytune = config['raytune']
+
+        # Sets workers for the train and validation dataloaders
+        if debug:
+            # Enables inspection of the torch tensors using breakpoints
+            self.worker_num = 0
+        else:
+            self.worker_num = multiprocessing.cpu_count()
 
 
         # Sequence Weighting Weights
@@ -175,7 +188,8 @@ class RBM(pl.LightningModule):
         elif type(weights) == np.array:
             self.weights = weights
         else:
-            self.weights = None
+            print("Provided Weights Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
+            exit(1)
 
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
@@ -391,6 +405,7 @@ class RBM(pl.LightningModule):
                 1) + 0.5 * np.log(2 * np.pi) * self.h_num
         # return y
 
+    # Looking for better Interpretation of weights with potential
     def energy_per_state(self):
         # inputs 21 x v_num
         inputs = torch.arange(self.q).unsqueeze(1).expand(-1, self.v_num)
@@ -415,9 +430,6 @@ class RBM(pl.LightningModule):
 
         rbm_utils.Sequence_logo_all(W, name="allweights" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
         rbm_utils.Sequence_logo_all(view.detach(), name="energything" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
-
-
-
 
     ## Marginal over visible units
     def logpartition_v(self, inputs, beta=1):
@@ -674,7 +686,7 @@ class RBM(pl.LightningModule):
             if self.weights is None:
                 data = pd.DataFrame(data={'sequence': seqs})
             else:
-                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': seq_read_counts})
+                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
 
         except IOError:
             print(f"Provided Fasta File '{self.fasta_file}' Not Found")
@@ -700,7 +712,13 @@ class RBM(pl.LightningModule):
 
     ## Loads Training Data
     def train_dataloader(self):
-        train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id=self.base_to_id, device=self.device)
+        # Get Correct Weights
+        if "seq_count" in self.training_data.columns:
+            training_weights = self.training_data["seq_count"].tolist()
+        else:
+            training_weights = None
+
+        train_reader = RBMCaterogical(self.training_data, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
 
         # initialize fields from data
         with torch.no_grad():
@@ -716,8 +734,7 @@ class RBM(pl.LightningModule):
         train_loader = torch.utils.data.DataLoader(
             train_reader,
             batch_size=self.batch_size,
-            num_workers=multiprocessing.cpu_count(),  # Set to 0 to view tensors while debugging
-            # num_workers=0,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
             pin_memory=pin_mem,
             shuffle=True
         )
@@ -725,7 +742,13 @@ class RBM(pl.LightningModule):
         return train_loader
 
     def val_dataloader(self):
-        val_reader = RBMCaterogical(self.validation_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id="protein", device=self.device)
+        # Get Correct Validation weights
+        if "seq_count" in self.validation_data.columns:
+            validation_weights = self.validation_data["seq_count"].tolist()
+        else:
+            validation_weights = None
+
+        val_reader = RBMCaterogical(self.validation_data, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
 
         if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
             pin_mem = self.trainer.on_gpu
@@ -735,8 +758,7 @@ class RBM(pl.LightningModule):
         train_loader = torch.utils.data.DataLoader(
             val_reader,
             batch_size=self.batch_size,
-            num_workers=multiprocessing.cpu_count(),  # Set to 0 to view tensors while debugging
-            # num_workers=0,
+            num_workers=self.worker_num,  # Set to 0 to view tensors while debugging
             pin_memory=pin_mem,
             shuffle=False
         )
@@ -759,7 +781,11 @@ class RBM(pl.LightningModule):
                 exit(1)
 
     def validation_step(self, batch, batch_idx):
+        # Needed for PsuedoLikelihood calculation
+        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+
         seqs, V_pos, seq_weights = batch
+
         psuedolikelihood = (self.psuedolikelihood(V_pos) * seq_weights).sum() / seq_weights.sum()
 
         batch_out = {
@@ -770,7 +796,7 @@ class RBM(pl.LightningModule):
 
     def validation_epoch_end(self, outputs):
         avg_pl = torch.stack([x['val_psuedolikelihood'] for x in outputs]).mean()
-        self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl)
+        self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl, self.current_epoch)
 
         if self.raytune:
             tune.report(val_psuedolikelihood=avg_pl)
@@ -1286,11 +1312,12 @@ def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
 
 if __name__ == '__main__':
     # pytorch lightning loop
-    data_file = './sham2_ipsi_c1.fasta'  # cpu is faster
+    data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     large_data_file = './chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
 
     config = {"fasta_file": data_file,
+              "molecule": "protein",
               "h_num": 10,  # number of hidden units, can be variable
               "v_num": 27,
               "q": 21,
@@ -1313,17 +1340,17 @@ if __name__ == '__main__':
 
 
     # Training Code
-    # rbm_lat = RBM(config)
-    # logger = TensorBoardLogger('tb_logs', name='lattice_trial')
-    # plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(rbm_lat)
+    rbm_lat = RBM(config, debug=True)
+    logger = TensorBoardLogger('tb_logs', name='lattice_trial')
+    plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt.fit(rbm_lat)
 
 
     # check weights
-    version = 0
-    # checkpoint = get_checkpoint(version, dir="./tb_logs/lattice_trial/")
-    checkpoint = "/mnt/D1/globus/rbm_hyperparam_results/train_rbm_ad5d7_00005_5_l1_2=0.3832,lf=0.00011058,lr=0.065775,weight_decay=0.086939_2022-01-18_11-02-53/checkpoints/epoch=99-step=499.ckpt"
-    rbm = RBM.load_from_checkpoint(checkpoint)
+    # version = 0
+    # # checkpoint = get_checkpoint(version, dir="./tb_logs/lattice_trial/")
+    # checkpoint = "/mnt/D1/globus/rbm_hyperparam_results/train_rbm_ad5d7_00005_5_l1_2=0.3832,lf=0.00011058,lr=0.065775,weight_decay=0.086939_2022-01-18_11-02-53/checkpoints/epoch=99-step=499.ckpt"
+    # rbm = RBM.load_from_checkpoint(checkpoint)
     # rbm.energy_per_state()
     # all_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
 
