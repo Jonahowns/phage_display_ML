@@ -184,7 +184,7 @@ if __name__ == '__main__':
 
     # hyperparams of interest
     hidden_opt = {
-        "h_num": {"grid": [10, 60, 120, 250, 1000]},
+        "h_num": {"grid": [10, 60, 120, 250, 500]},
         "batch_size": {"choice": [5000, 10000, 20000]},
         "mc_moves": {"grid": [4, 6, 8]},
     }
@@ -204,7 +204,7 @@ if __name__ == '__main__':
 
 
     # local Test
-    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
+    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, 1, 150, 1, 1)
     # Server Run
     os.environ["SLURM_JOB_NAME"] = "bash"
