@@ -150,9 +150,7 @@ class RBM(pl.LightningModule):
         self.molecule = config['molecule'] # can be protein, rna or dna currently
         assert self.molecule in ["dna", "rna", "protein"]
 
-
         # Only use for hyperparam optimization
-        self.raytune = config['raytune']
 
         # Sets workers for the train and validation dataloaders
         if debug:
@@ -792,42 +790,36 @@ class RBM(pl.LightningModule):
              "val_psuedolikelihood": psuedolikelihood.detach()
         }
 
+        self.log("ptl/val_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
         return batch_out
 
     def validation_epoch_end(self, outputs):
         avg_pl = torch.stack([x['val_psuedolikelihood'] for x in outputs]).mean()
         self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl, self.current_epoch)
 
-        if self.raytune:
-            tune.report(val_psuedolikelihood=avg_pl)
-
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
     def training_epoch_end(self, outputs):
         # These are detached
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
-        avg_dF = torch.stack([x['log']["free_energy_diff"] for x in outputs]).mean()
-        field_reg = torch.stack([x['log']["field_reg"] for x in outputs]).mean()
-        weight_reg = torch.stack([x['log']["weight_reg"] for x in outputs]).mean()
+        avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
+        avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
+        field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
+        weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
         # energy_reg = torch.stack([x['log']["energy_reg"] for x in outputs]).mean()
-        psuedolikelihood = torch.stack([x['log']['psuedolikelihood'] for x in outputs]).mean()
+        psuedolikelihood = torch.stack([x['train_psuedolikelihood'] for x in outputs]).mean()
         # reconstruction = torch.stack([x['log']['reconstruction_loss'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
                                                            "CD_Loss": avg_dF,
                                                            "Field Reg": field_reg,
                                                            "Weight Reg": weight_reg,
-                                                           "PsuedoLikelihood": psuedolikelihood
+                                                           "Train_Psuedolikelihood": psuedolikelihood
                                                            # "Reconstruction Loss": reconstruction,
                                                            }, self.current_epoch)
 
         self.logger.experiment.add_histogram("Weights", self.W.detach(), self.current_epoch)
         for name, p in self.params.items():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
-
-        # Added for raytune support
-        if self.raytune:
-            # Only way I could get training_iteration in raytune to increment
-            tune.report(train_psuedolikelihood=psuedolikelihood, train_loss=avg_loss)
 
     ## This works but not the exact quantity we want to maximize
     def training_step_CD_energy(self, batch, batch_idx):
@@ -850,18 +842,16 @@ class RBM(pl.LightningModule):
         loss = cd_loss + reg1 + reg2
 
         logs = {"loss": loss.detach(),
-                "psuedolikelihood": psuedolikelihood.detach(),
+                "train_psuedolikelihood": psuedolikelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach()
                 }
 
-        batch_out = {
-            "loss": loss,
-            "log": logs,
-        }
+        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return batch_out
+        return logs
 
     def training_step_PT_free_energy(self, batch, batch_idx):
         seqs, V_pos, seq_weights = batch
@@ -883,18 +873,16 @@ class RBM(pl.LightningModule):
         loss = cd_loss + reg1 + reg2
 
         logs = {"loss": loss.detach(),
-                "psuedolikelihood": psuedolikelihood.detach(),
+                "train_psuedolikelihood": psuedolikelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach()
                 }
 
-        batch_out = {
-            "loss": loss,
-            "log": logs,
-        }
+        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return batch_out
+        return logs
 
     def training_step_CD_free_energy(self, batch, batch_idx):
         # seqs, V_pos, one_hot, seq_weights = batch
@@ -920,20 +908,18 @@ class RBM(pl.LightningModule):
 
         loss = cd_loss + reg1 + reg2 #  + reconstruction_loss
 
-        logs = {"loss": loss.detach(),
-                "psuedolikelihood": psuedolikelihood.detach(),
+        logs = {"loss": loss,
+                "train_psuedolikelihood": psuedolikelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
                 # "reconstruction_loss": reconstruction_loss.detach()
                 }
 
-        batch_out = {
-            "loss": loss,
-            "log": logs,
-        }
+        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return batch_out
+        return logs
 
     ## Gradient Clipping for poor behavior, have no need for it yet
     # def on_after_backward(self):
@@ -1316,7 +1302,7 @@ if __name__ == '__main__':
     large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
 
-    config = {"fasta_file": data_file,
+    config = {"fasta_file": lattice_data,
               "molecule": "protein",
               "h_num": 10,  # number of hidden units, can be variable
               "v_num": 27,
@@ -1335,7 +1321,6 @@ if __name__ == '__main__':
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
-              "raytune": False  # Only for hyperparameter optimization
               }
 
 

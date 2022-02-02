@@ -62,7 +62,6 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
-              "raytune": True  # Only for hyperparameter optimization
               }
 
     hyper_param_mut = {}
@@ -87,15 +86,6 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
         time_attr="training_iteration",
         perturbation_interval=10,
         hyperparam_mutations=hyper_param_mut)
-        # hyperparam_mutations={
-        #     # distribution for resampling
-        #     "lr": lambda: np.random.uniform(1e-5, 0.1),
-        #     "l1_2": lambda: np.random.uniform(0.15, 0.6),
-        #     "lf": lambda: np.random.uniform(1e-5, 1e-2),
-        #     "weight_decay": lambda: np.random.uniform(1e-5, 1e-1),
-        #     # allow perturbations within this set of categorical values
-        #     # "momentum": [0.8, 0.9, 0.99],
-        # })
 
     reporter = CLIReporter(
         parameter_columns=list(hyper_param_mut.keys()),
@@ -139,15 +129,16 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
         logger=TensorBoardLogger(
             save_dir=tune.get_trial_dir(), name="tb", version="."),
         progress_bar_refresh_rate=0,
-        # callbacks=[
-        #     TuneReportCheckpointCallback(
-        #         metrics={
-        #             "train_loss": "train_loss",
-        #             "psuedolikelihood": "psuedolikelihood",
-        #         },
-        #         filename="checkpoint",
-        #         on="train_end")
-        # ]
+        callbacks=[
+            TuneReportCheckpointCallback(
+                metrics={
+                    "train_loss": "ptl/train_loss",
+                    "val_psuedolikelihood": "ptl/val_psuedolikelihood",
+                    "train_psuedolikelihood": "ptl/train_psuedolikelihood"
+                },
+                filename="checkpoint",
+                on="validation_end")
+        ]
     )
 
     if checkpoint_dir:
@@ -184,9 +175,9 @@ if __name__ == '__main__':
 
     # hyperparams of interest
     hidden_opt = {
-        "h_num": {"grid": [10, 60, 120, 250, 500]},
+        "h_num": {"grid": [60, 120, 250, 500]},
         "batch_size": {"choice": [5000, 10000, 20000]},
-        "mc_moves": {"grid": [4, 6, 8]},
+        "mc_moves": {"choice": [4, 8]},
     }
 
     reg_opt = {
@@ -205,10 +196,10 @@ if __name__ == '__main__':
 
     # local Test
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
-    #         hidden_opt, 1, 150, 1, 1)
+    #         hidden_opt, 1, 2, 1, 1)
     # Server Run
     os.environ["SLURM_JOB_NAME"] = "bash"
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 150, 1, 2)
     pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-            hidden_opt, 1, 150, 1, 2)
+            hidden_opt, 1, 100, 1, 2)
