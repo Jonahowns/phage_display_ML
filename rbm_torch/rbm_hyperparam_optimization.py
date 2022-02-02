@@ -9,6 +9,8 @@ import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
 import numpy as np
+import multiprocessing as mp
+import math
 
 from rbm_test import RBM
 
@@ -26,7 +28,7 @@ class CustomStopper(tune.Stopper):
         return self.should_stop
 
 # fasta_file #
-def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
+def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1, data_workers_per_trial=None):
 
     '''
     Launches Population Based Hyperparameter Optimization
@@ -63,6 +65,9 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
               "l1_2": 0.185,
               "lf": 0.002,
               }
+
+    if data_workers_per_trial:
+        config['data_worker_num'] = data_workers_per_trial
 
     hyper_param_mut = {}
 
@@ -197,9 +202,11 @@ if __name__ == '__main__':
     # local Test
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, 1, 2, 1, 1)
+    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
+    #         hidden_opt, num_samples=1, num_epochs=2, gpus_per_trial=1, cpus_per_trial=1, data_workers_per_trial=3)
     # Server Run
     os.environ["SLURM_JOB_NAME"] = "bash"
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 150, 1, 2)
     pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-            hidden_opt, 1, 100, 1, 2)
+            hidden_opt, num_samples=1, num_epochs=100, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)

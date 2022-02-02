@@ -134,7 +134,7 @@ class RBMCaterogical(Dataset):
 
 
 class RBM(pl.LightningModule):
-    def __init__(self, config, debug=False):
+    def __init__(self, config, debug=False, data_workers=None):
         super().__init__()
         self.h_num = config['h_num']  # Number of hidden nodes, can be variable
         self.v_num = config['v_num']   # Number of visible nodes,
@@ -150,15 +150,13 @@ class RBM(pl.LightningModule):
         self.molecule = config['molecule'] # can be protein, rna or dna currently
         assert self.molecule in ["dna", "rna", "protein"]
 
-        # Only use for hyperparam optimization
-
-        # Sets workers for the train and validation dataloaders
-        if debug:
-            # Enables inspection of the torch tensors using breakpoints
-            self.worker_num = 0
-        else:
-            self.worker_num = multiprocessing.cpu_count()
-
+        try:
+            self.worker_num = config["data_worker_num"]
+        except KeyError:
+            if debug:
+                self.worker_num = 0
+            else:
+                self.worker_num = multiprocessing.cpu_count()
 
         # Sequence Weighting Weights
         # Not pretty but necessary to either provide the weights or to import from the fasta file
@@ -1321,11 +1319,12 @@ if __name__ == '__main__':
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
+              # "data_worker_num": 10  # Optionally Set these
               }
 
 
     # Training Code
-    rbm_lat = RBM(config, debug=True)
+    rbm_lat = RBM(config, debug=False)
     logger = TensorBoardLogger('tb_logs', name='lattice_trial')
     plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm_lat)
