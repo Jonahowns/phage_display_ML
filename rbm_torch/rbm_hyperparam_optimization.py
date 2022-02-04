@@ -14,18 +14,6 @@ import math
 
 from rbm_test import RBM
 
-class CustomStopper(tune.Stopper):
-    def __init__(self):
-        self.should_stop = False
-
-    def __call__(self, trial_id, result):
-        max_iter = 1000
-        if not self.should_stop and result["val_psuedolikelihood"] > 0.96:
-            self.should_stop = True
-        return self.should_stop or result["training_iteration"] >= max_iter
-
-    def stop_all(self):
-        return self.should_stop
 
 # fasta_file #
 def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1, data_workers_per_trial=None):
@@ -60,7 +48,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
               "sample_type": "gibbs",
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": 100,
+              "epochs": num_epochs,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
@@ -96,7 +84,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
         parameter_columns=list(hyper_param_mut.keys()),
         metric_columns=["train_loss", "train_psuedolikelihood", "val_psuedolikelihood", "training_iteration"])
 
-    stopper = CustomStopper()
+    stopper = tune.stopper.MaximumIterationStopper(num_epochs)
 
     analysis = tune.run(
         tune.with_parameters(
@@ -181,6 +169,7 @@ if __name__ == '__main__':
     # hyperparams of interest
     hidden_opt = {
         "h_num": {"grid": [60, 120, 250, 500]},
+        # "h_num": {"grid": [10, 20, 30, 30]},
         "batch_size": {"choice": [5000, 10000, 20000]},
         "mc_moves": {"choice": [4, 8]},
     }
@@ -200,8 +189,9 @@ if __name__ == '__main__':
 
 
     # local Test
-    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
-    #         hidden_opt, 1, 2, 1, 1)
+    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
+    #         hidden_opt, 1, 20, 1, 1)
+
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, num_samples=1, num_epochs=2, gpus_per_trial=1, cpus_per_trial=1, data_workers_per_trial=3)
     # Server Run
@@ -209,4 +199,4 @@ if __name__ == '__main__':
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 150, 1, 2)
     pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-            hidden_opt, num_samples=1, num_epochs=100, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
+            hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
