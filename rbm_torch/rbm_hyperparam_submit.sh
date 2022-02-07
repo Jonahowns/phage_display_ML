@@ -14,9 +14,9 @@
 #SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/
 
 
-module load cuda/10.2.89
-module load anaconda3/4.4.0
+module load cuda/11.3.0
+module load anaconda3/5.3.0
 
-source activate exmachina2
+conda activate machina
 
 python rbm_hyperparam_optimization.py
