@@ -169,7 +169,7 @@ if __name__ == '__main__':
     # hyperparams of interest
     hidden_opt = {
         "h_num": {"grid": [60, 120, 250, 500]},
-        # "h_num": {"grid": [10, 20, 30, 30]},
+        # "h_num": {"grid": [10, 20, 30, 40]},
         "batch_size": {"choice": [5000, 10000, 20000]},
         "mc_moves": {"choice": [4, 8]},
     }
@@ -189,14 +189,28 @@ if __name__ == '__main__':
 
 
     # local Test
+    os.environ["SLURM_JOB_NAME"] = "bash"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of random cuda errors
+
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 20, 1, 1)
+
+    pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
+            hidden_opt,
+            num_samples=1,
+            num_epochs=30,
+            gpus_per_trial=1,
+            cpus_per_trial=12,
+            data_workers_per_trial=6)
 
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, num_samples=1, num_epochs=2, gpus_per_trial=1, cpus_per_trial=1, data_workers_per_trial=3)
     # Server Run
-    os.environ["SLURM_JOB_NAME"] = "bash"
+
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 150, 1, 2)
-    pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-            hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
+    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+    #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
+
+    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+    #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
