@@ -195,13 +195,13 @@ if __name__ == '__main__':
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 20, 1, 1)
 
-    pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
-            hidden_opt,
-            num_samples=1,
-            num_epochs=30,
-            gpus_per_trial=1,
-            cpus_per_trial=12,
-            data_workers_per_trial=6)
+    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
+    #         hidden_opt,
+    #         num_samples=1,
+    #         num_epochs=30,
+    #         gpus_per_trial=1,
+    #         cpus_per_trial=12,
+    #         data_workers_per_trial=6)
 
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, num_samples=1, num_epochs=2, gpus_per_trial=1, cpus_per_trial=1, data_workers_per_trial=3)
@@ -212,5 +212,10 @@ if __name__ == '__main__':
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
 
-    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-    #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
+    pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+            hidden_opt,
+            num_samples=1,
+            num_epochs=150,
+            gpus_per_trial=1,
+            cpus_per_trial=12,
+            data_workers_per_trial=12)
