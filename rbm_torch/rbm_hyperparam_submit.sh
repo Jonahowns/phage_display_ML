@@ -13,9 +13,9 @@
 #SBATCH --mail-user=jprocyk@asu.edu     #send to my email
 #SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/
 
-
+module purge
 module load cuda/11.3.0
-module load anaconda3/5.3.0
+module load anaconda3/4.4.0
 
 conda activate machina
 

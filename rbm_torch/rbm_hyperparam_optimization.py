@@ -1,16 +1,16 @@
-import sklearn
-from ray import tune
-from ray.tune import CLIReporter
-from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
-from ray.tune.integration.pytorch_lightning import TuneReportCallback
-from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
-from ray.tune.suggest.bayesopt import BayesOptSearch
+# import sklearn
+import ray.tune as tune
+# from ray.tune import CLIReporter
+# from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
+# from ray.tune.integration.pytorch_lightning import TuneReportCallback
+# from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
+# from ray.tune.suggest.bayesopt import BayesOptSearch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
 import numpy as np
-import multiprocessing as mp
-import math
+# import multiprocessing as mp
+# import math
 
 from rbm_test import RBM
 
@@ -75,12 +75,12 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
                 hyper_param_mut[key] = subval
 
 
-    scheduler = PopulationBasedTraining(
+    scheduler = tune.schedulers.PopulationBasedTraining(
         time_attr="training_iteration",
         perturbation_interval=10,
         hyperparam_mutations=hyper_param_mut)
 
-    reporter = CLIReporter(
+    reporter = tune.CLIReporter(
         parameter_columns=list(hyper_param_mut.keys()),
         metric_columns=["train_loss", "train_psuedolikelihood", "val_psuedolikelihood", "training_iteration"])
 
@@ -123,7 +123,7 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
             save_dir=tune.get_trial_dir(), name="tb", version="."),
         progress_bar_refresh_rate=0,
         callbacks=[
-            TuneReportCheckpointCallback(
+            tune.integration.pytorch_lightning.TuneReportCheckpointCallback(
                 metrics={
                     "train_loss": "ptl/train_loss",
                     "val_psuedolikelihood": "ptl/val_psuedolikelihood",
