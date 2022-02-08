@@ -29,6 +29,7 @@ from rbm_utils import aadict, dnadict, rnadict
 
 
 class RBMCaterogical(Dataset):
+
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
     def __init__(self, dataset, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu', one_hot=False):
@@ -718,7 +719,10 @@ class RBM(pl.LightningModule):
             self.params['fields0'] += initial_fields
 
         if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
-            pin_mem = self.trainer.on_gpu
+            if hasattr(self.trainer, "on_gpu"):
+                pin_mem = self.trainer.on_gpu
+            else:
+                pin_mem = False
         else:
             pin_mem = False
 
@@ -741,8 +745,11 @@ class RBM(pl.LightningModule):
 
         val_reader = RBMCaterogical(self.validation_data, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
 
-        if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
-            pin_mem = self.trainer.on_gpu
+        if hasattr(self, "trainer"):  # Sets Pim Memory when GPU is being used
+            if hasattr(self.trainer, "on_gpu"):
+                pin_mem = self.trainer.on_gpu
+            else:
+                pin_mem = False
         else:
             pin_mem = False
 
