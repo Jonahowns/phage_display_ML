@@ -4,7 +4,8 @@ import ray.tune as tune
 # from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
 from ray.tune.integration.pytorch_lightning import TuneReportCallback, TuneReportCheckpointCallback
 # from ray.tune.suggest.bayesopt import BayesOptSearch
-import pytorch_lightning as pl
+# import pytorch_lightning as pl
+from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
 import numpy as np
@@ -113,7 +114,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
 
 
 def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
-    trainer = pl.Trainer(
+    trainer = Trainer(
         # default_root_dir="./checkpoints/",
         max_epochs=num_epochs,
         # If fractional GPUs passed in, convert to int.
