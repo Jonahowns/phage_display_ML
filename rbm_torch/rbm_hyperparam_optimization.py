@@ -2,8 +2,7 @@
 import ray.tune as tune
 # from ray.tune import CLIReporter
 # from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
-# from ray.tune.integration.pytorch_lightning import TuneReportCallback
-# from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
+from ray.tune.integration.pytorch_lightning import TuneReportCallback, TuneReportCheckpointCallback
 # from ray.tune.suggest.bayesopt import BayesOptSearch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -123,7 +122,7 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
             save_dir=tune.get_trial_dir(), name="tb", version="."),
         progress_bar_refresh_rate=0,
         callbacks=[
-            tune.integration.pytorch_lightning.TuneReportCheckpointCallback(
+            TuneReportCheckpointCallback(
                 metrics={
                     "train_loss": "ptl/train_loss",
                     "val_psuedolikelihood": "ptl/val_psuedolikelihood",
@@ -215,7 +214,7 @@ if __name__ == '__main__':
     pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
             hidden_opt,
             num_samples=1,
-            num_epochs=150,
+            num_epochs=60,
             gpus_per_trial=1,
             cpus_per_trial=12,
             data_workers_per_trial=12)
