@@ -11,7 +11,8 @@ import rbm_utils
 import math
 import numpy as np
 from torch.utils.data import Dataset
-import pytorch_lightning as pl
+# import pytorch_lightning as pl
+from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 # import matplotlib.pyplot as plt  # just for confusion matrix generation
@@ -129,7 +130,7 @@ class RBMCaterogical(Dataset):
 
 
 
-class RBM(pl.LightningModule):
+class RBM(LightningModule):
     def __init__(self, config, debug=False, data_workers=None):
         super().__init__()
         self.h_num = config['h_num']  # Number of hidden nodes, can be variable
@@ -1328,7 +1329,7 @@ if __name__ == '__main__':
     # Training Code
     rbm_lat = RBM(config, debug=False)
     logger = TensorBoardLogger('tb_logs', name='lattice_trial')
-    plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm_lat)
 
 
@@ -1364,8 +1365,8 @@ if __name__ == '__main__':
     # profiler = pytorch_lightning.profiler.PyTorchProfiler(profile_memory=True)
 
     # logger = TensorBoardLogger('tb_logs', name='bench_trial')
-    # # plt = pl.Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler=profiler)  # gpus=1,
-    # plt = pl.Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler="advanced")  # gpus=1,
+    # # plt = Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler=profiler)  # gpus=1,
+    # plt = Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler="advanced")  # gpus=1,
     # # tic = time.perf_counter()
     # plt.fit(rbm)
     # toc = time.perf_counter()
@@ -1389,10 +1390,10 @@ if __name__ == '__main__':
 
 
 
-    # plt = pl.Trainer(gpus=1, max_epochs=10)
-    # plt = pl.Trainer(gpus=1, profiler='advanced', max_epochs=10)
-    # plt = pl.Trainer(profiler='advanced', max_epochs=10)
-    # plt = pl.Trainer(max_epochs=1)
+    # plt = Trainer(gpus=1, max_epochs=10)
+    # plt = Trainer(gpus=1, profiler='advanced', max_epochs=10)
+    # plt = Trainer(profiler='advanced', max_epochs=10)
+    # plt = Trainer(max_epochs=1)
     # plt.fit(rbm)
 
 
