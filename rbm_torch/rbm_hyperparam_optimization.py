@@ -10,9 +10,94 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import os
 import numpy as np
 # import multiprocessing as mp
-# import math
+import math
 
 from rbm_test import RBM
+
+
+def tune_asha_search(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1, data_workers_per_trial=None):
+    # Default Values
+    config = {"fasta_file": fasta_file,
+              "molecule": "protein",
+              "h_num": 10,  # number of hidden units, can be variable
+              "v_num": 27,
+              "q": 21,
+              "batch_size": 10000,
+              "mc_moves": 6,
+              "seed": 38,
+              "lr": 0.0065,
+              "lr_final": None,
+              "decay_after": 0.75,
+              "loss_type": "free_energy",
+              "sample_type": "gibbs",
+              "sequence_weights": None,
+              "optimizer": "AdamW",
+              "epochs": num_epochs,
+              "weight_decay": 0.001,  # l2 norm on all parameters
+              "l1_2": 0.185,
+              "lf": 0.002,
+              }
+
+    if data_workers_per_trial:
+        config['data_worker_num'] = data_workers_per_trial
+
+    hyper_param_mut = {}
+
+    for key, value in hyperparams_of_interest.items():
+        assert key in config.keys()
+        assert key not in ["sequence_weights", "seed", "q", "v_num", "raytune", "fasta_file", "molecule"]  # these you can't really change for now
+        # This dictionary contains type of hyperparameter it is and the parameters associated with each type
+        for subkey, subval in value.items():
+            if subkey == "uniform":
+                config[key] = tune.uniform(subval[0], subval[1])
+                hyper_param_mut[key] = lambda: np.random.uniform(subval[0], subval[1])
+            elif subkey == "loguniform":
+                config[key] = tune.loguniform(subval[0], subval[1])
+                hyper_param_mut[key] = lambda: np.exp(np.random.uniform(subval[0], subval[1]))
+            elif subkey == "choice":
+                config[key] = tune.choice(subval)
+                hyper_param_mut[key] = subval
+            elif subkey == "grid":
+                config[key] = tune.grid_search(subval)
+                hyper_param_mut[key] = subval
+
+    scheduler = tune.schedulers.ASHAScheduler(
+        max_t=num_epochs,
+        grace_period=math.floor(num_epochs/2),
+        reduction_factor=2)
+
+    reporter = tune.CLIReporter(
+        parameter_columns=list(hyper_param_mut.keys()),
+        metric_columns=["train_loss", "train_psuedolikelihood", "val_psuedolikelihood", "training_iteration"])
+
+    # bayesopt = BayesOptSearch(metric="mean_loss", mode="min")
+    analysis = tune.run(
+        tune.with_parameters(
+            train_rbm,
+            num_epochs=num_epochs,
+            num_gpus=gpus_per_trial),
+        resources_per_trial={
+            "cpu": cpus_per_trial,
+            "gpu": gpus_per_trial
+        },
+        metric="val_psuedolikelihood",
+        mode="max",
+        local_dir="./ray_results/",
+        config=config,
+        num_samples=num_samples,
+        # search_alg=bayesopt,
+        scheduler=scheduler,
+        progress_reporter=reporter,
+        name="tune_rbm_asha",
+        checkpoint_score_attr="val_psuedolikelihood",
+        keep_checkpoints_num=1)
+
+    print("Best hyperparameters found were: ", analysis.best_config)
+
+
+
+
+
 
 
 # fasta_file #
@@ -22,7 +107,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
     Launches Population Based Hyperparameter Optimization
 
     :param fasta_file: is the data file, must provide absolute path because of ray tune's nonsense
-    :param hyperparams_of_interest: dictionary providing the hyperparameters and values will be altered
+    :param hyperparams_of_interest: dictionary providing the hyperparameters and values to be altered
     during this hyperparameter optimization run. The hyperparmater name which must match the config exactly
     are the keys of the dictionary. The values are the corresponding tune distribution type with the corresponding range
     :param num_samples: How many trials will be run
@@ -67,6 +152,9 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
             if subkey == "uniform":
                 config[key] = tune.uniform(subval[0], subval[1])
                 hyper_param_mut[key] = lambda: np.random.uniform(subval[0], subval[1])
+            elif subkey == "loguniform":
+                config[key] = tune.loguniform(subval[0], subval[1])
+                hyper_param_mut[key] = lambda: np.exp(np.random.uniform(subval[0], subval[1]))
             elif subkey == "choice":
                 config[key] = tune.choice(subval)
                 hyper_param_mut[key] = subval
@@ -107,7 +195,7 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
         stop=stopper,
         # export_formats=[ExportFormat.MODEL],
         checkpoint_score_attr="val_psuedolikelihood",
-        keep_checkpoints_num=4)
+        keep_checkpoints_num=1)
 
     print("Best hyperparameters found were: ", analysis.get_best_config(metric="val_psuedolikelihood", mode="max"))
 
@@ -168,10 +256,12 @@ if __name__ == '__main__':
 
     # hyperparams of interest
     hidden_opt = {
-        "h_num": {"grid": [60, 120, 250, 500]},
+        "h_num": {"grid": [60, 100, 200, 300]},
         # "h_num": {"grid": [10, 20, 30, 40]},
-        "batch_size": {"choice": [5000, 10000, 20000]},
-        "mc_moves": {"choice": [4, 8]},
+        "batch_size": {"choice": [10000, 20000]},
+        "l1_2": {"uniform": [0.15, 0.6]},
+        "lr": {"loguniform": [1e-5, 1e-1]}
+        # "mc_moves": {"choice": [4, 8]},
     }
 
     reg_opt = {
@@ -198,7 +288,15 @@ if __name__ == '__main__':
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
     #         hidden_opt,
     #         num_samples=1,
-    #         num_epochs=30,
+    #         num_epochs=10,
+    #         gpus_per_trial=1,
+    #         cpus_per_trial=12,
+    #         data_workers_per_trial=6)
+
+    # tune_asha_search("/home/jonah/PycharmProjects/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
+    #         hidden_opt,
+    #         num_samples=1,
+    #         num_epochs=10,
     #         gpus_per_trial=1,
     #         cpus_per_trial=12,
     #         data_workers_per_trial=6)
@@ -212,10 +310,10 @@ if __name__ == '__main__':
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
 
-    pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+    tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
             hidden_opt,
-            num_samples=1,
-            num_epochs=60,
+            num_samples=3,
+            num_epochs=100,
             gpus_per_trial=1,
             cpus_per_trial=12,
             data_workers_per_trial=12)
