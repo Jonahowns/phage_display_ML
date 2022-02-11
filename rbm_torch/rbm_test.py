@@ -704,7 +704,7 @@ class RBM(LightningModule):
         return optim
 
     ## Loads Training Data
-    def train_dataloader(self):
+    def train_dataloader(self, init_fields=True):
         # Get Correct Weights
         if "seq_count" in self.training_data.columns:
             training_weights = self.training_data["seq_count"].tolist()
@@ -714,10 +714,11 @@ class RBM(LightningModule):
         train_reader = RBMCaterogical(self.training_data, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
 
         # initialize fields from data
-        with torch.no_grad():
-            initial_fields = train_reader.field_init()
-            self.params['fields'] += initial_fields
-            self.params['fields0'] += initial_fields
+        if init_fields:
+            with torch.no_grad():
+                initial_fields = train_reader.field_init()
+                self.params['fields'] += initial_fields
+                self.params['fields0'] += initial_fields
 
         if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
             if hasattr(self.trainer, "on_gpu"):

@@ -11,6 +11,7 @@ import os
 import numpy as np
 # import multiprocessing as mp
 import math
+import argparse
 
 from rbm_test import RBM
 
@@ -237,7 +238,13 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
     
     
 if __name__ == '__main__':
+    ### If using Grid
+    # Number of Trials = Number of Samples * Number of Grid Parameter Combinations
 
+    ### If using Random Choice Only
+    # Number of Trials = Number of Samples
+
+    ######## Define Hyperparameters Here ########
     # All hyperparameters that can be optimized via population based Tuning
     sample_hyperparams_of_interest = {
         "h_num": {"grid": [10, 120, 250, 1000]},  # number of hidden units, can be variable
@@ -271,16 +278,43 @@ if __name__ == '__main__':
         "lr": {"uniform": [1e-5, 1e-1]}
     }
 
-    ### If using Grid
-    # Number of Trials = Number of Samples * Number of Grid Parameter Combinations
-
-    ### If using Random Choice Only
-    # Number of Trials = Number of Samples
-
-
     # local Test
-    os.environ["SLURM_JOB_NAME"] = "bash"
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of random cuda errors
+    os.environ["SLURM_JOB_NAME"] = "bash"   # server runs crash without this line (yay raytune)
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
+
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="RBM Training on Provided Dataset")
+    parser.add_argument('dataset_fullpath', type=str, help="Number of Ray Tune Samples")
+    parser.add_argument('samples', type=str, help="Number of Ray Tune Samples")
+    parser.add_argument('epochs', type=str, help="Number of Training Iterations")
+    parser.add_argument('gpus', type=str, help="Number of gpus per trial")
+    parser.add_argument('cpus', type=str, help="Number of cpus per trial")
+    parser.add_argument('data_workers', type=str, help="Number of data workers ")
+    args = parser.parse_args()
+
+    search = "asha"  # must be either pbt or asha
+    optimization = hidden_opt  # which hyperparameter dictionary to use for actual run
+
+    if search == "pbt":
+        tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+                         optimization,
+                         num_samples=int(args.samples),
+                         num_epochs=int(args.epochs),
+                         gpus_per_trial=int(args.gpus),
+                         cpus_per_trial=int(args.cpus),
+                         data_workers_per_trial=int(args.data_workers))
+
+    elif search == 'asha':
+        tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+                         optimization,
+                         num_samples=int(args.samples),
+                         num_epochs=int(args.epochs),
+                         gpus_per_trial=int(args.gpus),
+                         cpus_per_trial=int(args.cpus),
+                         data_workers_per_trial=int(args.data_workers))
+
+
+
 
     # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
     #         hidden_opt, 1, 20, 1, 1)
@@ -310,10 +344,10 @@ if __name__ == '__main__':
     # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
     #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
 
-    tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-            hidden_opt,
-            num_samples=3,
-            num_epochs=100,
-            gpus_per_trial=1,
-            cpus_per_trial=12,
-            data_workers_per_trial=12)
+    # tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+    #         hidden_opt,
+    #         num_samples=3,
+    #         num_epochs=100,
+    #         gpus_per_trial=1,
+    #         cpus_per_trial=12,
+    #         data_workers_per_trial=12)
