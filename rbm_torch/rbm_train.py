@@ -28,6 +28,7 @@ if __name__ == '__main__':
               "h_num": int(args.hidden),  # number of hidden units, can be variable
               "v_num": int(args.visible),
               "q": molecule_states[args.molecule],
+              "molecule": args.molecule,
               "batch_size": 10000,
               "mc_moves": 6,
               "seed": randint(0, 10000, 1)[0],
