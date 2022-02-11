@@ -271,7 +271,7 @@ elif focus == "invivo":
 def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(rbmnames)):
-        o = open('./rbm_torch/rbm_train.sh', 'r')
+        o = open('./rbm_torch/rbm_train_htc.sh', 'r')
         filedata = o.read()
         o.close()
 
@@ -288,8 +288,8 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         filedata = filedata.replace("DESTINATION", destination)
         filedata = filedata.replace("HIDDEN", str(hiddenunits))
         filedata = filedata.replace("VISIBLE", str(vis))
-        filedata = filedata.replace("PARTITION", "sulcgpu2")
-        filedata = filedata.replace("QUEUE", "sulcgpu1")
+        filedata = filedata.replace("PARTITION", "htcgpu")
+        filedata = filedata.replace("QUEUE", "normal")
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
 
@@ -302,6 +302,6 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 100, focus, 200)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 150, focus, 200)
 
 

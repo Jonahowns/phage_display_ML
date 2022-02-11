@@ -31,7 +31,7 @@ if __name__ == '__main__':
               "batch_size": 10000,
               "mc_moves": 6,
               "seed": randint(0, 10000, 1)[0],
-              "lr": 0.006,
+              "lr": 0.01,
               "lr_final": None,
               "decay_after": 0.75,
               "loss_type": "free_energy",
@@ -40,7 +40,7 @@ if __name__ == '__main__':
               "optimizer": "AdamW",
               "epochs": int(args.epochs),
               "weight_decay": 0.05,  # l2 norm on all parameters
-              "l1_2": 0.185,
+              "l1_2": 0.25,
               "lf": 0.002,
               "raytune": False  # Only for hyperparameter optimization
               }
