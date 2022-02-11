@@ -281,7 +281,7 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             vis = 45
         
         # Replace the Strings we want
-        filedata = filedata.replace("NAME", rbmnames[i])
+        filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("MOLECULE", "protein")
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])

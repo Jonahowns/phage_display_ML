@@ -7,7 +7,7 @@
 #SBATCH -p htcgpu
 #SBATCH -q normal
 #SBATCH --gres=gpu:1
-#SBATCH -o slurm_b3_c1.%j.out          # STDOUT (%j = JobId)
+#SBATCH -o slurm_b3_c1pig4.%j.out          # STDOUT (%j = JobId)
 #SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
 #SBATCH --mail-user=jprocyk@asu.edu     #send to my email
