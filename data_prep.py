@@ -56,7 +56,7 @@ def fasta_read(fastafile):
     return seqs
 
 
-def data_prop(seqs, outfile=sys.stdout):
+def data_prop(seqs, outfile=sys.stdout, violin_out=None):
     if outfile != sys.stdout:
         outfile = open(outfile, 'w+')
     cpy_num = Counter(seqs)
@@ -68,12 +68,20 @@ def data_prop(seqs, outfile=sys.stdout):
         ltotal.append(l)
     lp = set(ltotal)
     lps = sorted(lp)
+    counts = []
     for x in lps:
         c = 0
         for aas in useqs:
             if len(aas) == x:
                 c+=1
+        counts.append(c)
         print('Length:', x, 'Number of Sequences', c, file=outfile)
+    if violin_out is not None:
+        fig, ax = plt.subplots(1, 1)
+        ax.violinplot(counts, points=200, vert=False, widths=1.1,
+                     showmeans=True, showextrema=True, showmedians=True,
+                     quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
+        plt.savefig(violin_out+".png", dpi=300)
     return useqs, cpy_num
 
 
@@ -213,7 +221,7 @@ cdrounds = [mfolder + subdir + x + '_cdr3.fasta' for x in rounds]
 
 def initial_report(i):
     seqs = fasta_read(cdrounds[i])
-    seqs, cpy_num = data_prop(seqs, outfile=odir+rounds[i]+'seq_len_report.txt')
+    seqs, cpy_num = data_prop(seqs, outfile=odir+rounds[i]+'seq_len_report.txt', violin_out=cdrounds[i]+"_dataplot")
 
 def extract_data(i, cnum, c_indices):
     seqs = fasta_read(cdrounds[i])
@@ -223,9 +231,9 @@ def extract_data(i, cnum, c_indices):
     extractor(seqs, cnum, c_indices, odir + rounds[i], cpy_num)
 
 
-# for j in range(len(rounds)):
-#     # initial_report(j)
-#     extract_data(j, 2, [[12, 22], [35, 45]])
+for j in range(len(rounds)):
+    initial_report(j)
+    # extract_data(j, 2, [[12, 22], [35, 45]])
 
 #### Prepare Submission Scripts
 
@@ -302,6 +310,6 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 150, focus, 200)
+# write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 150, focus, 200)
 
 
