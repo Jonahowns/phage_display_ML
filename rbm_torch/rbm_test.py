@@ -131,7 +131,7 @@ class RBMCaterogical(Dataset):
 
 
 class RBM(LightningModule):
-    def __init__(self, config, debug=False, data_workers=None):
+    def __init__(self, config, debug=False):
         super().__init__()
         self.h_num = config['h_num']  # Number of hidden nodes, can be variable
         self.v_num = config['v_num']   # Number of visible nodes,
