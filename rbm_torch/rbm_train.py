@@ -43,7 +43,8 @@ if __name__ == '__main__':
               "weight_decay": 0.05,  # l2 norm on all parameters
               "l1_2": 0.25,
               "lf": 0.002,
-              "raytune": False  # Only for hyperparameter optimization
+              "raytune": False,  # Only for hyperparameter optimization
+              "data_workers": 6
               }
 
     file = os.path.basename(args.dataset)
