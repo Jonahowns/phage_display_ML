@@ -63,15 +63,16 @@ def data_prop(seqs, round, outfile=sys.stdout):
     if outfile != sys.stdout:
         outfile = open(outfile, 'w+')
 
+    cpy_num = Counter(seqs)
     useqs = list(set(seqs))
-    cpy_num = Counter(useqs)
+    copy_number = [cpy_num[x] for x in useqs]
     print(f'Removed {len(seqs)-len(useqs)} Repeat Sequences', file=outfile)
     ltotal = []
     for s in useqs:
         l = len(s)
         ltotal.append(l)
     roundlist = [round for x in useqs]
-    df = pd.DataFrame({"Sequence": useqs, "Length": ltotal, "Round":roundlist})
+    df = pd.DataFrame({"Sequence": useqs, "Length": ltotal, "Round": roundlist, "Copy Number": copy_number})
     edf = df[df["Length"] < 60]
     lp = set(ltotal)
     lps = sorted(lp)
@@ -91,7 +92,7 @@ def data_prop(seqs, round, outfile=sys.stdout):
     #     #              quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
     #     # ax.set_xlabel("Sequence Length")
     #     plt.savefig(violin_out+".png", dpi=300)
-    return useqs, cpy_num, edf
+    return useqs, copy_number, edf
 
 
 def corrector(seqs, mutations, lmin=0, lmax=10):
