@@ -33,7 +33,7 @@ if __name__ == '__main__':
               "batch_size": 10000,
               "mc_moves": 6,
               "seed": randint(0, 10000, 1)[0],
-              "lr": 0.01,
+              "lr": 0.003,
               "lr_final": None,
               "decay_after": 0.75,
               "loss_type": "free_energy",
@@ -41,7 +41,7 @@ if __name__ == '__main__':
               "sequence_weights": None,
               "optimizer": "AdamW",
               "epochs": int(args.epochs),
-              "weight_decay": 0.05,  # l2 norm on all parameters
+              "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.25,
               "lf": 0.002,
               "data_worker_num": 6

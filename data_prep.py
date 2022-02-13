@@ -4,6 +4,9 @@ import sys
 from collections import Counter
 import subprocess as sp
 import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn
+import seaborn as sns
 
 aa = ['-', 'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 aad = {'-': 0, 'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9, 'L': 10, 'M': 11, 'N': 12,
@@ -56,16 +59,20 @@ def fasta_read(fastafile):
     return seqs
 
 
-def data_prop(seqs, outfile=sys.stdout, violin_out=None):
+def data_prop(seqs, round, outfile=sys.stdout):
     if outfile != sys.stdout:
         outfile = open(outfile, 'w+')
-    cpy_num = Counter(seqs)
+
     useqs = list(set(seqs))
+    cpy_num = Counter(useqs)
     print(f'Removed {len(seqs)-len(useqs)} Repeat Sequences', file=outfile)
     ltotal = []
     for s in useqs:
         l = len(s)
         ltotal.append(l)
+    roundlist = [round for x in useqs]
+    df = pd.DataFrame({"Sequence": useqs, "Length": ltotal, "Round":roundlist})
+    edf = df[df["Length"] < 60]
     lp = set(ltotal)
     lps = sorted(lp)
     counts = []
@@ -76,13 +83,15 @@ def data_prop(seqs, outfile=sys.stdout, violin_out=None):
                 c+=1
         counts.append(c)
         print('Length:', x, 'Number of Sequences', c, file=outfile)
-    if violin_out is not None:
-        fig, ax = plt.subplots(1, 1)
-        ax.violinplot(counts, points=200, vert=False, widths=1.1,
-                     showmeans=True, showextrema=True, showmedians=True,
-                     quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
-        plt.savefig(violin_out+".png", dpi=300)
-    return useqs, cpy_num
+    # if violin_out is not None:
+    #     seaborn.violinplot(x=edf.Length)
+    #     # fig, ax = plt.subplots(1, 1)
+    #     # ax.violinplot([x for x in ltotal if x < 60], points=200, vert=False, widths=1.1,
+    #     #              showmeans=True, showextrema=True, showmedians=True,
+    #     #              quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
+    #     # ax.set_xlabel("Sequence Length")
+    #     plt.savefig(violin_out+".png", dpi=300)
+    return useqs, cpy_num, edf
 
 
 def corrector(seqs, mutations, lmin=0, lmax=10):
@@ -221,7 +230,8 @@ cdrounds = [mfolder + subdir + x + '_cdr3.fasta' for x in rounds]
 
 def initial_report(i):
     seqs = fasta_read(cdrounds[i])
-    seqs, cpy_num = data_prop(seqs, outfile=odir+rounds[i]+'seq_len_report.txt', violin_out=cdrounds[i]+"_dataplot")
+    seqs, cpy_num, df = data_prop(seqs, rounds[i], outfile=odir+rounds[i]+'seq_len_report.txt')
+    return df
 
 def extract_data(i, cnum, c_indices):
     seqs = fasta_read(cdrounds[i])
@@ -231,9 +241,24 @@ def extract_data(i, cnum, c_indices):
     extractor(seqs, cnum, c_indices, odir + rounds[i], cpy_num)
 
 
-for j in range(len(rounds)):
-    initial_report(j)
-    # extract_data(j, 2, [[12, 22], [35, 45]])
+### Nice Violin Plot of Data Lengths
+# dfs = []
+# for j in range(len(rounds)):
+#     df = initial_report(j)
+#     dfs.append(df)
+#     # extract_data(j, 2, [[12, 22], [35, 45]])
+#
+# ultdf = pd.concat(dfs)
+#
+# seaborn.violinplot(x=ultdf.Round, y=ultdf.Length)
+# # fig, ax = plt.subplots(1, 1)
+# # ax.violinplot([x for x in ltotal if x < 60], points=200, vert=False, widths=1.1,
+# #              showmeans=True, showextrema=True, showmedians=True,
+# #              quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
+# # ax.set_xlabel("Sequence Length")
+# plt.savefig("./pig_tissue/data_length_vis.png", dpi=300)
+
+
 
 #### Prepare Submission Scripts
 
@@ -310,6 +335,6 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-# write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 150, focus, 200)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 100, focus, 200)
 
 
