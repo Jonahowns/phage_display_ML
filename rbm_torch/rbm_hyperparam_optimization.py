@@ -263,11 +263,11 @@ if __name__ == '__main__':
 
     # hyperparams of interest
     hidden_opt = {
-        "h_num": {"grid": [60, 100, 200, 300]},
-        # "h_num": {"grid": [10, 20, 30, 40]},
-        "batch_size": {"choice": [10000, 20000]},
-        "l1_2": {"uniform": [0.15, 0.6]},
-        "lr": {"loguniform": [1e-5, 1e-1]}
+        # "h_num": {"grid": [60, 100, 200, 300]},
+        "h_num": {"grid": [10, 20, 30, 40]},
+        # "batch_size": {"choice": [10000, 20000]},
+        # "l1_2": {"uniform": [0.15, 0.6]},
+        "lr": {"loguniform": [1e-5, 1e-2]}
         # "mc_moves": {"choice": [4, 8]},
     }
 
