@@ -256,7 +256,7 @@ if __name__ == '__main__':
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
-              "data_worker_num": int(args.data_worker_num)
+              "data_worker_num": int(args.data_workers)
               }
 
     if search == "pbt":
