@@ -253,6 +253,13 @@ class RBM(LightningModule):
         # i. e. Simplifies loading a model that has already been run
         self.save_hyperparameters()
 
+        # Constants for faster math
+        self.logsqrtpiover2 = torch.tensor(0.2257913526, device=self.device, requires_grad=False)
+        self.pbis = torch.tensor(0.332672, device=self.device, requires_grad=False)
+        self.a1 = torch.tensor(0.3480242, device=self.device, requires_grad=False)
+        self.a2 = torch.tensor(- 0.0958798, device=self.device, requires_grad=False)
+        self.a3 = torch.tensor(0.7478556, device=self.device, requires_grad=False)
+
         # Initialize PT members, might b
         self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
 
@@ -563,17 +570,24 @@ class RBM(LightningModule):
     ## Hidden dReLU supporting Function
     def erf_times_gauss(self, X):  # This is the "characteristic" function phi
         m = torch.zeros_like(X, dtype=torch.float64)
-        tmp = X < 6
-        m[tmp] = torch.exp(0.5 * X[tmp] ** 2) * (1 - torch.erf(X[tmp] / np.sqrt(2))) * np.sqrt(np.pi / 2)
-        m[~tmp] = (1 / X[~tmp] - 1 / X[~tmp] ** 3 + 3 / X[~tmp] ** 5)
+        tmp1 = X < -6
+        m[tmp1] = 2 * torch.exp(X[tmp1] ** 2 / 2)
+
+        tmp2 = X > 0
+        t = 1 / (1 + self.pbis * X[tmp2])
+        m[tmp2] = t * (self.a1 + self.a2 * t + self.a3 * t ** 2)
+
+        tmp3 = torch.logical_and(~tmp1, ~tmp2)
+        t2 = 1 / (1 - self.pbis * X[tmp3])
+        m[tmp3] = -t2 * (self.a1 + self.a2 * t2 + self.a3 * t2 ** 2) + 2 * torch.exp(X[tmp3] ** 2 / 2)
         return m
 
     ## Hidden dReLU supporting Function
     def log_erf_times_gauss(self, X):
         m = torch.zeros_like(X)
-        tmp = X < 6
-        m[tmp] = (0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / np.sqrt(2))) - np.log(2))
-        m[~tmp] = (0.5 * np.log(2 / np.pi) - np.log(2) - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4))
+        tmp = X < 4
+        m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / np.sqrt(2))) + self.logsqrtpiover2
+        m[~tmp] = - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4)
         return m
 
     ###################################################### Sampling Functions
@@ -1069,6 +1083,21 @@ class RBM(LightningModule):
             self.AIS()
         return -self.free_energy(data) - self.log_Z_AIS
 
+    def cgf_from_inputs_h(self, I):
+        B = I.shape[0]
+        out = torch.zeros(I.shape, device=self.device)
+        sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
+        sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
+        log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
+        log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
+
+        Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+        Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+        map = Z_plus > Z_minus
+        out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
+        out[~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
+        return out
+
     def gen_data(self, Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, config_init=[], beta=1, batches=None, reshape=True, record_replica=False, record_acceptance=None, update_betas=None, record_swaps=False):
         """
         Generate Monte Carlo samples from the RBM. Starting from random initial conditions, Gibbs updates are performed to sample from equilibrium.
@@ -1310,7 +1339,7 @@ if __name__ == '__main__':
               "v_num": 27,
               "q": 21,
               "batch_size": 10000,
-              "mc_moves": 6,
+              "mc_moves": 10,
               "seed": 38,
               "lr": 0.0065,
               "lr_final": None,
@@ -1319,7 +1348,7 @@ if __name__ == '__main__':
               "sample_type": "gibbs",
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": 100,
+              "epochs": 150,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
