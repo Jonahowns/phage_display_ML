@@ -16,34 +16,8 @@ import argparse
 from rbm_test import RBM
 
 
-def tune_asha_search(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1, data_workers_per_trial=None):
-    # Default Values
-    config = {"fasta_file": fasta_file,
-              "molecule": "protein",
-              "h_num": 10,  # number of hidden units, can be variable
-              "v_num": 27,
-              "q": 21,
-              "batch_size": 10000,
-              "mc_moves": 6,
-              "seed": 38,
-              "lr": 0.0065,
-              "lr_final": None,
-              "decay_after": 0.75,
-              "loss_type": "free_energy",
-              "sample_type": "gibbs",
-              "sequence_weights": None,
-              "optimizer": "AdamW",
-              "epochs": num_epochs,
-              "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.185,
-              "lf": 0.002,
-              }
-
-    if data_workers_per_trial:
-        config['data_worker_num'] = data_workers_per_trial
-
+def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
     hyper_param_mut = {}
-
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
         assert key not in ["sequence_weights", "seed", "q", "v_num", "raytune", "fasta_file", "molecule"]  # these you can't really change for now
@@ -95,19 +69,12 @@ def tune_asha_search(fasta_file, hyperparams_of_interest, num_samples=10, num_ep
 
     print("Best hyperparameters found were: ", analysis.best_config)
 
-
-
-
-
-
-
-# fasta_file #
-def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1, data_workers_per_trial=None):
+def pbt_rbm(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
 
     '''
     Launches Population Based Hyperparameter Optimization
 
-    :param fasta_file: is the data file, must provide absolute path because of ray tune's nonsense
+    :param config: Holds Hyperparameter Values of RBM
     :param hyperparams_of_interest: dictionary providing the hyperparameters and values to be altered
     during this hyperparameter optimization run. The hyperparmater name which must match the config exactly
     are the keys of the dictionary. The values are the corresponding tune distribution type with the corresponding range
@@ -117,31 +84,6 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
     :param cpus_per_trial: Number of cpus to be dedicated PER trial
     :return: Nothing
     '''
-
-    # Default Values
-    config = {"fasta_file": fasta_file,
-              "molecule": "protein",
-              "h_num": 10,  # number of hidden units, can be variable
-              "v_num": 27,
-              "q": 21,
-              "batch_size": 10000,
-              "mc_moves": 6,
-              "seed": 38,
-              "lr": 0.0065,
-              "lr_final": None,
-              "decay_after": 0.75,
-              "loss_type": "free_energy",
-              "sample_type": "gibbs",
-              "sequence_weights": None,
-              "optimizer": "AdamW",
-              "epochs": num_epochs,
-              "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.185,
-              "lf": 0.002,
-              }
-
-    if data_workers_per_trial:
-        config['data_worker_num'] = data_workers_per_trial
 
     hyper_param_mut = {}
 
@@ -200,8 +142,6 @@ def pbt_rbm(fasta_file, hyperparams_of_interest, num_samples=10, num_epochs=10, 
 
     print("Best hyperparameters found were: ", analysis.get_best_config(metric="val_psuedolikelihood", mode="max"))
 
-
-
 def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
     trainer = Trainer(
         # default_root_dir="./checkpoints/",
@@ -234,13 +174,10 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
         rbm = RBM(config)
 
     trainer.fit(rbm)
-    
-    
-    
+
 if __name__ == '__main__':
     ### If using Grid
     # Number of Trials = Number of Samples * Number of Grid Parameter Combinations
-
     ### If using Random Choice Only
     # Number of Trials = Number of Samples
 
@@ -261,22 +198,24 @@ if __name__ == '__main__':
         "lf": {"uniform": [1e-5, 1e-2]},
     }
 
-    # hyperparams of interest
-    hidden_opt = {
-        # "h_num": {"grid": [60, 100, 200, 300]},
-        "h_num": {"grid": [10, 20, 30, 40]},
-        # "batch_size": {"choice": [10000, 20000]},
-        # "l1_2": {"uniform": [0.15, 0.6]},
-        "lr": {"loguniform": [1e-5, 1e-2]}
-        # "mc_moves": {"choice": [4, 8]},
-    }
-
     reg_opt = {
         "weight_decay": {"uniform": [1e-5, 1e-1]},
         "l1_2": {"uniform": [0.15, 0.6]},
         "lf": {"uniform": [1e-5, 1e-2]},
         "lr": {"uniform": [1e-5, 1e-1]}
     }
+
+    # hyperparams of interest
+    hidden_opt = {
+        # "h_num": {"grid": [60, 100, 200, 300]},
+        "h_num": {"grid": [5, 10, 15, 20]},
+        # "batch_size": {"choice": [10000, 20000]},
+        # "l1_2": {"uniform": [0.15, 0.6]},
+        "lr": {"choice": [1e-3, 1e-2]}
+        # "mc_moves": {"choice": [4, 8]},
+    }
+
+
 
     # local Test
     os.environ["SLURM_JOB_NAME"] = "bash"   # server runs crash without this line (yay raytune)
@@ -285,6 +224,8 @@ if __name__ == '__main__':
     # Parse arguments
     parser = argparse.ArgumentParser(description="RBM Training on Provided Dataset")
     parser.add_argument('dataset_fullpath', type=str, help="Number of Ray Tune Samples")
+    parser.add_argument('visible_num', type=str, help="Number of Visible Nodes")
+    parser.add_argument('molecule', type=str, help="DNA, RNA, or Protein")
     parser.add_argument('samples', type=str, help="Number of Ray Tune Samples")
     parser.add_argument('epochs', type=str, help="Number of Training Iterations")
     parser.add_argument('gpus', type=str, help="Number of gpus per trial")
@@ -295,23 +236,44 @@ if __name__ == '__main__':
     search = "asha"  # must be either pbt or asha
     optimization = hidden_opt  # which hyperparameter dictionary to use for actual run
 
+    # Default Values
+    config = {"fasta_file": args.dataset_fullpath,
+              "molecule": args.molecule,
+              "h_num": 10,  # number of hidden units, can be variable
+              "v_num": int(args.visible_num),
+              "q": 21,
+              "batch_size": 10000,
+              "mc_moves": 6,
+              "seed": 38,
+              "lr": 0.0065,
+              "lr_final": None,
+              "decay_after": 0.75,
+              "loss_type": "free_energy",
+              "sample_type": "gibbs",
+              "sequence_weights": None,
+              "optimizer": "AdamW",
+              "epochs": int(args.epochs),
+              "weight_decay": 0.001,  # l2 norm on all parameters
+              "l1_2": 0.185,
+              "lf": 0.002,
+              "data_worker_num": int(args.data_worker_num)
+              }
+
     if search == "pbt":
-        tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-                         optimization,
-                         num_samples=int(args.samples),
-                         num_epochs=int(args.epochs),
-                         gpus_per_trial=int(args.gpus),
-                         cpus_per_trial=int(args.cpus),
-                         data_workers_per_trial=int(args.data_workers))
+        pbt_rbm(config,
+                optimization,
+                num_samples=int(args.samples),
+                num_epochs=int(args.epochs),
+                gpus_per_trial=int(args.gpus),
+                cpus_per_trial=int(args.cpus))
 
     elif search == 'asha':
-        tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
+        tune_asha_search(config,
                          optimization,
                          num_samples=int(args.samples),
                          num_epochs=int(args.epochs),
                          gpus_per_trial=int(args.gpus),
-                         cpus_per_trial=int(args.cpus),
-                         data_workers_per_trial=int(args.data_workers))
+                         cpus_per_trial=int(args.cpus))
 
 
 
