@@ -33,7 +33,7 @@ if __name__ == '__main__':
               "batch_size": 10000,
               "mc_moves": 8,
               "seed": randint(0, 10000, 1)[0],
-              "lr": 0.001,
+              "lr": 0.006,
               "lr_final": None,
               "decay_after": 0.75,
               "loss_type": "free_energy",

@@ -336,6 +336,6 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 100, focus, 200)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200)
 
 
