@@ -150,7 +150,9 @@ if make_training: # Make full training.
 
     amber = rbm.RBM(visible=visible, hidden=hidden,n_v=n_v, n_h=n_h, n_cv=n_cv, random_state=38)
 
-    amber.AIS(verbose=2)
+    # amber.AIS(verbose=2)
+    amber._gen_data(200, 1, 1, N_PT=11, batches=1, reshape=False, beta=1,
+                  record_replica=True, record_acceptance=False, update_betas=True, record_swaps=False)
 
     # start = time.time()
     # amber.fit(all_data, batch_size=batch_size, n_iter=n_iter, l1b=l1b, N_MC=N_MC, decay_after=decay_after, verbose=1)

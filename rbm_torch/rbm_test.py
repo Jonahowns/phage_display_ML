@@ -155,6 +155,14 @@ class RBM(LightningModule):
             else:
                 self.worker_num = multiprocessing.cpu_count()
 
+        if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
+            if hasattr(self.trainer, "on_gpu"):
+                self.pin_mem = self.trainer.on_gpu
+            else:
+                self.pin_mem = False
+        else:
+            self.pin_mem = False
+
         # Sequence Weighting Weights
         # Not pretty but necessary to either provide the weights or to import from the fasta file
         # To import from the provided fasta file weights="fasta" in intialization of RBM
@@ -315,7 +323,7 @@ class RBM(LightningModule):
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
 
     ## Not used but may be useful
-    def free_energy_h(self,h):
+    def free_energy_h(self, h):
         return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
 
     ## Total Energy of a given visible and hidden configuration
@@ -406,30 +414,30 @@ class RBM(LightningModule):
         # return y
 
     # Looking for better Interpretation of weights with potential
-    def energy_per_state(self):
+    # def energy_per_state(self):
         # inputs 21 x v_num
-        inputs = torch.arange(self.q).unsqueeze(1).expand(-1, self.v_num)
-
-
-        indexTensor = inputs.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
-        expandedweights = self.W.unsqueeze(0).expand(inputs.shape[0], -1, -1, -1)
-        output = torch.gather(expandedweights, 3, indexTensor).squeeze(3)
-        out = torch.swapaxes(output, 1, 2)
-        energy = torch.zeros((self.q, self.v_num, self.h_num))
-        for i in range(self.q):
-            for j in range(self.v_num):
-                energy[i, j, :] = self.logpartition_h(out[i, j, :])
-
-        # Iu_flat = output.reshape((self.q*self.h_num, self.v_num))
-        # Iu = self.compute_output_v(inputs)
-
-        e_h = F.normalize(energy, dim=0)
-        view = torch.swapaxes(e_h, 0, 2)
-
-        W = self.get_param("W")
-
-        rbm_utils.Sequence_logo_all(W, name="allweights" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
-        rbm_utils.Sequence_logo_all(view.detach(), name="energything" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+        # inputs = torch.arange(self.q).unsqueeze(1).expand(-1, self.v_num)
+        #
+        #
+        # indexTensor = inputs.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
+        # expandedweights = self.W.unsqueeze(0).expand(inputs.shape[0], -1, -1, -1)
+        # output = torch.gather(expandedweights, 3, indexTensor).squeeze(3)
+        # out = torch.swapaxes(output, 1, 2)
+        # energy = torch.zeros((self.q, self.v_num, self.h_num))
+        # for i in range(self.q):
+        #     for j in range(self.v_num):
+        #         energy[i, j, :] = self.logpartition_h(out[i, j, :])
+        #
+        # # Iu_flat = output.reshape((self.q*self.h_num, self.v_num))
+        # # Iu = self.compute_output_v(inputs)
+        #
+        # e_h = F.normalize(energy, dim=0)
+        # view = torch.swapaxes(e_h, 0, 2)
+        #
+        # W = self.get_param("W")
+        #
+        # rbm_utils.Sequence_logo_all(W, name="allweights" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+        # rbm_utils.Sequence_logo_all(view.detach(), name="energything" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
 
     ## Marginal over visible units
     def logpartition_v(self, inputs, beta=1):
@@ -445,7 +453,7 @@ class RBM(LightningModule):
         # compute_output of visible potts layer
         vd = visible_data.long()
 
-        # Newest Version also works, fasterst version
+        # Newest Version also works, fastest version
         indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
         expandedweights = self.W.unsqueeze(0).expand(visible_data.shape[0], -1, -1, -1)
         output = torch.gather(expandedweights, 3, indexTensor).squeeze(3).sum(2)
@@ -734,19 +742,19 @@ class RBM(LightningModule):
                 self.params['fields'] += initial_fields
                 self.params['fields0'] += initial_fields
 
-        if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
-            if hasattr(self.trainer, "on_gpu"):
-                pin_mem = self.trainer.on_gpu
-            else:
-                pin_mem = False
-        else:
-            pin_mem = False
+        # if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
+        #     if hasattr(self.trainer, "on_gpu"):
+        #         pin_mem = self.trainer.on_gpu
+        #     else:
+        #         pin_mem = False
+        # else:
+        #     pin_mem = False
 
         train_loader = torch.utils.data.DataLoader(
             train_reader,
             batch_size=self.batch_size,
             num_workers=self.worker_num,  # Set to 0 if debug = True
-            pin_memory=pin_mem,
+            pin_memory=self.pin_mem,
             shuffle=True
         )
 
@@ -761,19 +769,19 @@ class RBM(LightningModule):
 
         val_reader = RBMCaterogical(self.validation_data, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
 
-        if hasattr(self, "trainer"):  # Sets Pim Memory when GPU is being used
-            if hasattr(self.trainer, "on_gpu"):
-                pin_mem = self.trainer.on_gpu
-            else:
-                pin_mem = False
-        else:
-            pin_mem = False
+        # if hasattr(self, "trainer"):  # Sets Pim Memory when GPU is being used
+        #     if hasattr(self.trainer, "on_gpu"):
+        #         pin_mem = self.trainer.on_gpu
+        #     else:
+        #         pin_mem = False
+        # else:
+        #     pin_mem = False
 
         train_loader = torch.utils.data.DataLoader(
             val_reader,
             batch_size=self.batch_size,
             num_workers=self.worker_num,  # Set to 0 to view tensors while debugging
-            pin_memory=pin_mem,
+            pin_memory=self.pin_mem,
             shuffle=False
         )
 
@@ -976,6 +984,46 @@ class RBM(LightningModule):
             h_neg = fantasy_h[0, :, :]
 
             return V_neg, h_neg, V_pos, h_pos
+
+    # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
+    # Returns the likelihood for each sequence in an array
+    def predict(self, X):
+        # Needs to be set
+        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        data_loader = torch.utils.data.DataLoader(
+            reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=False
+        )
+        with torch.no_grad():
+            likelihood = []
+            for i, batch in enumerate(data_loader):
+                seqs, V_pos, seq_weights = batch
+                likelihood += self.likelihood(V_pos).detach().tolist()
+
+        return X.sequence.tolist(), likelihood
+
+    def predict_psuedo(self, X):
+        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        data_loader = torch.utils.data.DataLoader(
+            reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=False
+        )
+        with torch.no_grad():
+            likelihood = []
+            for i, batch in enumerate(data_loader):
+                seqs, V_pos, seq_weights = batch
+                likelihood += self.psuedolikelihood(V_pos).detach().tolist()
+
+        return X.sequence.tolist(), likelihood
+
 
     ## For debugging of main functions
     def sampling_test(self):
@@ -1222,8 +1270,20 @@ class RBM(LightningModule):
             else:
                 data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
 
+            if N_PT > 1:
+                if Ndata > 1:
+                    if record_replica:
+                        data_gen_v = torch.zeros((Ndata-1, N_PT, batches, self.v_num))
+                        data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
+                    else:
+                        data_gen_v = torch.zeros((Ndata - 1, N_PT, self.v_num))
+                        data_gen_h = torch.zeros((Ndata - 1, N_PT, self.h_num))
+            else:
+                data_gen_v = torch.zeros((Ndata - 1, self.v_num))
+                data_gen_h = torch.zeros((Ndata - 1, self.h_num))
 
-            for _ in range(Ndata - 1):
+
+            for n in range(Ndata - 1):
                 for _ in range(Nstep):
                     if N_PT > 1:
                         energy = self.energy_PT(config[0], config[1])
@@ -1233,16 +1293,25 @@ class RBM(LightningModule):
                     else:
                         config[0], config[1] = self.markov_step(config[0], beta=beta)
 
-                if N_PT > 1:
+                if N_PT > 1 and Ndata > 1:
                     if record_replica:
-                        data[0].append(config[0].clone())
-                        data[1].append(config[1].clone())
+                        data_gen_v[n] = config[0].clone()
+                        data_gen_h[n] = config[1].clone()
+                        # data[0].append(config[0].clone())
+                        # data[1].append(config[1].clone())
                     else:
-                        data[0].append(config[0][0].clone())
-                        data[1].append(config[1][0].clone())
+                        data_gen_v[n] = config[0][0].clone()
+                        data_gen_h[n] = config[1][0].clone()
+                        # data[0].append(config[0][0].clone())
+                        # data[1].append(config[1][0].clone())
                 else:
-                    data[0].append(config[0].clone())
-                    data[1].append(config[1].clone())
+                    data_gen_v[n] = config[0].clone()
+                    data_gen_h[n] = config[1].clone()
+                    # data[0].append(config[0].clone())
+                    # data[1].append(config[1].clone())
+
+            if Ndata > 1:
+                data = [data_gen_v, data_gen_h]
 
             if self.record_swaps:
                 print('cleaning particle trajectories')
@@ -1278,9 +1347,6 @@ class RBM(LightningModule):
 
             return data
 
-
-
-
 # returns list of strings containing sequences
 # optionally returns the affinities
 
@@ -1297,7 +1363,6 @@ def fasta_read(fastafile, seq_read_counts=False, drop_duplicates=False):
             seqs.append(line.rstrip())
     o.close()
     if drop_duplicates:
-        # seqs = list(set(seqs))
         all_seqs = pd.DataFrame(seqs).drop_duplicates()
         seqs = all_seqs.values.tolist()
         seqs = [j for i in seqs for j in i]
@@ -1315,7 +1380,6 @@ def get_checkpoint(version, dir=""):
         if file.endswith(".ckpt"):
             checkpoint_file = os.path.join(checkpoint_dir, file)
     return checkpoint_file
-
 
 def get_beta_and_W(rbm):
     W = rbm.get_param("W")
