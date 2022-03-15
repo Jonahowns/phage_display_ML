@@ -19,11 +19,7 @@ dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
 
 endpoints = [source_endpoint_id, dest_endpoint_id]
 
-# scopes = ['openid', 'profile', 'email', 'urn:globus:auth:scope:transfer.api.globus.org:all']
-# for endpoint in endpoints:
-#     dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all'+f'[*https://auth.globus.org/scopes/{endpoint}/data_access]'
-#     # dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/e42349b0-ceff-44a5-bfb6-c0b5a19c32c7/data_access]'
-#     scopes.append(dest_scope)
+source_scope = f"urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/{source_endpoint_id}/data_access]"
 
 source_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(source_endpoint_id)
 end_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(dest_endpoint_id)
@@ -33,7 +29,7 @@ scopes += TransferScopes.all
 
 client = globus_sdk.NativeAppAuthClient(piggy_client_id)
 # Authorization
-client.oauth2_start_flow(refresh_tokens=True, requested_scopes=scopes)
+client.oauth2_start_flow(refresh_tokens=True, requested_scopes=[source_scope])
 authorize_url = client.oauth2_get_authorize_url()
 print(f"Please go to this URL and login:\n\n{authorize_url}\n")
 auth_code = input("Please enter the code you get after login here: ").strip()

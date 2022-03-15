@@ -302,7 +302,7 @@ elif focus == "invivo":
     paths_to_data = [src_path + x for x in all_data_files]
 
 
-def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs):
+def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(rbmnames)):
         o = open('./rbm_torch/rbm_train_htc.sh', 'r')
@@ -326,16 +326,21 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         filedata = filedata.replace("QUEUE", "normal")
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
+        filedata = filedata.replace("WEIGHTS", str(weights))
 
         with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
             file.write(filedata)
 
+    if weights:
+        focus += "_w"
     with open("./rbm_torch/agave_submit/submit" + focus + ".sh", 'w+') as file:
         file.write("#!/bin/bash\n")
         for i in range(len(script_names)):
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False)
 
+w_script_names = [x+"_w" for x in script_names]
 
+write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True)

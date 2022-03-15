@@ -65,11 +65,11 @@ class RBMCaterogical(Dataset):
             self.train_oh = self.one_hot(self.train_data)
 
         if weights is not None:
-            if len(self.train_data) == len(weights):
+            if len(self.train_data) != len(weights):
                 print("Provided Weights are not the correct length")
                 exit(1)
             self.train_weights = np.asarray(weights)
-            self.train_weights /= np.linalg.norm(self.train_weights)
+            self.train_weights /= self.train_weights.sum()
         else:
             # all equally weighted
             self.train_weights = np.asarray([1. for x in range(self.total)])
@@ -181,7 +181,7 @@ class RBM(LightningModule):
 
         if weights == None:
             self.weights = None
-        elif type(weights) == "str":
+        elif type(weights) == str:
             if weights == "fasta": # Assumes weights are in fasta file
                 self.weights = "fasta"
         elif type(weights) == torch.tensor:
@@ -1396,11 +1396,12 @@ if __name__ == '__main__':
     data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    b3_c1 = "../pig_tissue/b3_c1.fasta"
 
     config = {"fasta_file": lattice_data,
               "molecule": "protein",
               "h_num": 10,  # number of hidden units, can be variable
-              "v_num": 27,
+              "v_num": 22,
               "q": 21,
               "batch_size": 10000,
               "mc_moves": 10,
@@ -1412,7 +1413,7 @@ if __name__ == '__main__':
               "sample_type": "gibbs",
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": 150,
+              "epochs": 20,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,

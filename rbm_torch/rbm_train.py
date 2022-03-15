@@ -16,18 +16,24 @@ if __name__ == '__main__':
     parser.add_argument('focus', type=str, help="Which Datset? pig, invivo, or rod?")
     parser.add_argument('dataset', type=str, help="Location of Data File")
     parser.add_argument('molecule', type=str, help="Must be protein, dna or rna")
-    parser.add_argument('visible', type=str, help="Number of Visible Units in RBM")
-    parser.add_argument('hidden', type=str, help="Number of Hidden Units in RBM")
-    parser.add_argument('epochs', type=str, help="Number of Training Iterations")
-    parser.add_argument('gpus', type=str, help="Number of gpus available")
+    parser.add_argument('visible', type=int, help="Number of Visible Units in RBM")
+    parser.add_argument('hidden', type=int, help="Number of Hidden Units in RBM")
+    parser.add_argument('epochs', type=int, help="Number of Training Iterations")
+    parser.add_argument('gpus', type=int, help="Number of gpus available")
+    parser.add_argument('weights', type=bool, help="Use Weights of sequences")
     args = parser.parse_args()
+
+    if args.weights:
+        weights = "fasta"
+    else:
+        weights = None
 
     molecule_states = {"dna": 5, "rna": 5, "protein": 21}
     log_dirs = {"pig": "pig_tissue", "invivo": "invivo", "rod":"rod"}
 
     config = {"fasta_file": args.dataset,
-              "h_num": int(args.hidden),  # number of hidden units, can be variable
-              "v_num": int(args.visible),
+              "h_num": args.hidden,  # number of hidden units, can be variable
+              "v_num": args.visible,
               "q": molecule_states[args.molecule],
               "molecule": args.molecule,
               "batch_size": 10000,
@@ -38,9 +44,9 @@ if __name__ == '__main__':
               "decay_after": 0.75,
               "loss_type": "free_energy",
               "sample_type": "gibbs",
-              "sequence_weights": None,
+              "sequence_weights": weights,
               "optimizer": "AdamW",
-              "epochs": int(args.epochs),
+              "epochs": args.epochs,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.25,
               "lf": 0.002,
@@ -49,6 +55,11 @@ if __name__ == '__main__':
 
     file = os.path.basename(args.dataset)
     name = file.split(".")[0]
+
+    # Weighted RBMS are put into separate tensorboard folders
+    if args.weights:
+        name += "_w"
+
 
     # Training Code
     rbm = RBM(config)
