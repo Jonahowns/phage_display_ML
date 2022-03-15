@@ -20,7 +20,8 @@ endpoints = [source_endpoint_id, dest_endpoint_id]
 
 scopes = ['openid', 'profile', 'email', 'urn:globus:auth:scope:transfer.api.globus.org:all']
 for endpoint in endpoints:
-    dest_scope = ['urn:globus:auth:scope:transfer.api.globus.org:all', f'[*https://auth.globus.org/scopes/{endpoint}/data_access]']
+    dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all' \
+                  f'[*https://auth.globus.org/scopes/{endpoint}/data_access]'
     scopes.append(dest_scope)
 
 
