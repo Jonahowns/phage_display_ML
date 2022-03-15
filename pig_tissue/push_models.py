@@ -1,5 +1,6 @@
 import globus_sdk
 from glob import glob
+from globus_sdk.scopes import TransferScopes
 
 # Should be run on Agave, Pushes latest models to our Work Dell
 
@@ -18,12 +19,17 @@ dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
 
 endpoints = [source_endpoint_id, dest_endpoint_id]
 
-scopes = ['openid', 'profile', 'email', 'urn:globus:auth:scope:transfer.api.globus.org:all']
-for endpoint in endpoints:
-    dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all'+f'[*https://auth.globus.org/scopes/{endpoint}/data_access]'
-    # dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/e42349b0-ceff-44a5-bfb6-c0b5a19c32c7/data_access]'
-    scopes.append(dest_scope)
+# scopes = ['openid', 'profile', 'email', 'urn:globus:auth:scope:transfer.api.globus.org:all']
+# for endpoint in endpoints:
+#     dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all'+f'[*https://auth.globus.org/scopes/{endpoint}/data_access]'
+#     # dest_scope = 'urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/e42349b0-ceff-44a5-bfb6-c0b5a19c32c7/data_access]'
+#     scopes.append(dest_scope)
 
+source_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(source_endpoint_id)
+end_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(dest_endpoint_id)
+
+scopes = [source_scopes.data_access, end_scopes.data_access]
+scopes += TransferScopes.all
 
 client = globus_sdk.NativeAppAuthClient(piggy_client_id)
 # Authorization
@@ -88,7 +94,7 @@ def rbm_transfer(rounds, source=source_dir, dest=dest_dir):
 
 
 # Transfer all Models
-rbm_transfer(rounds)
+rbm_transfer(c1_rounds)
 
 # Transfer all c1
 # rbm_transfer(c1_rounds)
