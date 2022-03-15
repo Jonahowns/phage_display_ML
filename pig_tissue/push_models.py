@@ -8,9 +8,25 @@ from glob import glob
 # Configured "App" for Globus Transfers
 piggy_client_id = "fc83d632-e246-4a03-99ed-78e18f215bd1"
 
+
+
+# Agave Scratch Endpoint
+source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
+# Work Dell Endpoint
+dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
+
+
+endpoints = [source_endpoint_id, dest_endpoint_id]
+
+scopes = ['openid', 'profile', 'email', 'urn:globus:auth:scope:transfer.api.globus.org:all']
+for endpoint in endpoints:
+    dest_scope = ['urn:globus:auth:scope:transfer.api.globus.org:all', f'[*https://auth.globus.org/scopes/{endpoint}/data_access]']
+    scopes.append(dest_scope)
+
+
 client = globus_sdk.NativeAppAuthClient(piggy_client_id)
 # Authorization
-client.oauth2_start_flow()
+client.oauth2_start_flow(refresh_tokens=True, requested_scopes=scopes)
 authorize_url = client.oauth2_get_authorize_url()
 print(f"Please go to this URL and login:\n\n{authorize_url}\n")
 auth_code = input("Please enter the code you get after login here: ").strip()
@@ -24,10 +40,7 @@ transfer_client = globus_sdk.TransferClient(
     authorizer=globus_sdk.AccessTokenAuthorizer(transfer_tokens["access_token"])
 )
 
-# Agave Scratch Endpoint
-source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
-# Work Dell Endpoint
-dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
+
 
 
 ## Let's Get Our Specifics, Source of the trained RBMS
