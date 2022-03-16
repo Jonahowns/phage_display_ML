@@ -4,7 +4,7 @@
 #SBATCH -n 1                  # number of cores
 #SBATCH -c 36
 #SBATCH -t 0-04:00               # wall time (D-HH:MM)
-#SBATCH -o slurm_rbm_hyperparam_hidden_opt.%j.out          # STDOUT (%j = JobId)
+#SBATCH -o slurm_rbm_hyperparam_hidden_opt_cov_r6.%j.out          # STDOUT (%j = JobId)
 #SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
 #SBATCH -p htcgpu                            #sulcgpu2
 #SBATCH -q normal                            #sulcgpu1

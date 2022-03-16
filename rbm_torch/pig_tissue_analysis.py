@@ -27,9 +27,19 @@ def fetch_data(fasta_names, dir=""):
         data_dict[x] = data
     return data_dict
 
-def get_checkpoint_path(round):
+def get_checkpoint_path(round, version=None):
     ndir = mdir + round + "/"
-    y = glob(ndir + "*/checkpoints/*.ckpt", recursive=False)[0]
+    if version:
+        version_dir = ndir + f"version_{version}/"
+    else:   # Get Most recent i.e. highest version number
+        v_dirs = glob(ndir + "/*/", recursive=True)
+        versions = [int(x[:-1].rsplit("_")[-1]) for x in v_dirs]  # extracted version numbers
+
+        maxv = max(versions)  # get highest version number
+        indexofinterest = versions.index(maxv)  # Get index of the highest version
+        version_dir = v_dirs[indexofinterest]  # Access directory path of the highest version
+
+    y = glob(version_dir + "checkpoints/*.ckpt", recursive=False)[0]
     return y
 
 # for round in c1_rounds:
