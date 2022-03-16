@@ -1,0 +1,20 @@
+#!/bin/bash
+ 
+#SBATCH -A jprocyk
+#SBATCH -n 1
+#SBATCH -c 6
+#SBATCH -t 0-04:00               # wall time (D-HH:MM)
+#SBATCH -p htcgpu
+#SBATCH -q normal
+#SBATCH --gres=gpu:1
+#SBATCH -o slurm_r9cov8_w.%j.out          # STDOUT (%j = JobId)
+#SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
+#SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
+#SBATCH --mail-user=jprocyk@asu.edu     #send to my email
+#SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/
+
+source activate exmachina3
+
+python rbm_train.py cov ../cov/r9.fasta protein 40 20 200 1 True
+
+#python rbm_train.sh focus Data_Path Molecule Visible Hidden Epochs Gpus

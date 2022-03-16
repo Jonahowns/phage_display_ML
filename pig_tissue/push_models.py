@@ -1,6 +1,5 @@
 import globus_sdk
 from glob import glob
-from globus_sdk.scopes import TransferScopes
 
 # Should be run on Agave, Pushes latest models to our Work Dell
 
@@ -17,15 +16,15 @@ source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
 dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
 
 
-endpoints = [source_endpoint_id, dest_endpoint_id]
+# endpoints = [source_endpoint_id, dest_endpoint_id]
 
 source_scope = f"urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/{source_endpoint_id}/data_access]"
 
-source_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(source_endpoint_id)
-end_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(dest_endpoint_id)
-
-scopes = [source_scopes.data_access, end_scopes.data_access]
-scopes += TransferScopes.all
+# source_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(source_endpoint_id)
+# end_scopes = globus_sdk.scopes.GCSEndpointScopeBuilder(dest_endpoint_id)
+#
+# scopes = [source_scopes.data_access, end_scopes.data_access]
+# scopes += TransferScopes.all
 
 client = globus_sdk.NativeAppAuthClient(piggy_client_id)
 # Authorization
@@ -34,6 +33,7 @@ authorize_url = client.oauth2_get_authorize_url()
 print(f"Please go to this URL and login:\n\n{authorize_url}\n")
 auth_code = input("Please enter the code you get after login here: ").strip()
 tokens = client.oauth2_exchange_code_for_tokens(auth_code)
+
 # Get Transfer Tokens for our transfer
 transfer_tokens = tokens.by_resource_server["transfer.api.globus.org"]
 
