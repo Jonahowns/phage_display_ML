@@ -47,7 +47,7 @@ transfer_client = globus_sdk.TransferClient(
 
 
 ## Let's Get Our Specifics, Source of the trained RBMS
-source_dir = "/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
+source_dir = "/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
 dest_dir = "/mnt/D1/globus/pig_trained_rbms/"
 # The RBMS in question
 rounds = ["b3", "n1", "np1", "np2", "np3"]
