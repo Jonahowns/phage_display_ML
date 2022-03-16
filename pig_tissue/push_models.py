@@ -1,6 +1,7 @@
 import globus_sdk
 from glob import glob
 
+
 # Should be run on Agave, Pushes latest models to our Work Dell
 
 # Goal is to Transfer the most recent version of each RBM automatically to our local computer for analysis
@@ -47,7 +48,10 @@ transfer_client = globus_sdk.TransferClient(
 
 
 ## Let's Get Our Specifics, Source of the trained RBMS
-source_dir = "/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
+
+source_dir = "/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
+# From our endpoint since it's mounted at /scratch
+source_endpoint_dir = "/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
 dest_dir = "/mnt/D1/globus/pig_trained_rbms/"
 # The RBMS in question
 rounds = ["b3", "n1", "np1", "np2", "np3"]
@@ -56,14 +60,24 @@ c2_rounds = [x+"_c2" for x in rounds]
 
 
 # find the latest version and return the path source_dir/version_{max}/
-def find_version(round, dir=source_dir):
+# Endpoint dir is for the endpoint being mounted in a different place then where the script is run
+# For example, all paths on agave have "/scratch/" as their first directory
+# So to use the agave scratch endpoint to transfer files we need to take into account that scratch is mounted directly at /scratch
+# Any paths with /scratch in them will fail
+def find_version(round, dir=source_dir, endpoint_dir=None):
     path = dir+round
     subdirs = glob(path+"/*/", recursive=True)  # list of all versions of the RBM
     versions = [int(x[:-1].rsplit("_")[-1]) for x in subdirs]  # extracted version numbers
     maxv = max(versions)  # get highest version number
     indexofinterest = versions.index(maxv)  # Get index of the highest version
     targetdir = subdirs[indexofinterest]  # Access directory path of the highest version
-    return targetdir
+
+    if endpoint_dir:
+        last_two_dirs = "/".join(targetdir.split("/")[-3:])  # Get the last two directories
+        fullpath = endpoint_dir+last_two_dirs
+        return fullpath
+    else:
+        return targetdir
 
 # Create Transfer Task and Submit
 def rbm_transfer(rounds, source=source_dir, dest=dest_dir):
@@ -73,7 +87,7 @@ def rbm_transfer(rounds, source=source_dir, dest=dest_dir):
     )
 
     for x in rounds:
-        version_dir = find_version(x, dir=source)
+        version_dir = find_version(x, dir=source, endpoint_dir=source_endpoint_dir)
         # Destination of our Trained RBMS
         final_destination = dest + x + "/"
 
