@@ -183,38 +183,41 @@ if __name__ == '__main__':
 
     ######## Define Hyperparameters Here ########
     # All hyperparameters that can be optimized via population based Tuning
-    sample_hyperparams_of_interest = {
-        "h_num": {"grid": [10, 120, 250, 1000]},  # number of hidden units, can be variable
-        "batch_size": {"choice": [5000, 10000, 20000]},
-        "mc_moves": {"grid": [4, 8]},
-        "lr": {"uniform": [1e-5, 1e-1]},
-        "decay_after": {"grid": [0.5, 0.75, 0.9]},  # Fraction of epochs to have exponential decay after
-        "loss_type": {"choice": ["free_energy", "energy"]},
-        "sample_type": {"choice": ["gibbs", "pt"]},
-        "optimizer": {"choice": ["AdamW", "SGD", "Adagrad"]},
-        "epochs": {"choice": [100, 200, 1000]},
-        "weight_decay": {"uniform": [1e-5, 1e-1]},
-        "l1_2": {"uniform": [0.15, 0.6]},
-        "lf": {"uniform": [1e-5, 1e-2]},
-    }
 
-    reg_opt = {
-        "weight_decay": {"uniform": [1e-5, 1e-1]},
-        "l1_2": {"uniform": [0.15, 0.6]},
-        "lf": {"uniform": [1e-5, 1e-2]},
-        "lr": {"uniform": [1e-5, 1e-1]}
-    }
+    ### All Options that are currently supported
+    # sample_hyperparams_of_interest = {
+    #     "h_num": {"grid": [10, 120, 250, 1000]},  # number of hidden units, can be variable
+    #     "batch_size": {"choice": [5000, 10000, 20000]},
+    #     "mc_moves": {"grid": [4, 8]},
+    #     "lr": {"uniform": [1e-5, 1e-1]},
+    #     "decay_after": {"grid": [0.5, 0.75, 0.9]},  # Fraction of epochs to have exponential decay after
+    #     "loss_type": {"choice": ["free_energy", "energy"]},
+    #     "sample_type": {"choice": ["gibbs", "pt"]},
+    #     "optimizer": {"choice": ["AdamW", "SGD", "Adagrad"]},
+    #     "epochs": {"choice": [100, 200, 1000]},
+    #     "weight_decay": {"uniform": [1e-5, 1e-1]},
+    #     "l1_2": {"uniform": [0.15, 0.6]},
+    #     "lf": {"uniform": [1e-5, 1e-2]},
+    # }
+
+    # Some of the more pertinent hyper parameters with direct effect on weights, loss, and gradient
+    # reg_opt = {
+    #     "weight_decay": {"uniform": [1e-5, 1e-1]},
+    #     "l1_2": {"uniform": [0.15, 0.6]},
+    #     "lf": {"uniform": [1e-5, 1e-2]},
+    #     "lr": {"uniform": [1e-5, 1e-1]}
+    # }
 
     # hyperparams of interest
     hidden_opt = {
-        # "h_num": {"grid": [60, 100, 200, 300]},
-        "h_num": {"grid": [5, 10, 15, 20]},
+        "h_num": {"grid": [20, 60, 100, 200]},
+        # "h_num": {"grid": [5, 10, 15, 20]},
         # "batch_size": {"choice": [10000, 20000]},
-        # "l1_2": {"uniform": [0.15, 0.6]},
-        "lr": {"choice": [1e-3, 1e-2]}
+        "l1_2": {"uniform": [0.15, 0.6]},
+        "lr": {"choice": [1e-3, 1e-2]},
+        "lf": {"uniform": [1e-5, 1e-2]}
         # "mc_moves": {"choice": [4, 8]},
     }
-
 
 
     # local Test
@@ -224,23 +227,24 @@ if __name__ == '__main__':
     # Parse arguments
     parser = argparse.ArgumentParser(description="RBM Training on Provided Dataset")
     parser.add_argument('dataset_fullpath', type=str, help="Number of Ray Tune Samples")
-    parser.add_argument('visible_num', type=str, help="Number of Visible Nodes")
+    parser.add_argument('visible_num', type=int, help="Number of Visible Nodes")
     parser.add_argument('molecule', type=str, help="DNA, RNA, or Protein")
-    parser.add_argument('samples', type=str, help="Number of Ray Tune Samples")
-    parser.add_argument('epochs', type=str, help="Number of Training Iterations")
-    parser.add_argument('gpus', type=str, help="Number of gpus per trial")
-    parser.add_argument('cpus', type=str, help="Number of cpus per trial")
-    parser.add_argument('data_workers', type=str, help="Number of data workers ")
+    parser.add_argument('samples', type=int, help="Number of Ray Tune Samples")
+    parser.add_argument('epochs', type=int, help="Number of Training Iterations")
+    parser.add_argument('gpus', type=int, help="Number of gpus per trial")
+    parser.add_argument('cpus', type=int, help="Number of cpus per trial")
+    parser.add_argument('data_workers', type=int, help="Number of data workers ")
+    parser.add_argument('weights', type=bool, help="Weight Sequences by their count?")
     args = parser.parse_args()
 
-    search = "asha"  # must be either pbt or asha
+    search = "asha"  # must be either pbt or asha, the optimization method
     optimization = hidden_opt  # which hyperparameter dictionary to use for actual run
 
-    # Default Values
+    # Default Values, the optimization dictionary replaces the default values
     config = {"fasta_file": args.dataset_fullpath,
               "molecule": args.molecule,
               "h_num": 10,  # number of hidden units, can be variable
-              "v_num": int(args.visible_num),
+              "v_num": args.visible_num,
               "q": 21,
               "batch_size": 10000,
               "mc_moves": 6,
@@ -252,28 +256,28 @@ if __name__ == '__main__':
               "sample_type": "gibbs",
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": int(args.epochs),
+              "epochs": args.epochs,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
-              "data_worker_num": int(args.data_workers)
+              "data_worker_num": args.data_workers
               }
 
     if search == "pbt":
         pbt_rbm(config,
                 optimization,
-                num_samples=int(args.samples),
-                num_epochs=int(args.epochs),
-                gpus_per_trial=int(args.gpus),
-                cpus_per_trial=int(args.cpus))
+                num_samples=args.samples,
+                num_epochs=args.epochs,
+                gpus_per_trial=args.gpus,
+                cpus_per_trial=args.cpus)
 
     elif search == 'asha':
         tune_asha_search(config,
                          optimization,
-                         num_samples=int(args.samples),
-                         num_epochs=int(args.epochs),
-                         gpus_per_trial=int(args.gpus),
-                         cpus_per_trial=int(args.cpus))
+                         num_samples=args.samples,
+                         num_epochs=args.epochs,
+                         gpus_per_trial=args.gpus,
+                         cpus_per_trial=args.cpus)
 
 
 
