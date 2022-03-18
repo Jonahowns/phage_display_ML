@@ -22,10 +22,9 @@ if __name__ == '__main__':
     parser.add_argument('weights', type=bool, help="Use sequence count to weight sequences")
     args = parser.parse_args()
 
-    if args.weights:
+    weights = None
+    if args.weights is True:
         weights = "fasta"  # All weights are already in the processed files
-    else:
-        weights = None
 
     molecule_states = {"dna": 5, "rna": 5, "protein": 21}  # with gaps
     log_dirs = {"pig": "pig_tissue", "invivo": "invivo", "rod":"rod", "cov":"cov"}
@@ -56,7 +55,7 @@ if __name__ == '__main__':
     name = file.split(".")[0]
 
     # Weighted RBMS are put into separate tensorboard folders
-    if args.weights:
+    if weights is not None:
         name += "_w"
 
 

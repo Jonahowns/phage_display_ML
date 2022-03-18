@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
-import multiprocessing # Just to set the worker number
+from multiprocessing import cpu_count # Just to set the worker number
 
 
 
@@ -129,7 +129,6 @@ class RBMCaterogical(Dataset):
 
 
 
-
 class RBM(LightningModule):
     def __init__(self, config, debug=False):
         super().__init__()
@@ -147,13 +146,14 @@ class RBM(LightningModule):
         self.molecule = config['molecule'] # can be protein, rna or dna currently
         assert self.molecule in ["dna", "rna", "protein"]
 
-        try:
-            self.worker_num = config["data_worker_num"]
-        except KeyError:
-            if debug:
-                self.worker_num = 0
-            else:
-                self.worker_num = multiprocessing.cpu_count()
+        # Sets worker number for both dataloaders
+        if debug:
+            self.worker_num = 0
+        else:
+            try:
+                self.worker_num = config["data_worker_num"]
+            except KeyError:
+                self.worker_num = cpu_count()
 
         if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
             if hasattr(self.trainer, "on_gpu"):
@@ -200,7 +200,7 @@ class RBM(LightningModule):
         if loss_type not in ['energy', 'free_energy']:
             print(f"Loss Type {loss_type} not supported")
             exit(1)
-        if sample_type not in ['gibbs', 'pt']:
+        if sample_type not in ['gibbs', 'pt', 'pcd']:
             print(f"Sample Type {sample_type} not supported")
             exit(1)
 
@@ -742,13 +742,11 @@ class RBM(LightningModule):
                 self.params['fields'] += initial_fields
                 self.params['fields0'] += initial_fields
 
-        # if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
-        #     if hasattr(self.trainer, "on_gpu"):
-        #         pin_mem = self.trainer.on_gpu
-        #     else:
-        #         pin_mem = False
+        # Performance was identical whether shuffling or not
+        # if self.sample_type == "pcd":
+        #     shuffle = False
         # else:
-        #     pin_mem = False
+        #     shuffle = True
 
         train_loader = torch.utils.data.DataLoader(
             train_reader,
@@ -795,6 +793,8 @@ class RBM(LightningModule):
                 return self.training_step_CD_free_energy(batch, batch_idx)
             elif self.sample_type == "pt":
                 return self.training_step_PT_free_energy(batch, batch_idx)
+            elif self.sample_type == "pcd":
+                return self.training_step_PCD_free_energy(batch, batch_idx)
         elif self.loss_type == "energy":
             if self.sample_type == "gibbs":
                 return self.training_step_CD_energy(batch, batch_idx)
@@ -848,7 +848,7 @@ class RBM(LightningModule):
     ## This works but not the exact quantity we want to maximize
     def training_step_CD_energy(self, batch, batch_idx):
         seqs, V_pos, seq_weights = batch
-        weights = seq_weights.clone.detach()
+        weights = seq_weights.clone().detach()
         V_pos = V_pos.clone().detach()
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 
@@ -865,7 +865,7 @@ class RBM(LightningModule):
 
         loss = cd_loss + reg1 + reg2
 
-        logs = {"loss": loss.detach(),
+        logs = {"loss": loss,
                 "train_psuedolikelihood": psuedolikelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
@@ -876,6 +876,65 @@ class RBM(LightningModule):
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
+
+    def forward_PCD(self, batch_idx):
+        # Enforces Zero Sum Gauge on Weights
+        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+
+        # Gibbs sampling with Persistent Contrastive Divergence
+        # pytorch lightning handles the device
+        fantasy_v = self.chain[batch_idx]  # Last sample that was saved to self.chain variable, initialized in constructor to our data points
+        # h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
+        # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
+        for _ in range(self.mc_moves - 1):
+            fantasy_v, fantasy_h = self.markov_step(fantasy_v)
+
+        V_neg, fantasy_h = self.markov_step(fantasy_v)
+        h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
+
+        self.chain[batch_idx] = fantasy_v.detach()
+
+        return V_neg, h_neg
+
+
+    def training_step_PCD_free_energy(self, batch, batch_idx):
+        # seqs, V_pos, one_hot, seq_weights = batch
+        seqs, V_pos, seq_weights = batch
+        weights = seq_weights.clone()
+
+        if self.current_epoch == 0 and batch_idx == 0:
+            self.chain = [V_pos.detach()]
+        elif self.current_epoch == 0:
+            self.chain.append(V_pos.detach())
+
+        V_neg, h_neg = self.forward_PCD(batch_idx)
+
+        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
+        F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+
+        psuedolikelihood = (self.psuedolikelihood(V_pos) * weights).sum() / weights.sum()
+
+        # Regularization Terms
+        reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+        tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
+        reg2 = self.l1_2 / (2 * self.q * self.v_num) * tmp.sum()
+
+        loss = cd_loss + reg1 + reg2
+
+        logs = {"loss": loss,
+                "train_psuedolikelihood": psuedolikelihood.detach(),
+                "free_energy_diff": cd_loss.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                }
+
+        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return logs
+
 
     def training_step_PT_free_energy(self, batch, batch_idx):
         seqs, V_pos, seq_weights = batch
@@ -1401,19 +1460,19 @@ if __name__ == '__main__':
     config = {"fasta_file": lattice_data,
               "molecule": "protein",
               "h_num": 10,  # number of hidden units, can be variable
-              "v_num": 22,
+              "v_num": 27,
               "q": 21,
               "batch_size": 10000,
-              "mc_moves": 10,
+              "mc_moves": 6,
               "seed": 38,
               "lr": 0.0065,
               "lr_final": None,
               "decay_after": 0.75,
-              "loss_type": "free_energy",
-              "sample_type": "gibbs",
+              "loss_type": "energy",
+              "sample_type": "gibbs",    # gibbs, pt, or pcd
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": 20,
+              "epochs": 100,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
