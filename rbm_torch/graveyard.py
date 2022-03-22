@@ -213,3 +213,155 @@ class Clamp(torch.autograd.Function): # clamp parameter values
         # p_vneg =
 # E_loss = torch.log(1+torch.exp(dF)) # log loss functional
 # E_loss2 = -torch.log(dF)
+
+
+
+
+ # Looking for better Interpretation of weights with potential
+    # def energy_per_state(self):
+        # inputs 21 x v_num
+        # inputs = torch.arange(self.q).unsqueeze(1).expand(-1, self.v_num)
+        #
+        #
+        # indexTensor = inputs.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
+        # expandedweights = self.W.unsqueeze(0).expand(inputs.shape[0], -1, -1, -1)
+        # output = torch.gather(expandedweights, 3, indexTensor).squeeze(3)
+        # out = torch.swapaxes(output, 1, 2)
+        # energy = torch.zeros((self.q, self.v_num, self.h_num))
+        # for i in range(self.q):
+        #     for j in range(self.v_num):
+        #         energy[i, j, :] = self.logpartition_h(out[i, j, :])
+        #
+        # # Iu_flat = output.reshape((self.q*self.h_num, self.v_num))
+        # # Iu = self.compute_output_v(inputs)
+        #
+        # e_h = F.normalize(energy, dim=0)
+        # view = torch.swapaxes(e_h, 0, 2)
+        #
+        # W = self.get_param("W")
+        #
+        # rbm_utils.Sequence_logo_all(W, name="allweights" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+        # rbm_utils.Sequence_logo_all(view.detach(), name="energything" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+
+    # def compute_output_v(self, visible_data):
+    #     # output = torch.zeros((visible_data.shape[0], self.h_num), device=self.device)
+    #
+    #     # compute_output of visible potts layer
+    #     vd = visible_data.long()
+    #
+    #     # Newest Version also works, fastest version
+    #     indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
+    #     expandedweights = self.W.unsqueeze(0).expand(visible_data.shape[0], -1, -1, -1)
+    #     output = torch.gather(expandedweights, 3, indexTensor).squeeze(3).sum(2)
+    #
+    #     # vd shape batch_size x visible
+    #     # output shape batch size x hidden
+    #     # Weight shape hidden x visible x q
+    #
+    #     # 2nd fastest this works
+    #     # for u in range(self.h_num):
+    #     #     weight_view = self.W[u].expand(vd.shape[0], -1, -1)
+    #     #     output[:, u] += torch.gather(weight_view, 2, vd.unsqueeze(2)).sum(1).squeeze(1)
+    #
+    #     # previous implementation
+    #     # for u in range(self.h_num):  # for u in h_num
+    #     #     for v in range(self.v_num):  # for v in v_num
+    #     #         output1[:, u] += self.W[u, v, vd[:, v]]
+    #
+    #     return output
+
+ ## Gradient Clipping for poor behavior, have no need for it yet
+    # def on_after_backward(self):
+    #     self.grad_norm_clip_value = 10
+    #     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip_value)
+
+  ## For debugging of main functions
+    # def sampling_test(self):
+    #     self.prepare_data()
+    #     train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id=self.base_to_id, device=self.device)
+    #
+    #     # initialize fields from data
+    #     with torch.no_grad():
+    #         initial_fields = train_reader.field_init()
+    #         self.params['fields'] += initial_fields
+    #         self.params['fields0'] += initial_fields
+    #
+    #     self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+    #
+    #     v = self.random_init_config_v()
+    #     h = self.sample_from_inputs_h(self.compute_output_v(v))
+    #     v2 = self.sample_from_inputs_v(self.compute_output_h(h))
+
+
+
+  # check weights
+    # version = 0
+    # # checkpoint = get_checkpoint(version, dir="./tb_logs/lattice_trial/")
+    # checkpoint = "/mnt/D1/globus/rbm_hyperparam_results/train_rbm_ad5d7_00005_5_l1_2=0.3832,lf=0.00011058,lr=0.065775,weight_decay=0.086939_2022-01-18_11-02-53/checkpoints/epoch=99-step=499.ckpt"
+    # rbm = RBM.load_from_checkpoint(checkpoint)
+    # rbm.energy_per_state()
+    # all_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
+
+    # checkpoint = torch.load(checkpoint_file)
+    # model.prepare_data()
+    # model.criterion.weight = torch.tensor([0., 0.]) # need to add as this is saved by the checkpoint file
+    # model.load_state_dict(checkpoint['state_dict'])
+
+
+
+    ## Need to finish debugging AIS
+    # rbm = RBM(config)
+    # rbm.sampling_test()
+    # rbm.AIS()
+
+    # rbm.prepare_data()
+
+
+    # d = iter(rbm.train_dataloader())
+    # seqs, v_pos, weights = d.next()
+    # logger.experiment.add_graph(rbm, v_pos)
+
+    # profiler = torch.profiler.profile(profile_memory=True)
+    # profiler = pytorch_lightning.profiler.SimpleProfiler(profile_memory=True)
+    # profiler = pytorch_lightning.profiler.PyTorchProfiler(profile_memory=True)
+
+    # logger = TensorBoardLogger('tb_logs', name='bench_trial')
+    # # plt = Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler=profiler)  # gpus=1,
+    # plt = Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler="advanced")  # gpus=1,
+    # # tic = time.perf_counter()
+    # plt.fit(rbm)
+    # toc = time.perf_counter()
+    # tim = toc-tic
+    #
+    # print("Trial took", tim, "seconds")
+
+
+
+    # version 11 of fixed trial is 50 epochs of pt sampled
+
+
+    # check weights
+    # version = 15
+    # # checkpoint = get_checkpoint(version, dir="./tb_logs/trial/")
+    # checkpoint = get_checkpoint(version, dir="./tb_logs/bench_trial/")
+    #
+    # rbm = RBM.load_from_checkpoint(checkpoint)
+    # all_weights(rbm, "./tb_logs/bench_trial/version_" + str(version) + "/allweights", 5, 1, 10, 2, molecule="protein")
+
+
+
+
+    # plt = Trainer(gpus=1, max_epochs=10)
+    # plt = Trainer(gpus=1, profiler='advanced', max_epochs=10)
+    # plt = Trainer(profiler='advanced', max_epochs=10)
+    # plt = Trainer(max_epochs=1)
+    # plt.fit(rbm)
+
+
+    # total = 0
+    # for i, batch in enumerate(d):
+    #     print(len(batch))
+    #     seqs, tens = batch
+    #     if i == 0:
+    #         # rbm.testing()
+    #         rbm.training_step(batch, i)
