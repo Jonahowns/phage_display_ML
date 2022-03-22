@@ -9,7 +9,7 @@ import os
 
 if __name__ == '__main__':
     # Example Usage
-    # rbm_trian.py pig ../pig_tissue/b3_c1.fasta protein 22 50 200 2 1 True
+    # rbm_train.py pig ../pig_tissue/b3_c1.fasta protein 22 50 200 2 1 True
 
     parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
     parser.add_argument('focus', type=str, help="Which Datset? pig, invivo, rod, or cov?")
@@ -20,13 +20,18 @@ if __name__ == '__main__':
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of gpus available")
     parser.add_argument('weights', type=bool, help="Use sequence count to weight sequences")
+    parser.add_argument('gaps', type=bool, help="Are gaps present in provided MSA")
     args = parser.parse_args()
 
     weights = None
     if args.weights is True:
         weights = "fasta"  # All weights are already in the processed files
 
-    molecule_states = {"dna": 5, "rna": 5, "protein": 21}  # with gaps
+    if args.gaps is True:
+        molecule_states = {"dna": 5, "rna": 5, "protein": 21}  # with gaps
+    else:
+        molecule_states = {"dna": 4, "rna": 4, "protein": 20}
+
     log_dirs = {"pig": "pig_tissue", "invivo": "invivo", "rod":"rod", "cov":"cov"}
 
     config = {"fasta_file": args.dataset,

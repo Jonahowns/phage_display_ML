@@ -214,8 +214,8 @@ if __name__ == '__main__':
         # "h_num": {"grid": [5, 10, 15, 20]},
         # "batch_size": {"choice": [10000, 20000]},
         "l1_2": {"uniform": [0.15, 0.6]},
-        "lr": {"choice": [1e-3, 1e-2]},
-        "lf": {"uniform": [1e-5, 1e-2]}
+        "lr": {"choice": [1e-3, 6e-3]},
+        "lf": {"uniform": [1e-4, 1e-2]}
         # "mc_moves": {"choice": [4, 8]},
     }
 
@@ -226,7 +226,7 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser(description="RBM Training on Provided Dataset")
-    parser.add_argument('dataset_fullpath', type=str, help="Number of Ray Tune Samples")
+    parser.add_argument('dataset_fullpath', type=str, help="Full Path (not relative) of the fasta file used for training")
     parser.add_argument('visible_num', type=int, help="Number of Visible Nodes")
     parser.add_argument('molecule', type=str, help="DNA, RNA, or Protein")
     parser.add_argument('samples', type=int, help="Number of Ray Tune Samples")
@@ -235,18 +235,24 @@ if __name__ == '__main__':
     parser.add_argument('cpus', type=int, help="Number of cpus per trial")
     parser.add_argument('data_workers', type=int, help="Number of data workers ")
     parser.add_argument('weights', type=bool, help="Weight Sequences by their count?")
+    parser.add_argument('gaps', type=bool, help="Gaps in the alignment?")
     args = parser.parse_args()
 
     search = "asha"  # must be either pbt or asha, the optimization method
     optimization = hidden_opt  # which hyperparameter dictionary to use for actual run
+
+    if args.gaps is True:
+        molecule_states = {"dna": 5, "rna": 5, "protein": 21}  # with gaps
+    else:
+        molecule_states = {"dna": 4, "rna": 4, "protein": 20}
 
     # Default Values, the optimization dictionary replaces the default values
     config = {"fasta_file": args.dataset_fullpath,
               "molecule": args.molecule,
               "h_num": 10,  # number of hidden units, can be variable
               "v_num": args.visible_num,
-              "q": 21,
-              "batch_size": 10000,
+              "q": molecule_states[args.molecule],
+              "batch_size": 20000,
               "mc_moves": 6,
               "seed": 38,
               "lr": 0.0065,
@@ -278,42 +284,3 @@ if __name__ == '__main__':
                          num_epochs=args.epochs,
                          gpus_per_trial=args.gpus,
                          cpus_per_trial=args.cpus)
-
-
-
-
-    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
-    #         hidden_opt, 1, 20, 1, 1)
-
-    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
-    #         hidden_opt,
-    #         num_samples=1,
-    #         num_epochs=10,
-    #         gpus_per_trial=1,
-    #         cpus_per_trial=12,
-    #         data_workers_per_trial=6)
-
-    # tune_asha_search("/home/jonah/PycharmProjects/phage_display_ML/invivo/sham2_ipsi_c1.fasta",
-    #         hidden_opt,
-    #         num_samples=1,
-    #         num_epochs=10,
-    #         gpus_per_trial=1,
-    #         cpus_per_trial=12,
-    #         data_workers_per_trial=6)
-
-    # pbt_rbm("/home/jonah/PycharmProjects/phage_display_ML/pig_tissue/b3_c1.fasta",
-    #         hidden_opt, num_samples=1, num_epochs=2, gpus_per_trial=1, cpus_per_trial=1, data_workers_per_trial=3)
-    # Server Run
-
-    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/lattice_proteins_verification/Lattice_Proteins_MSA.fasta",
-    #         hidden_opt, 1, 150, 1, 2)
-    # pbt_rbm("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-    #         hidden_opt, num_samples=1, num_epochs=150, gpus_per_trial=1, cpus_per_trial=12, data_workers_per_trial=12)
-
-    # tune_asha_search("/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/b3_c1.fasta",
-    #         hidden_opt,
-    #         num_samples=3,
-    #         num_epochs=100,
-    #         gpus_per_trial=1,
-    #         cpus_per_trial=12,
-    #         data_workers_per_trial=12)

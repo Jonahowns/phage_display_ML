@@ -158,7 +158,7 @@ if focus == "cov":
 
 
 
-def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False):
+def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(rbmnames)):
         o = open('./rbm_torch/rbm_train_htc.sh', 'r')
@@ -186,6 +186,7 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
+        filedata = filedata.replace("GAPS", str(gaps))
 
         with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
             file.write(filedata)
@@ -198,8 +199,8 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False)
 #
 w_script_names = [x+"_w" for x in script_names]
 #
-write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True)
+write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False)

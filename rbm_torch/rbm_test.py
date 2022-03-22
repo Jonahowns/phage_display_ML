@@ -256,7 +256,7 @@ class RBM(LightningModule):
         self.logsqrtpiover2 = torch.tensor(0.2257913526, device=self.device, requires_grad=False)
         self.pbis = torch.tensor(0.332672, device=self.device, requires_grad=False)
         self.a1 = torch.tensor(0.3480242, device=self.device, requires_grad=False)
-        self.a2 = torch.tensor(- 0.0958798, device=self.device, requires_grad=False)
+        self.a2 = torch.tensor(-0.0958798, device=self.device, requires_grad=False)
         self.a3 = torch.tensor(0.7478556, device=self.device, requires_grad=False)
 
         # Initialize PT members, might b
@@ -321,8 +321,7 @@ class RBM(LightningModule):
     def energy(self, v, h, remove_init=False):
         return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, remove_init=remove_init) - self.bilinear_form(v, h)
 
-        ## Total Energy of a given visible and hidden configuration
-
+    ## Total Energy of a given visible and hidden configuration
     def energy_PT(self, v, h, remove_init=False):
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
