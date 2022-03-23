@@ -9,8 +9,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import subprocess as sp
 import numpy as np
+import torch
 
 
+int_to_letter_dicts = {"protein": rbm_utils.aadict, "dna": rbm_utils.dnadict, "rna": rbm_utils.rnadict}
 
 # Methods for generating plots etc.
 def assign(x):
@@ -116,10 +118,61 @@ def seq_logo(dataframe, output_file, weight=False, outdir=""):
     return out
 
 
-def view_weights(rbm, type="max"):
+def view_weights(rbm, type="max", selected=None, molecule="protein", title=None):
     beta, W = rbm.get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
-    selected_weights = W[order][:x]
-    fig = rbm_utils.Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h, w), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=400, molecule=molecule)
-    rbm_utils.Sequence_logo_multiple()
+    W = W[order]
+    assert type in ["max", "select"]
+    assert molecule in ["protein", "dna", "rna"]
+    if type == "max":
+        assert isinstance(selected, int)
+        selected_weights = W[:selected]
+    elif type == "select":
+        selected_weights = W[:len(selected)] # make array of correct size
+        assert isinstance(selected, list)
+        for id, i in enumerate(selected):
+            selected_weights[id] = W[i]  # Overwrite with weights we are interested in
+
+    # Assume we want weights
+    fig = rbm_utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
+
+def dataframe_to_input(dataframe, base_to_id, v_num):
+    seqs = dataframe["sequence"].tolist()
+    cat_ten = torch.zeros((len(seqs), v_num), dtype=torch.long)
+    for iid, seq in enumerate(seqs):
+        for n, base in enumerate(seq):
+            cat_ten[iid, n] = base_to_id[base]
+    return cat_ten
+
+def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
+    # Convert Sequences to Integer Format and Compute Hidden Unit Input
+    v_num = rbm.v_num
+    base_to_id = int_to_letter_dicts[rbm.molecule]
+    data_tensor = dataframe_to_input(dataframe, base_to_id, v_num)
+    input_hiddens = rbm.compute_output_v(data_tensor)
+
+    # Get Beta and sort hidden Units by Frobenius Norms
+    beta, W = rbm.get_beta_and_W(rbm)
+    order = np.argsort(beta)[::-1]
+
+    gs_kw = dict(width_ratios=[3, 1], height_ratios=[1])
+    fig, axd = plt.subplot_mosaic([['top', 'top', 'top'],
+                                   ['lower left', "middle", 'lower right']],
+                                  gridspec_kw=gs_kw, figsize=(25, 5),
+                                  constrained_layout=True)
+    for hu_num in hidden_unit_numbers:
+        ix = order[hu_num]
+        lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]
+        npoints = 1000
+        x = lims[ix]
+        fullrange = np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints)
+        # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
+        pre_cgf = rbm.cgf_from_inputs(fullrange.transpose())
+
+
+
+
+
+
+
 

@@ -13,7 +13,7 @@ import numpy as np
 import math
 import argparse
 
-from rbm_test import RBM
+from rbm import RBM
 
 
 def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
