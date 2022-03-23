@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
