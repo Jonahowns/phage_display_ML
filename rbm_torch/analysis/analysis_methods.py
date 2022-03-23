@@ -1,11 +1,14 @@
 import sys
 sys.path.append("../")
 from rbm import fasta_read
+import rbm_utils
+
 import pandas as pd
 from glob import glob
 import seaborn as sns
 import matplotlib.pyplot as plt
 import subprocess as sp
+import numpy as np
 
 
 
@@ -59,11 +62,14 @@ def generate_likelihoods(rounds, RBM, all_data):
 
 
 # Plot Likelihoods as kde curves with each round in a new row
-def plot_likelihoods(likeli, title, xaxislabel, order, labels, colors):
+def plot_likelihoods(likeli, title, xaxislabel, order, labels, colors, clip=None):
     plot_num = len(likeli.keys())
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
     for xid, x in enumerate(order):
-        y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid])
+        if clip is not None:
+            y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], clip=clip)
+        else:
+            y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid])
         if xid == len(order) - 1:
             y.set(xlabel=xaxislabel)
         axs[xid].legend()
@@ -108,3 +114,12 @@ def seq_logo(dataframe, output_file, weight=False, outdir=""):
         sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1", shell=True)
     sp.check_call("rm tmp.csv", shell=True)
     return out
+
+
+def view_weights(rbm, type="max"):
+    beta, W = rbm.get_beta_and_W(rbm)
+    order = np.argsort(beta)[::-1]
+    selected_weights = W[order][:x]
+    fig = rbm_utils.Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h, w), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=400, molecule=molecule)
+    rbm_utils.Sequence_logo_multiple()
+

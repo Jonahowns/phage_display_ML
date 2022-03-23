@@ -15,7 +15,6 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
-
 import rbm_utils
 from rbm_utils import aadict, dnadict, rnadict
 
@@ -1393,6 +1392,6 @@ if __name__ == '__main__':
     # Training Code
     rbm_lat = RBM(config, debug=False)
     logger = TensorBoardLogger('tb_logs', name='lattice_trial')
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(rbm_lat)
+    trainer = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    trainer.fit(rbm_lat)
 
