@@ -1,6 +1,6 @@
 import sys
 sys.path.append("../")
-from rbm import fasta_read
+from rbm import fasta_read, RBM, get_beta_and_W
 import rbm_utils
 
 import pandas as pd
@@ -136,36 +136,85 @@ def view_weights(rbm, type="max", selected=None, molecule="protein", title=None)
     # Assume we want weights
     fig = rbm_utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
 
-def dataframe_to_input(dataframe, base_to_id, v_num):
+def dataframe_to_input(dataframe, base_to_id, v_num, weights=False):
     seqs = dataframe["sequence"].tolist()
     cat_ten = torch.zeros((len(seqs), v_num), dtype=torch.long)
     for iid, seq in enumerate(seqs):
         for n, base in enumerate(seq):
             cat_ten[iid, n] = base_to_id[base]
-    return cat_ten
+    if weights:
+        weights = dataframe["copynum"].tolist()
+        return cat_ten, weights
+    else:
+        return cat_ten
 
 def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     # Convert Sequences to Integer Format and Compute Hidden Unit Input
     v_num = rbm.v_num
+    h_num = rbm.h_num
     base_to_id = int_to_letter_dicts[rbm.molecule]
-    data_tensor = dataframe_to_input(dataframe, base_to_id, v_num)
+    data_tensor, weights = dataframe_to_input(dataframe, base_to_id, v_num, weights=True)
     input_hiddens = rbm.compute_output_v(data_tensor)
 
     # Get Beta and sort hidden Units by Frobenius Norms
-    beta, W = rbm.get_beta_and_W(rbm)
+    beta, W = get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
 
     gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
     grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
     fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+
+    npoints = 1000  # Number of points for graphing CGF curve
+    lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]  # Get limits for each hidden unit
+    fullranges = torch.zeros((npoints, h_num))
+    for i in range(h_num):
+        x = lims[i]
+        fullranges[:, i] = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+
+    pre_cgf = rbm.cgf_from_inputs_h(fullranges)
+    # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+    # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
     for hid, hu_num in enumerate(hidden_unit_numbers):
-        ix = order[hu_num]
-        lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]
-        npoints = 1000
-        x = lims[ix]
-        fullrange = np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints)
+        ix = order[hu_num]  # get weight index
+        # Make Sequence Logo
+        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weight", ylabel=f"Weight #{hu_num}", ticks_every=1, ticks_labels_size=14, title_size=20, molecule='protein')
+        # Make CGF Plot
+        # x = lims[ix]
+        # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
         # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
-        pre_cgf = rbm.cgf_from_inputs(fullrange.transpose())
+
+
+        t_x = np.asarray(fullranges[:, ix])
+        t_y = np.asarray(pre_cgf[:, ix])
+        deltay = np.min(t_y)
+        counts, bins = np.histogram(input_hiddens[:, ix], bins=30, weights=weights)
+        factor = np.max(t_y) / np.max(counts)
+        # WEIGHTS SHOULD HAVE SAME SIZE AS BINS
+        axd[f"cgf{hid}"].hist(bins[:-1], bins, color='grey', label='All sequences', weights=counts*factor,
+                   histtype='step', lw=3, fill=True, alpha=0.7, edgecolor='black', linewidth=1)
+        axd[f"cgf{hid}"].plot(t_x, t_y - deltay, lw=3, color='C1')
+        axd[f"cgf{hid}"].set_ylabel('CGF', fontsize=18)
+        axd[f"cgf{hid}"].tick_params(axis='both', direction='in', length=6, width=2, colors='k')
+        axd[f"cgf{hid}"].tick_params(axis='both', labelsize=16)
+        axd[f"cgf{hid}"].yaxis.tick_right()
+        axd[f"cgf{hid}"].yaxis.set_label_position("right")
+    plt.show()
+
+
+
+if __name__ == '__main__':
+    mdir = "/mnt/D1/globus/pig_trained_rbms/"
+    rounds = ["b3", "n1", "np1", "np2", "np3"]
+    c1_rounds = [x + "_c1" for x in rounds]
+    c2_rounds = [x + "_c2" for x in rounds]
+
+    data_c2 = fetch_data(c2_rounds, dir="../../pig_tissue", counts=True)
+    b3_data = data_c2[data_c2["round"] == "b3_c2"]
+    # b3_input, b3_weight_list = dataframe_to_input(b3_data, int_to_letter_dicts["protein"], 45, weights=True)
+    checkp, v_dir = get_checkpoint_path("b3_c2", rbmdir=mdir)
+    b3_rbm = RBM.load_from_checkpoint(checkp)
+    cgf_with_weights_plot(b3_rbm, b3_data, [0, 1, 2])
+    print("hello")
 
 
 

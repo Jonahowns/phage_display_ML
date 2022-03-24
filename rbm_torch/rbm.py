@@ -1097,19 +1097,20 @@ class RBM(LightningModule):
         return -self.free_energy(data) - self.log_Z_AIS
 
     def cgf_from_inputs_h(self, I):
-        B = I.shape[0]
-        out = torch.zeros(I.shape, device=self.device)
-        sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
-        sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
-        log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
-        log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
+        with torch.no_grad():
+            B = I.shape[0]
+            out = torch.zeros(I.shape, device=self.device)
+            sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
+            sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
+            log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
+            log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
 
-        Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-        Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
-        map = Z_plus > Z_minus
-        out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
-        out[~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
-        return out
+            Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+            Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+            map = Z_plus > Z_minus
+            out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
+            out[~map] = Z_minus[~map] + torch.log(1 + torch.exp(Z_plus[~map] - Z_minus[~map]))
+            return out
 
     def gen_data(self, Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, config_init=[], beta=1, batches=None, reshape=True, record_replica=False, record_acceptance=None, update_betas=None, record_swaps=False):
         """

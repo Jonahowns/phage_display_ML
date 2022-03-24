@@ -1,4 +1,4 @@
-from rbm_test import fasta_read, get_checkpoint, get_beta_and_W, all_weights, RBM
+from rbm import fasta_read, get_checkpoint, get_beta_and_W, all_weights, RBM
 from glob import glob
 import pandas as pd
 import matplotlib.pyplot as plt
