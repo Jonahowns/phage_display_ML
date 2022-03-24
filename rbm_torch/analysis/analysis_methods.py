@@ -155,12 +155,10 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     beta, W = rbm.get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
 
-    gs_kw = dict(width_ratios=[3, 1], height_ratios=[1])
-    fig, axd = plt.subplot_mosaic([['top', 'top', 'top'],
-                                   ['lower left', "middle", 'lower right']],
-                                  gridspec_kw=gs_kw, figsize=(25, 5),
-                                  constrained_layout=True)
-    for hu_num in hidden_unit_numbers:
+    gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
+    grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
+    fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+    for hid, hu_num in enumerate(hidden_unit_numbers):
         ix = order[hu_num]
         lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]
         npoints = 1000
@@ -168,6 +166,7 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
         fullrange = np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints)
         # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
         pre_cgf = rbm.cgf_from_inputs(fullrange.transpose())
+
 
 
 
