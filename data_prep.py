@@ -114,7 +114,7 @@ def prep_data(seqs, lmin=0, lmax=10, cpy_num=0):
         else:
             continue
     if cpy_num != 0:
-        affs = [cpy_num[x] for x in fseqs]
+        affs = [cpy_num[xid] for xid, x in enumerate(fseqs)]
         return fseqs, affs
     else:
         return fseqs
@@ -189,11 +189,12 @@ def gap_adder(seqs, maxlen):
     return nseqs
 
 
-def extractor(seqs, cnum, lenindices, outdir, cpy_num):
+def extractor(seqs, cnum, lenindices, outdir, cpy_num, add_gaps=True):
     for i in range(cnum):
         print(i, lenindices[i][0], lenindices[i][1])
-        ctmp, caffs = prep_data(seqs, lenindices[i][0], lenindices[i][1], cpy_num=cpy_num)
-        c_adj = gap_adder(ctmp, lenindices[i][1])
+        c_adj, caffs = prep_data(seqs, lenindices[i][0], lenindices[i][1], cpy_num=cpy_num)
+        if add_gaps:
+            c_adj = gap_adder(c_adj, lenindices[i][1])
         write_fasta(c_adj, caffs, outdir + '_c' + str(i+1) + '.fasta')
 
 
@@ -203,7 +204,7 @@ mfolder = '/mnt/D1/phage_display_analysis/'
 # Fix this up (correct dirs)
 if focus == 'pig':
     subdir = 'pig_tissue/fasta files/'
-    odir = './pig_tissue/'  # out directory
+    odir = './pig_tissue/alignment/'  # out directory
     rounds = ['np1', 'np2', 'np3', 'n1', 'b3']
 elif focus == 'invivo':
     subdir = 'in_vivo/fasta_files/'
@@ -234,20 +235,21 @@ def initial_report(i):
     seqs, cpy_num, df = data_prop(seqs, rounds[i], outfile=odir+rounds[i]+'seq_len_report.txt')
     return df
 
-def extract_data(i, cnum, c_indices):
+def extract_data(i, cnum, c_indices, add_gaps=True):
     seqs = fasta_read(cdrounds[i])
-    seqs, cpy_num = data_prop(seqs, outfile=odir + rounds[i] + 'seq_len_report.txt')
+    seqs, cpy_num, df = data_prop(seqs, rounds[i], outfile=odir + rounds[i] + 'seq_len_report.txt')
     ecseqs = corrector(seqs, cdr3_mut_possiblilites, lmin=80, lmax=80)
     seqs += ecseqs
-    extractor(seqs, cnum, c_indices, odir + rounds[i], cpy_num)
+    extractor(seqs, cnum, c_indices, odir + rounds[i], cpy_num, add_gaps=add_gaps)
 
 
 ### Nice Violin Plot of Data Lengths
 # dfs = []
-# for j in range(len(rounds)):
+for j in range(len(rounds)):
+    extract_data(j, 1, [[35, 45]], add_gaps=False)
 #     df = initial_report(j)
 #     dfs.append(df)
-#     # extract_data(j, 2, [[12, 22], [35, 45]])
+
 #
 # ultdf = pd.concat(dfs)
 #
@@ -340,8 +342,8 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=True)
-
-w_script_names = [x+"_w" for x in script_names]
-
-write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=True)
+# write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=True)
+#
+# w_script_names = [x+"_w" for x in script_names]
+#
+# write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=True)

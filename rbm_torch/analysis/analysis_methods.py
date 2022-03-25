@@ -154,7 +154,8 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     h_num = rbm.h_num
     base_to_id = int_to_letter_dicts[rbm.molecule]
     data_tensor, weights = dataframe_to_input(dataframe, base_to_id, v_num, weights=True)
-    input_hiddens = rbm.compute_output_v(data_tensor)
+    rbm.prep_W()
+    input_hiddens = rbm.compute_output_v(data_tensor).detach().numpy()
 
     # Get Beta and sort hidden Units by Frobenius Norms
     beta, W = get_beta_and_W(rbm)
@@ -177,7 +178,7 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     for hid, hu_num in enumerate(hidden_unit_numbers):
         ix = order[hu_num]  # get weight index
         # Make Sequence Logo
-        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weight", ylabel=f"Weight #{hu_num}", ticks_every=1, ticks_labels_size=14, title_size=20, molecule='protein')
+        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
         # Make CGF Plot
         # x = lims[ix]
         # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
@@ -213,7 +214,7 @@ if __name__ == '__main__':
     # b3_input, b3_weight_list = dataframe_to_input(b3_data, int_to_letter_dicts["protein"], 45, weights=True)
     checkp, v_dir = get_checkpoint_path("b3_c2", rbmdir=mdir)
     b3_rbm = RBM.load_from_checkpoint(checkp)
-    cgf_with_weights_plot(b3_rbm, b3_data, [0, 1, 2])
+    cgf_with_weights_plot(b3_rbm, b3_data, [0, 1, 2, 5, 8, 9, 10, 12, 14, 16])
     print("hello")
 
 

@@ -28,27 +28,44 @@ import copy
 from PIL import Image
 
 
-# Globals used for
+# Globals used for Converting Sequence Strings to Integers
 aa = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', '-']
-aadict = {aa[k]: k for k in range(len(aa))}
+aalower = [x.lower() for x in aa]
+aadictU = {aa[k]: k for k in range(len(aa))}
+aadictL = {aalower[k]:k for k in range(len(aalower))}
+aadict = {**aadictU, **aadictL}
+
 dna = ['A', 'C', 'G', 'T', '-']
-dnadict = {dna[k]: k for k in range(len(dna))}
+dnalower = [x.lower() for x in dna]
+dnadictU = {dna[k]: k for k in range(len(dna))}
+dnadictL = {dnalower[k]: k for k in range(len(dnalower))}
+dnadict = {**dnadictU, **dnadictL}
+
 rna = ['A', 'C', 'G', 'U', '-']
-rnadict = {rna[k]: k for k in range(len(rna))}
+rnalower = [x.lower() for x in rna]
+rnadictU = {rna[k]: k for k in range(len(rna))}
+rnadictL = {rnalower[k]: k for k in range(len(rnalower))}
+rnadict = {**rnadictU, **rnadictL}
+
+# Deal with wildcard values, all are equivalent
+dnadict['*'] = dnadict['-']
+dnadict['N'] = dnadict['-']
+dnadict['n'] = dnadict['-']
+
+rnadict['*'] = rnadict['-']
+rnadict['N'] = rnadict['-']
+rnadict['n'] = rnadict['-']
 
 # Changing X to be the same value as a gap as it can mean any amino acid
 aadict['X'] = aadict['-']
+aadict['x'] = aadict['-']
+aadict['*'] = aadict['-']
+
 aadict['B'] = len(aa)
 aadict['Z'] = len(aa)
-for k, key in enumerate(['a', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'y']):
-    aadict[key] = aadict[aa[k]]
-aadict['x'] = aadict['-']
 aadict['b'] = len(aa)
 aadict['z'] = -1
 aadict['.'] = -1
-
-
-
 
 
 
@@ -220,7 +237,7 @@ def build_scores2_break(matrix, selected):
     maxi_size = np.abs(matrix).sum(-1).max()
     return all_scores, maxi_size
 
-
+# Needed to generate Sequence Logos
 dna = ['A', 'C', 'G', 'T', '$\\boxminus$']
 rna = ['A', 'C', 'G', 'U', '$\\boxminus$']
 fp = FontProperties(family="Arial", weight="bold")
@@ -246,8 +263,7 @@ def Sequence_logo(matrix, ax=None, data_type=None, figsize=None, ylabel=None, ti
     elif data_type == 'weights':
         all_scores = build_scores2(matrix)
     else:
-        print
-        'data type not understood'
+        print('data type not understood')
         return -1
 
     if ax is not None:

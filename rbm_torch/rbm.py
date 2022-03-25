@@ -23,7 +23,7 @@ class RBMCaterogical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu', one_hot=False):
+    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu', one_hot=False):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -35,13 +35,11 @@ class RBMCaterogical(Dataset):
         # dictionaries mapping One letter code to integer for all macro molecule types
         if base_to_id == 'protein':
             self.base_to_id = aadict
-            self.n_bases = 21
         elif base_to_id == 'dna':
             self.base_to_id = dnadict
-            self.n_bases = 5
         elif base_to_id == 'rna':
             self.base_to_id = rnadict
-            self.n_bases = 5
+        self.n_bases = q
 
         self.device = device # Makes sure everything is on correct device
 
@@ -292,6 +290,9 @@ class RBM(LightningModule):
         self.trip_duration = None
         self.update_betas_lr = 0.1
         self.update_betas_lr_decay = 1
+
+    def prep_W(self): # enforces
+        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
 
     ############################################################# RBM Functions
     ## Compute Psudeo likelihood of given visible config
@@ -675,7 +676,8 @@ class RBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = RBMCaterogical(self.training_data, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        train_reader = RBMCaterogical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
+                                    shuffle=False, base_to_id=self.molecule, device=self.device)
 
         # initialize fields from data
         if init_fields:
@@ -705,7 +707,8 @@ class RBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = RBMCaterogical(self.validation_data, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        val_reader = RBMCaterogical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
+                                    shuffle=False, base_to_id=self.molecule, device=self.device)
 
         return DataLoader(
             val_reader,
@@ -734,7 +737,7 @@ class RBM(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # Needed for PsuedoLikelihood calculation
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        self.prep_W()
 
         seqs, V_pos, seq_weights = batch
 
@@ -809,7 +812,7 @@ class RBM(LightningModule):
 
     def forward_PCD(self, batch_idx):
         # Enforces Zero Sum Gauge on Weights
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        self.prep_W()
 
         # Gibbs sampling with Persistent Contrastive Divergence
         # pytorch lightning handles the device
@@ -934,7 +937,7 @@ class RBM(LightningModule):
 
     def forward(self, V_pos):
         # Enforces Zero Sum Gauge on Weights
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        self.prep_W()
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
@@ -971,7 +974,7 @@ class RBM(LightningModule):
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
         # Needs to be set
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        self.prep_W()
         reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
@@ -990,7 +993,7 @@ class RBM(LightningModule):
 
     # Don't use this
     def predict_psuedo(self, X):
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        self.prep_W()
         reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
@@ -1366,12 +1369,13 @@ if __name__ == '__main__':
     large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
     b3_c1 = "../pig_tissue/b3_c1.fasta"
+    bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
-    config = {"fasta_file": lattice_data,
-              "molecule": "protein",
-              "h_num": 10,  # number of hidden units, can be variable
-              "v_num": 27,
-              "q": 21,
+    config = {"fasta_file": bivalent_data,
+              "molecule": "dna",
+              "h_num": 20,  # number of hidden units, can be variable
+              "v_num": 40,
+              "q": 4,
               "batch_size": 10000,
               "mc_moves": 6,
               "seed": 38,
@@ -1382,7 +1386,7 @@ if __name__ == '__main__':
               "sample_type": "gibbs",    # gibbs, pt, or pcd
               "sequence_weights": None,
               "optimizer": "AdamW",
-              "epochs": 100,
+              "epochs": 200,
               "weight_decay": 0.001,  # l2 norm on all parameters
               "l1_2": 0.185,
               "lf": 0.002,
@@ -1392,7 +1396,7 @@ if __name__ == '__main__':
 
     # Training Code
     rbm_lat = RBM(config, debug=False)
-    logger = TensorBoardLogger('tb_logs', name='lattice_trial')
+    logger = TensorBoardLogger('tb_logs', name='bivalent_trial')
     trainer = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     trainer.fit(rbm_lat)
 
