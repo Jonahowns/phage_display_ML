@@ -15,6 +15,7 @@
 
 source activate exmachina3
 
-python rbm_train.py FOCUS DATA_PATH MOLECULE VISIBLE HIDDEN EPOCHS GPU_NUM WEIGHTS GAPS
+python rbm_train.py FOCUS DATA_PATH EPOCHS GPU_NUM WEIGHTS
 
-#python rbm_train.sh focus Data_Path Molecule Visible Hidden Epochs Gpus Weights gaps
+#python rbm_train.sh focus Data_Path Epochs Gpus Weights
+

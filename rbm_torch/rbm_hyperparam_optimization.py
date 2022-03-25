@@ -1,19 +1,16 @@
-# import sklearn
 import ray.tune as tune
-# from ray.tune import CLIReporter
-# from ray.tune.schedulers import ASHAScheduler, PopulationBasedTraining
 from ray.tune.integration.pytorch_lightning import TuneReportCallback, TuneReportCheckpointCallback
-# from ray.tune.suggest.bayesopt import BayesOptSearch
-# import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
 import numpy as np
-# import multiprocessing as mp
 import math
 import argparse
 
+# local files
 from rbm import RBM
+import configs
+import hyper_configs
 
 
 def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
@@ -176,99 +173,56 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
     trainer.fit(rbm)
 
 if __name__ == '__main__':
-    ### If using Grid
-    # Number of Trials = Number of Samples * Number of Grid Parameter Combinations
-    ### If using Random Choice Only
-    # Number of Trials = Number of Samples
-
-    ######## Define Hyperparameters Here ########
-    # All hyperparameters that can be optimized via population based Tuning
-
-    ### All Options that are currently supported
-    # sample_hyperparams_of_interest = {
-    #     "h_num": {"grid": [10, 120, 250, 1000]},  # number of hidden units, can be variable
-    #     "batch_size": {"choice": [5000, 10000, 20000]},
-    #     "mc_moves": {"grid": [4, 8]},
-    #     "lr": {"uniform": [1e-5, 1e-1]},
-    #     "decay_after": {"grid": [0.5, 0.75, 0.9]},  # Fraction of epochs to have exponential decay after
-    #     "loss_type": {"choice": ["free_energy", "energy"]},
-    #     "sample_type": {"choice": ["gibbs", "pt"]},
-    #     "optimizer": {"choice": ["AdamW", "SGD", "Adagrad"]},
-    #     "epochs": {"choice": [100, 200, 1000]},
-    #     "weight_decay": {"uniform": [1e-5, 1e-1]},
-    #     "l1_2": {"uniform": [0.15, 0.6]},
-    #     "lf": {"uniform": [1e-5, 1e-2]},
-    # }
-
-    # Some of the more pertinent hyper parameters with direct effect on weights, loss, and gradient
-    # reg_opt = {
-    #     "weight_decay": {"uniform": [1e-5, 1e-1]},
-    #     "l1_2": {"uniform": [0.15, 0.6]},
-    #     "lf": {"uniform": [1e-5, 1e-2]},
-    #     "lr": {"uniform": [1e-5, 1e-1]}
-    # }
-
-    # hyperparams of interest
-    hidden_opt = {
-        "h_num": {"grid": [20, 60, 100, 200]},
-        # "h_num": {"grid": [5, 10, 15, 20]},
-        # "batch_size": {"choice": [10000, 20000]},
-        "l1_2": {"uniform": [0.15, 0.6]},
-        "lr": {"choice": [1e-3, 6e-3]},
-        "lf": {"uniform": [1e-4, 1e-2]}
-        # "mc_moves": {"choice": [4, 8]},
-    }
-
-
-    # local Test
     os.environ["SLURM_JOB_NAME"] = "bash"   # server runs crash without this line (yay raytune)
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
 
     # Parse arguments
     parser = argparse.ArgumentParser(description="RBM Training on Provided Dataset")
+    parser.add_argument('focus', type=str, help="Short string identifier for setting default options")
     parser.add_argument('dataset_fullpath', type=str, help="Full Path (not relative) of the fasta file used for training")
-    parser.add_argument('visible_num', type=int, help="Number of Visible Nodes")
-    parser.add_argument('molecule', type=str, help="DNA, RNA, or Protein")
     parser.add_argument('samples', type=int, help="Number of Ray Tune Samples")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of gpus per trial")
     parser.add_argument('cpus', type=int, help="Number of cpus per trial")
     parser.add_argument('data_workers', type=int, help="Number of data workers ")
     parser.add_argument('weights', type=bool, help="Weight Sequences by their count?")
-    parser.add_argument('gaps', type=bool, help="Gaps in the alignment?")
     args = parser.parse_args()
 
-    search = "asha"  # must be either pbt or asha, the optimization method
-    optimization = hidden_opt  # which hyperparameter dictionary to use for actual run
+    # Set weights argument, used by RBM's config
+    weights = None
+    if args.weights is True:
+        weights = "fasta"  # All weights are already in the processed files
 
-    if args.gaps is True:
-        molecule_states = {"dna": 5, "rna": 5, "protein": 21}  # with gaps
+    file = os.path.basename(args.dataset_fullpath)
+    name = file.split(".")[0]  # short specifier of round etc.
+
+    # Weighted RBMS are put into separate tensorboard folders
+    if weights is not None:
+        name += "_w"
+
+    # set default config
+    if args.focus == "pig":
+        if "c1" in name:
+            config = configs.pig_c1_default_config
+        elif "c2" in name:
+            config = configs.pig_c2_default_config
+    elif args.focus == "cov":
+        config = configs.cov_default_config
     else:
-        molecule_states = {"dna": 4, "rna": 4, "protein": 20}
+        print("Focus Not Supported. Please Add focus to this script and add default config to configs.py")
+        exit(-1)
 
-    # Default Values, the optimization dictionary replaces the default values
-    config = {"fasta_file": args.dataset_fullpath,
-              "molecule": args.molecule,
-              "h_num": 10,  # number of hidden units, can be variable
-              "v_num": args.visible_num,
-              "q": molecule_states[args.molecule],
-              "batch_size": 20000,
-              "mc_moves": 6,
-              "seed": 38,
-              "lr": 0.0065,
-              "lr_final": None,
-              "decay_after": 0.75,
-              "loss_type": "free_energy",
-              "sample_type": "gibbs",
-              "sequence_weights": None,
-              "optimizer": "AdamW",
-              "epochs": args.epochs,
-              "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.185,
-              "lf": 0.002,
-              "data_worker_num": args.data_workers
-              }
+    # Assign Run specific parameters
+    config["fasta_file"] = args.dataset_fullpath
+    config["sequence_weights"] = weights
+    config["epochs"] = args.epochs
+    config["data_worker_num"] = args.data_workers
 
+    # Set search Parameters
+    search = "asha"
+    optimization = hyper_configs.hidden_opt  # From hyper_configs, Sets which hyperparameters are optimized
+
+    # Launch Hyperparameter Optimization Task
     if search == "pbt":
         pbt_rbm(config,
                 optimization,

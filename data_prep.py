@@ -245,8 +245,11 @@ def extract_data(i, cnum, c_indices, add_gaps=True):
 
 ### Nice Violin Plot of Data Lengths
 # dfs = []
-for j in range(len(rounds)):
-    extract_data(j, 1, [[35, 45]], add_gaps=False)
+
+# get data into new files based on length
+# for j in range(len(rounds)):
+#     extract_data(j, 1, [[35, 45]], add_gaps=False)
+
 #     df = initial_report(j)
 #     dfs.append(df)
 
@@ -315,21 +318,17 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             vis = 22
         elif "c"+str(2) in rbmnames[i]:# cluster 2 has 22 visible units
             vis = 45
-        
+
+        # python rbm_train.sh focus Data_Path Epochs Gpus Weights
         # Replace the Strings we want
         filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
-        filedata = filedata.replace("MOLECULE", "protein")
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        filedata = filedata.replace("DESTINATION", destination)
-        filedata = filedata.replace("HIDDEN", str(hiddenunits))
-        filedata = filedata.replace("VISIBLE", str(vis))
         filedata = filedata.replace("PARTITION", "htcgpu")
         filedata = filedata.replace("QUEUE", "normal")
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
-        filedata = filedata.replace("GAPS", str(gaps))
 
         with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
             file.write(filedata)
@@ -342,8 +341,8 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-# write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=True)
-#
-# w_script_names = [x+"_w" for x in script_names]
-#
-# write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=True)
+write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=True)
+
+w_script_names = [x+"_w" for x in script_names]
+
+write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=True)

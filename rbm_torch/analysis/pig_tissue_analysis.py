@@ -48,7 +48,7 @@ def get_checkpoint_path(round, version=None):
 #     all_weights(rbm, mdir+round+"/"+round+"_weights", 5, 1, 10, 5, "protein")
     
 
-data = fetch_data(c1_rounds, dir="../pig_tissue")
+data = fetch_data(c1_rounds, dir="../../pig_tissue")
 for rid, round in enumerate(c1_rounds):
     if rid > 0:
         break

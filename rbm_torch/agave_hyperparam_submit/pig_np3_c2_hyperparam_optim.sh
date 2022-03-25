@@ -16,6 +16,6 @@
 
 source activate exmachina3
 
-python rbm_hyperparam_optimization.py /scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/np3_c2.fasta 45 protein 3 100 1 12 6 False True
+python rbm_hyperparam_optimization.py pig /scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/np3_c2.fasta 2 100 1 12 6 False
 
-# python rbm_hyperparam_optimization.py DATASET_PATH VISIBLE_NUM MOLECULE SAMPLES EPOCHS GPUS CPUS DATAWORKERS WEIGHTS GAPS
+# python rbm_hyperparam_optimization.py FOCUS DATASET_PATH SAMPLES EPOCHS GPUS CPUS DATAWORKERS WEIGHTS

@@ -176,17 +176,12 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         # Replace the Strings we want
         filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
-        filedata = filedata.replace("MOLECULE", "protein")
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        filedata = filedata.replace("DESTINATION", destination)
-        filedata = filedata.replace("HIDDEN", str(hiddenunits))
-        filedata = filedata.replace("VISIBLE", str(vis))
         filedata = filedata.replace("PARTITION", "htcgpu")
         filedata = filedata.replace("QUEUE", "normal")
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
-        filedata = filedata.replace("GAPS", str(gaps))
 
         with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
             file.write(filedata)
