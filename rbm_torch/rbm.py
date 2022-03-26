@@ -15,8 +15,8 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
-import rbm_utils
-from rbm_utils import aadict, dnadict, rnadict
+# import rbm_utils
+from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all
 
 
 class RBMCaterogical(Dataset):
@@ -638,11 +638,16 @@ class RBM(LightningModule):
         try:
             # make and partition data
             if self.weights == "fasta":
-                seqs, seq_read_counts = fasta_read(self.fasta_file, seq_read_counts=True, drop_duplicates=True)
+                all_chars, q_data, seqs, seq_read_counts = fasta_read(self.fasta_file, seq_read_counts=True,
+                                                                      drop_duplicates=True, yield_q=True, char_set=True)
                 self.weights = np.asarray(seq_read_counts)
             else:
-                seqs = fasta_read(self.fasta_file, seq_read_counts=False, drop_duplicates=True)
-                seq_read_counts = self.weights
+                all_chars, q_data, seqs = fasta_read(self.fasta_file, seq_read_counts=False, drop_duplicates=True,
+                                                     yield_q=True, char_set=True)
+            if q_data != self.q:
+                print(
+                    f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
+                exit(-1)
 
             if self.weights is None:
                 data = pd.DataFrame(data={'sequence': seqs})
@@ -1323,21 +1328,32 @@ class RBM(LightningModule):
 # >seq1-5
 # ACGPTTACDKLLE
 # Fasta File Reader
-def fasta_read(fastafile, seq_read_counts=False, drop_duplicates=False):
+def fasta_read(fastafile, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
     o = open(fastafile)
     titles = []
     seqs = []
+    all_chars = []
     for line in o:
         if line.startswith('>'):
             if seq_read_counts:
                 titles.append(float(line.rstrip().split('-')[1]))
         else:
-            seqs.append(line.rstrip())
+            seq = line.rstrip()
+            letters = set(list(seq))
+            for l in letters:
+                if l not in all_chars:
+                    all_chars.append(l)
+            seqs.append(seq)
     o.close()
     if drop_duplicates:
         all_seqs = pd.DataFrame(seqs).drop_duplicates()
         seqs = all_seqs.values.tolist()
         seqs = [j for i in seqs for j in i]
+
+    if char_set:
+        yield all_chars
+    if yield_q:
+        yield len(all_chars)
 
     if seq_read_counts:
         return seqs, titles
@@ -1360,7 +1376,7 @@ def get_beta_and_W(rbm):
 def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
     beta, W = get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
-    fig = rbm_utils.Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
+    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
 
 
 if __name__ == '__main__':
