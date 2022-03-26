@@ -49,7 +49,7 @@ pig_c2_default_config = {"fasta_file": "",
 cov_default_config = {"fasta_file": "",
           "h_num": 40,  # number of hidden units, can be variable
           "v_num": 40,
-          "q": 4,
+          "q": 5,
           "molecule": "dna",
           "epochs": 200,
           "seed": seed,
