@@ -1,7 +1,7 @@
 import math
 import os
 import time
-from multiprocessing import cpu_count  # Just to set the worker number
+from multiprocessing import cpu_count, Pool  # Just to set the worker number
 
 import numpy as np
 import pandas as pd
@@ -636,28 +636,24 @@ class RBM(LightningModule):
     ## Loads Data to be trained from provided fasta file
     def prepare_data(self):
         try:
-            # make and partition data
-            if self.weights == "fasta":
-                all_chars, q_data, seqs, seq_read_counts = fasta_read(self.fasta_file, seq_read_counts=True,
-                                                                      drop_duplicates=True, yield_q=True, char_set=True)
-                self.weights = np.asarray(seq_read_counts)
-            else:
-                all_chars, q_data, seqs = fasta_read(self.fasta_file, seq_read_counts=False, drop_duplicates=True,
-                                                     yield_q=True, char_set=True)
-            if q_data != self.q:
-                print(
-                    f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
-                exit(-1)
+            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, drop_duplicates=True, threads=self.worker_num)
+        except IOError:
+            print(f"Provided Fasta File '{self.fasta_file}' Not Found")
+            print(f"Current Directory '{os.curdir}'")
+            exit()
+
+        if self.weights == "fasta":
+            self.weights = np.asarray(seq_read_counts)
+
+        if q_data != self.q:
+            print(
+                f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
+            exit(-1)
 
             if self.weights is None:
                 data = pd.DataFrame(data={'sequence': seqs})
             else:
                 data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
-
-        except IOError:
-            print(f"Provided Fasta File '{self.fasta_file}' Not Found")
-            print(f"Current Directory '{os.curdir}'")
-            exit()
 
         train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
         self.validation_data = validate
@@ -1328,7 +1324,87 @@ class RBM(LightningModule):
 # >seq1-5
 # ACGPTTACDKLLE
 # Fasta File Reader
-def fasta_read(fastafile, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
+def fasta_read(fastafile, threads=1, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
+    o = open(fastafile)
+    all_content = o.readlines()
+    o.close()
+
+    line_num = math.floor(len(all_content)/threads)
+    # 100 lines 10 threads line_num = 10
+    # 0 10 10 20 20 30 30 40 40 50 50 60 60 70 70 80 80 90 90 100
+    # 10 20 30 40 50 60 70 80 90 100
+    initial_bounds = [line_num*(i+1) for i in range(threads)]
+    # initial_bounds = initial_bounds[:-1]
+    initial_bounds.insert(0, 0)
+    new_bounds = []
+    for bound in initial_bounds[:-1]:
+        idx = bound
+        while not all_content[idx].startswith(">"):
+            idx += 1
+        new_bounds.append(idx)
+    new_bounds.append(len(all_content))
+
+    split_content = (all_content[new_bounds[xid]:new_bounds[xid+1]] for xid, x in enumerate(new_bounds[:-1]))
+
+    p = Pool(threads)
+
+    start = time.time()
+    results = p.map(process_lines, split_content)
+    end = time.time()
+
+    print("Process Time", end-start)
+    all_seqs, all_counts, all_chars = [], [], []
+    for i in range(threads):
+        all_seqs += results[i][0]
+        all_counts += results[i][1]
+        for char in results[i][2]:
+            if char not in all_chars:
+                all_chars.append(char)
+
+    q = len(all_chars)
+
+    if drop_duplicates:
+        if not all_counts:   # check if counts were found from fasta file
+            all_counts = [1 for x in range(len(all_seqs))]
+        assert len(all_seqs) == len(all_counts)
+        df = pd.DataFrame({"sequence": all_seqs, "copy_num":all_counts})
+        ndf = df.drop_duplicates(subset="sequence", keep="first")
+        all_seqs = ndf.sequence.tolist()
+        all_counts = ndf.copy_num.tolist()
+
+    return all_seqs, all_counts, all_chars, q
+
+
+def process_lines(assigned_lines):
+    titles, seqs, all_chars = [], [], []
+
+    hdr_indices = []
+    for lid, line in enumerate(assigned_lines):
+        if line.startswith('>'):
+            hdr_indices.append(lid)
+
+    for hid, hdr in enumerate(hdr_indices):
+        try:
+            titles.append(float(assigned_lines[hdr].rstrip().split('-')[1]))
+        except IndexError:
+            pass
+
+        if hid == len(hdr_indices) - 1:
+            seq = "".join([line.rstrip() for line in assigned_lines[hdr + 1:]])
+        else:
+            seq = "".join([line.rstrip() for line in assigned_lines[hdr + 1: hdr_indices[hid+1]]])
+
+        seqs.append(seq.upper())
+
+    for seq in seqs:
+        letters = set(list(seq))
+        for l in letters:
+            if l not in all_chars:
+                all_chars.append(l)
+
+    return seqs, titles, all_chars
+
+def fasta_read_old(fastafile, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
     o = open(fastafile)
     titles = []
     seqs = []
@@ -1350,15 +1426,11 @@ def fasta_read(fastafile, seq_read_counts=False, drop_duplicates=False, char_set
         seqs = all_seqs.values.tolist()
         seqs = [j for i in seqs for j in i]
 
-    if char_set:
-        yield all_chars
-    if yield_q:
-        yield len(all_chars)
-
     if seq_read_counts:
         return seqs, titles
     else:
         return seqs
+
 
 # Get Model from checkpoint File with specified version and directory
 def get_checkpoint(version, dir=""):
@@ -1381,38 +1453,55 @@ def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
 
 if __name__ == '__main__':
     # pytorch lightning loop
-    data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
-    large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
-    b3_c1 = "../pig_tissue/b3_c1.fasta"
-    bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
+    large_data_file = '../invivo/chronic1_spleen_c1.fasta'  # gpu is faster
 
-    config = {"fasta_file": bivalent_data,
-              "molecule": "dna",
-              "h_num": 20,  # number of hidden units, can be variable
-              "v_num": 40,
-              "q": 4,
-              "batch_size": 10000,
-              "mc_moves": 6,
-              "seed": 38,
-              "lr": 0.0065,
-              "lr_final": None,
-              "decay_after": 0.75,
-              "loss_type": "energy",
-              "sample_type": "gibbs",    # gibbs, pt, or pcd
-              "sequence_weights": None,
-              "optimizer": "AdamW",
-              "epochs": 200,
-              "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.185,
-              "lf": 0.002,
-              # "data_worker_num": 10  # Optionally Set these
-              }
+    def lattice_thread_test(tnum):
+        start = time.time()
+        seqs, seq_read_counts, all_chars, q_data = fasta_read(large_data_file, drop_duplicates=True, threads=tnum)
+        end = time.time()
+        print(f"{tnum} threads time:", end - start)
+
+    lattice_thread_test(2)
+    lattice_thread_test(8)
+    lattice_thread_test(1)
 
 
-    # Training Code
-    rbm_lat = RBM(config, debug=False)
-    logger = TensorBoardLogger('tb_logs', name='bivalent_trial')
-    trainer = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    trainer.fit(rbm_lat)
+
+
+
+    # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
+    # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
+    # lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    # b3_c1 = "../pig_tissue/b3_c1.fasta"
+    # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
+    #
+    # config = {"fasta_file": bivalent_data,
+    #           "molecule": "dna",
+    #           "h_num": 20,  # number of hidden units, can be variable
+    #           "v_num": 40,
+    #           "q": 4,
+    #           "batch_size": 10000,
+    #           "mc_moves": 6,
+    #           "seed": 38,
+    #           "lr": 0.0065,
+    #           "lr_final": None,
+    #           "decay_after": 0.75,
+    #           "loss_type": "energy",
+    #           "sample_type": "gibbs",    # gibbs, pt, or pcd
+    #           "sequence_weights": None,
+    #           "optimizer": "AdamW",
+    #           "epochs": 200,
+    #           "weight_decay": 0.001,  # l2 norm on all parameters
+    #           "l1_2": 0.185,
+    #           "lf": 0.002,
+    #           # "data_worker_num": 10  # Optionally Set these
+    #           }
+    #
+    #
+    # # Training Code
+    # rbm_lat = RBM(config, debug=False)
+    # logger = TensorBoardLogger('tb_logs', name='bivalent_trial')
+    # trainer = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # trainer.fit(rbm_lat)
 
