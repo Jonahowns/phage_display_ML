@@ -53,7 +53,7 @@ if __name__ == '__main__':
     config["epochs"] = args.epochs
 
     # Training Code
-    rbm = RBM(config, debug=True)
+    rbm = RBM(config, debug=False)
     logger = TensorBoardLogger('../' + log_dirs[args.focus] + "/trained_rbms", name=name)
     plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
     plt.fit(rbm)

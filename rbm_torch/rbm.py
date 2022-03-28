@@ -80,12 +80,14 @@ class RBMCaterogical(Dataset):
             return seq, cat_seq, weight
 
     def categorical(self, seq_dataset):
-        cat_np = torch.zeros((seq_dataset.shape[0], self.max_length), dtype=torch.long)
-        for i in range(seq_dataset.shape[0]):
-            seq = seq_dataset[i]
-            for n, base in enumerate(seq):
-               cat_np[i, n] = self.base_to_id[base]
-        return cat_np
+        return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)
+        # cat_np = torch.zeros((seq_dataset.shape[0], self.max_length), dtype=torch.long)
+        #
+        # for i in range(seq_dataset.shape[0]):
+        #     seq = seq_dataset[i]
+        #     for n, base in enumerate(seq):
+        #        cat_np[i, n] = self.base_to_id[base]
+        # return cat_np
 
     def one_hot(self, cat_dataset):
         one_hot_vector = F.one_hot(cat_dataset, num_classes=self.n_bases)
@@ -650,10 +652,10 @@ class RBM(LightningModule):
                 f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
             exit(-1)
 
-            if self.weights is None:
-                data = pd.DataFrame(data={'sequence': seqs})
-            else:
-                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
+        if self.weights is None:
+            data = pd.DataFrame(data={'sequence': seqs})
+        else:
+            data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
 
         train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
         self.validation_data = validate
@@ -1324,7 +1326,7 @@ class RBM(LightningModule):
 # >seq1-5
 # ACGPTTACDKLLE
 # Fasta File Reader
-def fasta_read(fastafile, threads=1, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
+def fasta_read(fastafile, threads=1, drop_duplicates=False):
     o = open(fastafile)
     all_content = o.readlines()
     o.close()
@@ -1453,21 +1455,23 @@ def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
 
 if __name__ == '__main__':
     # pytorch lightning loop
-    lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
-    large_data_file = '../invivo/chronic1_spleen_c1.fasta'  # gpu is faster
 
-    def lattice_thread_test(tnum):
-        start = time.time()
-        seqs, seq_read_counts, all_chars, q_data = fasta_read(large_data_file, drop_duplicates=True, threads=tnum)
-        end = time.time()
-        print(f"{tnum} threads time:", end - start)
+    # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
+    # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
+    # lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    # b3_c1 = "../pig_tissue/b3_c1.fasta"
+    # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
-    lattice_thread_test(2)
-    lattice_thread_test(8)
-    lattice_thread_test(1)
-
-
-
+    # Fasta reading speed Test
+    # def fasta_thread_test(tnum, data_file):
+    #     start = time.time()
+    #     seqs, seq_read_counts, all_chars, q_data = fasta_read(data_file, drop_duplicates=True, threads=tnum)
+    #     end = time.time()
+    #     print(f"{tnum} threads time:", end - start)
+    #
+    # fasta_thread_test(2, lattice_data)
+    # fasta_thread_test(8, lattice_data)
+    # fasta_thread_test(1, lattice_data)
 
 
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
@@ -1492,16 +1496,5 @@ if __name__ == '__main__':
     #           "sequence_weights": None,
     #           "optimizer": "AdamW",
     #           "epochs": 200,
-    #           "weight_decay": 0.001,  # l2 norm on all parameters
-    #           "l1_2": 0.185,
-    #           "lf": 0.002,
-    #           # "data_worker_num": 10  # Optionally Set these
-    #           }
-    #
-    #
-    # # Training Code
-    # rbm_lat = RBM(config, debug=False)
-    # logger = TensorBoardLogger('tb_logs', name='bivalent_trial')
-    # trainer = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # trainer.fit(rbm_lat)
+    e
 
