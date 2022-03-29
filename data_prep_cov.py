@@ -161,7 +161,7 @@ if focus == "cov":
 def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(rbmnames)):
-        o = open('rbm_torch/submission_templates/rbm_train_htc.sh', 'r')
+        o = open('rbm_torch/submission_templates/rbm_train.sh', 'r')
         filedata = o.read()
         o.close()
 
@@ -177,8 +177,8 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        filedata = filedata.replace("PARTITION", "htcgpu")
-        filedata = filedata.replace("QUEUE", "normal")
+        filedata = filedata.replace("PARTITION", "sulcgpu2")
+        filedata = filedata.replace("QUEUE", "sulcgpu1")
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
