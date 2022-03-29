@@ -81,13 +81,6 @@ class RBMCaterogical(Dataset):
 
     def categorical(self, seq_dataset):
         return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)
-        # cat_np = torch.zeros((seq_dataset.shape[0], self.max_length), dtype=torch.long)
-        #
-        # for i in range(seq_dataset.shape[0]):
-        #     seq = seq_dataset[i]
-        #     for n, base in enumerate(seq):
-        #        cat_np[i, n] = self.base_to_id[base]
-        # return cat_np
 
     def one_hot(self, cat_dataset):
         one_hot_vector = F.one_hot(cat_dataset, num_classes=self.n_bases)
@@ -96,11 +89,10 @@ class RBMCaterogical(Dataset):
     # verified to work exactly as done in tubiana's implementation
     def field_init(self):
         out = torch.zeros((self.max_length, self.n_bases), device=self.device)
+        position_index = torch.arange(0, self.max_length, 1, device=self.device)
         for b in range(self.total):
-            seqoi, weight = self.train_data[b], self.train_weights[b]
-            for n in range(self.max_length):
-                out[n, seqoi[n]] += weight
-        out.div_(self.total)
+            out[position_index, self.train_data[b]] += self.train_weights[b]
+        out.div_(self.total)  # in place
 
         # invert softmax
         eps = 1e-6

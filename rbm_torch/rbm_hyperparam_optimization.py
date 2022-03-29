@@ -185,12 +185,12 @@ if __name__ == '__main__':
     parser.add_argument('gpus', type=int, help="Number of gpus per trial")
     parser.add_argument('cpus', type=int, help="Number of cpus per trial")
     parser.add_argument('data_workers', type=int, help="Number of data workers ")
-    parser.add_argument('weights', type=bool, help="Weight Sequences by their count?")
+    parser.add_argument('weights', type=str, help="Weight Sequences by their count?")
     args = parser.parse_args()
 
     # Set weights argument, used by RBM's config
     weights = None
-    if args.weights is True:
+    if args.weights in ["True", "true", "TRUE", "yes"]:
         weights = "fasta"  # All weights are already in the processed files
 
     file = os.path.basename(args.dataset_fullpath)

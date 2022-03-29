@@ -16,14 +16,14 @@ if __name__ == '__main__':
     parser.add_argument('dataset', type=str, help="Location of Data File")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of gpus available")
-    parser.add_argument('weights', type=bool, help="Use sequence count to weight sequences")
+    parser.add_argument('weights', type=str, help="Use sequence count to weight sequences")
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
 
     weights = None
-    if args.weights is True:
+    if args.weights in ["True", "true", "TRUE", "yes"]:
         weights = "fasta"  # All weights are already in the processed files
 
     log_dirs = {"pig": "pig_tissue", "invivo": "invivo", "rod":"rod", "cov":"cov"}
