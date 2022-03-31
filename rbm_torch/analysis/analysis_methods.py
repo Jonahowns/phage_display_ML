@@ -7,6 +7,7 @@ import pandas as pd
 from glob import glob
 import seaborn as sns
 import matplotlib.pyplot as plt
+import json
 import subprocess as sp
 import numpy as np
 import torch
@@ -14,22 +15,19 @@ import torch
 
 int_to_letter_dicts = {"protein": rbm_utils.aadict, "dna": rbm_utils.dnadict, "rna": rbm_utils.rnadict}
 
-# Methods for generating plots etc.
-def assign(x):
-    if x < 2:
-        return "Low"
-    elif x < 10:
-        return "Mid"
-    else:
-        return "High"
-
+# Colors Used for Likelihood Plots, can always add / change order
+supported_colors = ["b", "r", "g", "y", "m", "c", "w", "bl", "k", "c", "DarkKhaki", "DarkOrchid"]
 
 # Helper Functions for loading data and loading RBMs not in our current directory
-def fetch_data(fasta_names, dir="", counts=False):
+# assignment function assigns label based off the count (ex. returns "low" for count < 10 )
+def fetch_data(fasta_names, dir="", counts=False, assignment_function=None, threads=1):
     for xid, x in enumerate(fasta_names):
-        seqs, counts = fasta_read(dir + "/" + x + ".fasta", drop_duplicates=True, seq_read_counts=True)
+        seqs, counts, all_chars, q_data = fasta_read(dir + "/" + x + ".fasta", drop_duplicates=True, threads=threads)
         round_label = [x for i in range(len(seqs))]
-        assignment = [assign(i) for i in counts]
+        if assignment_function is not None:
+            assignment = [assignment_function(i) for i in counts]
+        else:
+            assignment = ["N/A" for i in counts]
         if xid == 0:
             data_df = pd.DataFrame({"sequence": seqs, "copynum": counts, "round": round_label, "assignment": assignment})
         else:
@@ -55,33 +53,47 @@ def get_checkpoint_path(round, version=None, rbmdir=""):
 
 
 # Returns dictionary of arrays of likelihoods
-def generate_likelihoods(rounds, RBM, all_data):
+def generate_likelihoods(rounds, RBM, all_data, identifier, dir="./generated/"):
     likelihoods = {}
+    sequences = {}
     for x in rounds:
         seqs, likeli = RBM.predict(all_data[all_data["round"] == x])
         likelihoods[x] = likeli
-    return likelihoods
+        sequences[x] = seqs
+    data = {'likelihoods': likelihoods, "sequences": sequences}
+    out = open(dir+identifier+".json", "w")
+    json.dump(data, out)
+    out.close()
 
+def get_likelihoods(likelihoodfile):
+    with open(likelihoodfile) as f:
+        data = json.load(f)
+    return data
 
 # Plot Likelihoods as kde curves with each round in a new row
-def plot_likelihoods(likeli, title, xaxislabel, order, labels, colors, clip=None):
+def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False):
+    colors = supported_colors
     plot_num = len(likeli.keys())
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
     for xid, x in enumerate(order):
-        if clip is not None:
-            y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], clip=clip)
-        else:
-            y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid])
+        if xlim is not None:
+            axs[xid].set_xlim(*xlim)
+        y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], cumulative=cdf)
         if xid == len(order) - 1:
             y.set(xlabel=xaxislabel)
         axs[xid].legend()
-    fig.suptitle(title)
+    if title:
+        fig.suptitle(title)
+    else:
+        fig.suptitle("Log-Likelihood Gaussian KDE Curve of Dataset Likelihoods by Dataset")
     plt.show()
 
 
 ## Distribution of Counts inside each experimental dataset
 def count_dist(data_w_counts, title):
-    sns.histplot(data_w_counts, x="round", hue="assignment", multiple="stack", palette="rocket")
+    fig, axs = plt.subplots(2, 1)
+    sns.histplot(data_w_counts, ax=axs[0], x="round", hue="assignment", multiple="stack", palette="rocket", stat="percent")
+    sns.histplot(data_w_counts, ax=axs[1], x="round", hue="assignment", multiple="stack", palette="rocket", stat="count")
     plt.suptitle(title)
     plt.show()
 
@@ -90,7 +102,12 @@ def count_dist(data_w_counts, title):
 def compare_likelihood_correlation(likeli1, likeli2, title, rounds):
     fig, axs = plt.subplots(1, 1)
     axs.scatter(likeli1, likeli2, cmap="plasma", alpha=0.75, marker=".")
-    axs.set(xlabel=f"Log-Likelihood {rounds[1]}", ylabel=f"Log-Likelihood {rounds[0]}")
+    # Fit dashed black line
+    coef = np.polyfit(likeli1, likeli2, 1)
+    poly1d_fn = np.poly1d(coef)
+    # poly1d_fn is now a function which takes in x and returns an estimate for y
+    axs.plot(likeli1, poly1d_fn(likeli1), '--k') #'--k'=black dashed line, 'yo' = yellow circle marker
+    axs.set(xlabel=f"Log-Likelihood {rounds[0]}", ylabel=f"Log-Likelihood {rounds[1]}")
     fig.suptitle(title)
     plt.show()
 

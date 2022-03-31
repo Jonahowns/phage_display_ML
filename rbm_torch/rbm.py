@@ -970,7 +970,7 @@ class RBM(LightningModule):
     def predict(self, X):
         # Needs to be set
         self.prep_W()
-        reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -989,7 +989,7 @@ class RBM(LightningModule):
     # Don't use this
     def predict_psuedo(self, X):
         self.prep_W()
-        reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
