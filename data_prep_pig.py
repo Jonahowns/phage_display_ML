@@ -355,8 +355,8 @@ def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
+# write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
 #
-# w_script_names = [x+"_w" for x in script_names]
-#
-# write_submission_scripts(datatype, all_rbm_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
+w_script_names = [x+"_w" for x in script_names]
+
+write_submission_scripts(datatype, all_rbm_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
