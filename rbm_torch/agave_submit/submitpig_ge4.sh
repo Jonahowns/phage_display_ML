@@ -1,0 +1,21 @@
+#!/bin/bash
+sbatch pig_ge4_0
+sbatch pig_ge4_1
+sbatch pig_ge4_2
+sbatch pig_ge4_3
+sbatch pig_ge4_4
+sbatch pig_ge4_5
+sbatch pig_ge4_6
+sbatch pig_ge4_7
+sbatch pig_ge4_8
+sbatch pig_ge4_9
+sbatch pig_ge4_10
+sbatch pig_ge4_11
+sbatch pig_ge4_12
+sbatch pig_ge4_13
+sbatch pig_ge4_14
+sbatch pig_ge4_15
+sbatch pig_ge4_16
+sbatch pig_ge4_17
+sbatch pig_ge4_18
+sbatch pig_ge4_19

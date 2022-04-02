@@ -211,7 +211,7 @@ gm2_datatype = {"id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_posit
 ge4_datatype = {"id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40,45]]}
 gm4_datatype = {"id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40,45]]}
 
-datatype = gm4_datatype  # Change this to change the which dataset is generating files
+datatype = ge4_datatype  # Change this to change the which dataset is generating files
 
 
 # Fix this up (correct dirs)
@@ -356,7 +356,7 @@ def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data
 
 
 write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
-
+#
 # w_script_names = [x+"_w" for x in script_names]
 #
-# write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=True)
+# write_submission_scripts(datatype, all_rbm_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
