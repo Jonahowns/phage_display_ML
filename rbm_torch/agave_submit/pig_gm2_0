@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH -c 4
 #SBATCH -t 7-00:00               # wall time (D-HH:MM)
-#SBATCH -p sulcgpu1
+#SBATCH -p sulcgpu2
 #SBATCH -q sulcgpu1
 #SBATCH --gres=gpu:1
 #SBATCH -o slurm_np1_c1pig_gm2_0.%j.out          # STDOUT (%j = JobId)

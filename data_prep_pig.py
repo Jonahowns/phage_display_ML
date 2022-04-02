@@ -211,7 +211,7 @@ gm2_datatype = {"id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_posit
 ge4_datatype = {"id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40,45]]}
 gm4_datatype = {"id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40,45]]}
 
-datatype = gm2_datatype  # Change this to change the which dataset is generating files
+datatype = gm4_datatype  # Change this to change the which dataset is generating files
 
 
 # Fix this up (correct dirs)
@@ -338,7 +338,7 @@ def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data
         filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        filedata = filedata.replace("PARTITION", "sulcgpu1")
+        filedata = filedata.replace("PARTITION", "sulcgpu2")
         filedata = filedata.replace("QUEUE", "sulcgpu1")
         filedata = filedata.replace("GPU_NUM", str(1))
         filedata = filedata.replace("EPOCHS", str(epochs))
@@ -355,7 +355,7 @@ def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, "pig_gm2", 200, weights=False, gaps=True)
+write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
 
 # w_script_names = [x+"_w" for x in script_names]
 #
