@@ -2,17 +2,6 @@ from numpy.random import randint
 
 seed = randint(0, 10000, 1)[0]
 
-pig_configs = {"pig_c1_ge2": pig_c1_2_default_config,
-               "pig_c2_ge2": pig_c2_2_default_config,
-               "pig_c1_gm2": pig_c1_2_default_config,
-               "pig_c2_gm2": pig_c2_2_default_config,
-               "pig_c1_gm4": pig_c1_4_default_config,
-               "pig_c2_gm4": pig_c2_4_default_config,
-               "pig_c3_gm4": pig_c3_4_default_config,
-               "pig_c4_gm4": pig_c4_4_default_config,
-             }
-
-
 pig_c1_2_default_config = {"fasta_file": "",
           "h_num": 20,  # number of hidden units, can be variable
           "v_num": 22,
