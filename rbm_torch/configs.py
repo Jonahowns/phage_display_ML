@@ -2,7 +2,18 @@ from numpy.random import randint
 
 seed = randint(0, 10000, 1)[0]
 
-pig_c1_default_config = {"fasta_file": "",
+pig_configs = {"pig_c1_ge2": pig_c1_2_default_config,
+               "pig_c2_ge2": pig_c2_2_default_config,
+               "pig_c1_gm2": pig_c1_2_default_config,
+               "pig_c2_gm2": pig_c2_2_default_config,
+               "pig_c1_gm4": pig_c1_4_default_config,
+               "pig_c2_gm4": pig_c2_4_default_config,
+               "pig_c3_gm4": pig_c3_4_default_config,
+               "pig_c4_gm4": pig_c4_4_default_config,
+             }
+
+
+pig_c1_2_default_config = {"fasta_file": "",
           "h_num": 20,  # number of hidden units, can be variable
           "v_num": 22,
           "q": 21,
@@ -24,7 +35,7 @@ pig_c1_default_config = {"fasta_file": "",
           "lf": 0.002,
           }
 
-pig_c2_default_config = {"fasta_file": "",
+pig_c2_2_default_config = {"fasta_file": "",
           "h_num": 20,  # number of hidden units, can be variable
           "v_num": 45,
           "q": 21,
@@ -45,6 +56,105 @@ pig_c2_default_config = {"fasta_file": "",
           "l1_2": 0.25,
           "lf": 0.002,
           }
+
+pig_c1_4_default_config = {"fasta_file": "",
+          "h_num": 20,  # number of hidden units, can be variable
+          "v_num": 16,
+          "q": 21,
+          "molecule": "protein",
+          "epochs": 200,
+          "seed": seed,
+          "data_worker_num": 4,
+          "batch_size": 10000,
+          "mc_moves": 8,
+          "lr": 0.006,
+          "lr_final": None,
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 0.25,
+          "lf": 0.002,
+          }
+
+pig_c2_4_default_config = {"fasta_file": "",
+          "h_num": 20,  # number of hidden units, can be variable
+          "v_num": 22,
+          "q": 21,
+          "molecule": "protein",
+          "epochs": 200,
+          "seed": seed,
+          "data_worker_num": 4,
+          "batch_size": 10000,
+          "mc_moves": 8,
+          "lr": 0.006,
+          "lr_final": None,
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 0.32,
+          "lf": 0.002,
+          }
+
+pig_c3_4_default_config = {"fasta_file": "",
+          "h_num": 20,  # number of hidden units, can be variable
+          "v_num": 39,
+          "q": 21,
+          "molecule": "protein",
+          "epochs": 200,
+          "seed": seed,
+          "data_worker_num": 4,
+          "batch_size": 10000,
+          "mc_moves": 8,
+          "lr": 0.006,
+          "lr_final": None,
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 0.38,
+          "lf": 0.002,
+          }
+
+pig_c4_4_default_config = {"fasta_file": "",
+          "h_num": 20,  # number of hidden units, can be variable
+          "v_num": 45,
+          "q": 21,
+          "molecule": "protein",
+          "epochs": 200,
+          "seed": seed,
+          "data_worker_num": 4,
+          "batch_size": 10000,
+          "mc_moves": 8,
+          "lr": 0.006,
+          "lr_final": None,
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 0.45,
+          "lf": 0.002,
+          }
+
+pig_configs = {"pig_c1_ge2": pig_c1_2_default_config,
+               "pig_c2_ge2": pig_c2_2_default_config,
+               "pig_c1_gm2": pig_c1_2_default_config,
+               "pig_c2_gm2": pig_c2_2_default_config,
+               "pig_c1_gm4": pig_c1_4_default_config,
+               "pig_c2_gm4": pig_c2_4_default_config,
+               "pig_c3_gm4": pig_c3_4_default_config,
+               "pig_c4_gm4": pig_c4_4_default_config,
+             }
+
 
 cov_default_config = {"fasta_file": "",
           "h_num": 30,  # number of hidden units, can be variable

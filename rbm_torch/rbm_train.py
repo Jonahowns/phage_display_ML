@@ -26,21 +26,25 @@ if __name__ == '__main__':
     if args.weights in ["True", "true", "TRUE", "yes"]:
         weights = "fasta"  # All weights are already in the processed files
 
-    log_dirs = {"pig": "pig_tissue", "invivo": "invivo", "rod":"rod", "cov":"cov"}
+    log_dirs = {"pig_ge2": "pig_tissue/gaps_end_2_clusters",
+                "pig_gm2": "pig_tissue/gaps_middle_2_clusters",
+                "pig_gm4": "pig_tissue/gaps_middle_4_clusters",
+                "invivo": "invivo", "rod":"rod", "cov":"cov"}
 
     file = os.path.basename(args.dataset)
     name = file.split(".")[0]   # short specifier of round etc.
+
+    clusternum = int(name[-1])
 
     # Weighted RBMS are put into separate tensorboard folders
     if weights is not None:
         name += "_w"
 
     # Set Default config
-    if args.focus == "pig":
-        if "c1" in name:
-            config = configs.pig_c1_default_config
-        elif "c2" in name:
-            config = configs.pig_c2_default_config
+    if "pig" in args.focus:
+        process_id = args.focus[-3:]
+        configkey = "pig_" + f"c{clusternum}_" + process_id
+        config = configs.pig_configs[configkey]
     elif args.focus == "cov":
         config = configs.cov_default_config
     else:

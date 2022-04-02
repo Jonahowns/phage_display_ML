@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn
 import seaborn as sns
+import os
 
 aa = ['-', 'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
 aad = {'-': 0, 'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9, 'L': 10, 'M': 11, 'N': 12,
@@ -29,7 +30,6 @@ def fasta_read(fastafile):
             seqs.append(line.rstrip())
     o.close()
     return seqs
-
 
 def data_prop(seqs, round, outfile=sys.stdout):
     if outfile != sys.stdout:
@@ -80,17 +80,24 @@ def prep_data(seqs, lmin=0, lmax=10, cpy_num=0):
     else:
         return fseqs
 
-def gap_adder(seqs, maxlen):
+def gap_adder(seqs, maxlen, position_indx=-1):
     nseqs = []
     for seq in seqs:
-        nseqs.append(seq.replace("*", "-") + "".join(["-" for i in range(maxlen - len(seq))]))
+        if position_indx == -1:
+            nseqs.append(seq.replace("*", "-") + "".join(["-" for i in range(maxlen - len(seq))]))
+        else:
+            tseq = seq.replace("*", "-")
+            dashes = "".join(["-" for i in range(maxlen - len(seq))])
+            tseq.insert(dashes, position_indx)
+            nseqs.append(tseq)
     return nseqs
 
-def extractor(seqs, cnum, lenindices, outdir, cpy_num):
+def extractor(seqs, cnum, lenindices, outdir, cpy_num, uniform_length=True, position_indx=-1):
     for i in range(cnum):
         print(i, lenindices[i][0], lenindices[i][1])
         ctmp, caffs = prep_data(seqs, lenindices[i][0], lenindices[i][1], cpy_num=cpy_num)
-        # c_adj = gap_adder(ctmp, lenindices[i][1])
+        if uniform_length:
+            ctmp = gap_adder(ctmp, lenindices[i][1], position_indx=position_indx)
         write_fasta(ctmp, caffs, outdir + '.fasta')
 
 
@@ -103,6 +110,14 @@ if focus == 'cov':
     odir = './cov/'  # out directory
     # rounds = [f"HanS_R{i}.txt" for i in range(1, 13)] # Unprocessed Files
     rounds = [f"r{i}" for i in range(1, 13)]  # Processed Files
+    ge_datatype = {"process": "gap_end", "clusters": 2, "gap_position_indices": [-1, -1], "cluster_indices": [[12, 22], [35, 45]]}
+    gm_datatype = {"process": "gap_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
+
+    datatype = gm_datatype  # Change this to change the which dataset is generating files
+    datatype_dir = datatype["process"] + f"_{datatype['clusters']}_clusters"
+    if not os.path.isdir(datatype_dir):
+        os.mkdir(f"./{datatype_dir}")
+        os.mkdir(f"./{datatype_dir}/trained_rbms/")
 
 
 
@@ -111,16 +126,20 @@ def initial_report(i):
     seqs, cpy_num, df = data_prop(seqs, rounds[i-1], outfile=odir+rounds[i-1]+'seq_len_report.txt')
     return df
 
-def extract_data(i, cnum, c_indices):
+
+def extract_data(i, c_indices, datatypedict, uniform_length=True):
     seqs = fasta_read(mfolder+rounds[i-1])
-    seqs, cpy_num, df = data_prop(seqs, f"r{i}",outfile=odir + rounds[i-1] + 'seq_len_report.txt')
-    extractor(seqs, cnum, c_indices, odir + f"r{i}", cpy_num)
+    c_indices = datatypedict["cluster_indices"]
+    cnum = datatypedict["clusters"]
+    seqs, cpy_num, df = data_prop(seqs, f"r{i}", outfile=odir + rounds[i-1] + 'seq_len_report.txt')
+    extractor(seqs, cnum, c_indices, odir + f"r{i}", cpy_num, uniform_length=uniform_length, position_indx=datatypedict["gap_position_indices"])
 
 # Processing the Files
-# for j in range(1, len(rounds)+1):
-    # df = initial_report(j)
-#     dfs.append(df)
-#     extract_data(j, 1, [[40, 40]])
+for j in range(1, len(rounds)+1):
+    df = initial_report(j)
+    # dfs.append(df)
+    for i in range(datatype["clusters"]):
+        extract_data(j, datatype, uniform_length=True)
 
 
 
@@ -139,24 +158,33 @@ def extract_data(i, cnum, c_indices):
 # # ax.set_xlabel("Sequence Length")
 # plt.savefig("./pig_tissue/data_length_vis.png", dpi=300)
 
+# For switching b/t datasets that were processed differently
+
 
 
 #### Prepare Submission Scripts
-
+#
 if focus == "cov":
+    # data type variable
+    datatype_dir = datatype["process"]+f"_{datatype['clusters']}_clusters"
     # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/
-    dest_path = "../cov/trained_rbms/"
-    src_path = "../cov/"
+    dest_path = f"../cov/{datatype_dir}/trained_rbms/"
+    src_path = f"../cov/{datatype_dir}/"
 
     all_data_files = [x + '.fasta' for x in rounds]
 
     all_rbm_names = rounds
 
-    script_names = ["cov"+str(i) for i in range(len(all_rbm_names))]
+    script_names = ["cov"+str(i+1) for i in range(len(all_rbm_names))]
 
     paths_to_data = [src_path + x for x in all_data_files]
 
 
+# Processing the Files
+# for j in range(1, len(rounds)+1):
+    # df = initial_report(j)
+#     dfs.append(df)
+#     extract_data(j, 1, [[40, 40]])
 
 def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
     # NAME DATA_PATH DESTINATION HIDDEN
@@ -194,8 +222,8 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False)
-#
-w_script_names = [x+"_w" for x in script_names]
-#
-write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False)
+# write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False)
+# #
+# w_script_names = [x+"_w" for x in script_names]
+# #
+# write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False)
