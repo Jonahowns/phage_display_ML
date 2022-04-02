@@ -630,7 +630,7 @@ class RBM(LightningModule):
     ## Loads Data to be trained from provided fasta file
     def prepare_data(self):
         try:
-            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, drop_duplicates=True, threads=self.worker_num)
+            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, self.molecule, drop_duplicates=True, threads=self.worker_num)
         except IOError:
             print(f"Provided Fasta File '{self.fasta_file}' Not Found")
             print(f"Current Directory '{os.curdir}'")
@@ -1318,15 +1318,13 @@ class RBM(LightningModule):
 # >seq1-5
 # ACGPTTACDKLLE
 # Fasta File Reader
-def fasta_read(fastafile, threads=1, drop_duplicates=False):
+def fasta_read(fastafile, molecule, threads=1, drop_duplicates=False):
     o = open(fastafile)
     all_content = o.readlines()
     o.close()
 
     line_num = math.floor(len(all_content)/threads)
-    # 100 lines 10 threads line_num = 10
-    # 0 10 10 20 20 30 30 40 40 50 50 60 60 70 70 80 80 90 90 100
-    # 10 20 30 40 50 60 70 80 90 100
+    # Which lines of file each process should read
     initial_bounds = [line_num*(i+1) for i in range(threads)]
     # initial_bounds = initial_bounds[:-1]
     initial_bounds.insert(0, 0)
@@ -1355,7 +1353,13 @@ def fasta_read(fastafile, threads=1, drop_duplicates=False):
             if char not in all_chars:
                 all_chars.append(char)
 
-    q = len(all_chars)
+    # Sometimes multiple characters mean the same thing, this code checks for that and adjusts q accordingly
+    valuedict = {"protein": aadict, "dna": dnadict, "rna":rnadict}
+    assert molecule in valuedict.keys()
+    char_values = [valuedict[molecule][x] for x in all_chars]
+    unique_char_values = list(set(char_values))
+
+    q = len(unique_char_values)
 
     if drop_duplicates:
         if not all_counts:   # check if counts were found from fasta file
