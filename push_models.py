@@ -35,13 +35,7 @@ transfer_client = globus_sdk.TransferClient(
 )
 
 
-## Let's Get Our Specifics, Source of the trained RBMS
-source_dir = "/scratch/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
-# Path from our endpoint since it's mounted at /scratch
-source_endpoint_dir = "/jprocyk/machine_learning/phage_display_ML/pig_tissue/trained_rbms/"
 
-# local destination on my computer
-dest_dir = "/mnt/D1/globus/pig_trained_rbms/"
 
 
 # find the latest version and return the path source_dir/version_{max}/
@@ -49,7 +43,7 @@ dest_dir = "/mnt/D1/globus/pig_trained_rbms/"
 # For example, all paths on agave have "/scratch/" as their first directory
 # So to use the agave scratch endpoint to transfer files we need to take into account that scratch is mounted directly at /scratch
 # Any paths with /scratch in them will fail
-def find_version(round, dir=source_dir, endpoint_dir=None):
+def find_version(round, source_dir, endpoint_dir=None):
     path = dir+round
     subdirs = glob(path+"/*/", recursive=True)  # list of all versions of the RBM
     versions = [int(x[:-1].rsplit("_")[-1]) for x in subdirs]  # extracted version numbers
@@ -65,7 +59,7 @@ def find_version(round, dir=source_dir, endpoint_dir=None):
         return targetdir
 
 # Create Transfer Task and Submit
-def rbm_transfer(rounds, source=source_dir, dest=dest_dir):
+def rbm_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
     # create a Transfer task consisting of one or more items
     task_data = globus_sdk.TransferData(
         transfer_client, source_endpoint_id, dest_endpoint_id
@@ -73,9 +67,9 @@ def rbm_transfer(rounds, source=source_dir, dest=dest_dir):
 
     for x in rounds:
         # Find the
-        version_dir = find_version(x, dir=source, endpoint_dir=source_endpoint_dir)
+        version_dir = find_version(x, source_dir, endpoint_dir=source_endpoint_dir)
         # Destination of our Trained RBMS
-        final_destination = dest + x + "/" + version_dir.split("/")[-2] + "/"
+        final_destination = dest_dir + x + "/" + version_dir.split("/")[-2] + "/"
 
         task_data.add_item(
             version_dir,  # source
@@ -95,30 +89,77 @@ if __name__=='__main__':
     parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
-    data_dict = {"pig_gm2": ""}
+    data_dict = {"pig_gm2": "pig_tissue/gaps_middle_2_clusters/",
+                 "pig_ge2": "pig_tissue/gaps_end_2_clusters/",
+                 "pig_ge4": "pig_tissue/gaps_end_4_clusters/",
+                 "pig_gm4": "pig_tissue/gaps_middle_4_clusters/",
+                 "cov": "cov/"}
 
+    local_dests = {"pig_gm2": "/mnt/D1/globus/pig_trained_rbms/gm2/",
+                   "pig_ge2": "/mnt/D1/globus/pig_trained_rbms/ge2/",
+                   "pig_gm4": "/mnt/D1/globus/pig_trained_rbms/gm4/",
+                   "pig_ge4": "/mnt/D1/globus/pig_trained_rbms/ge4/",
+                   "cov": "/mnt/D1/globus/cov_trained_rbms"}
 
+    assert args.datatype_str in data_dict.keys()
+    data_dir = data_dict[args.datatype_str]
+
+    # Let's Get Our Specifics, Source of the trained RBMS
+    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{data_dir}trained_rbms/"
+    # Path from our endpoint since it's mounted at /scratch
+    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{data_dir}trained_rbms/"
+
+    # local destination on my computer
+    dest_dir = local_dests[args.datatype_str]
 
     # The RBMS string specifiers
-    rounds = ["b3", "n1", "np1", "np2", "np3"]
-    c1_rounds = [x + "_c1" for x in rounds]
-    c1_rounds_w = [x + "_c1_w" for x in rounds]
-    c2_rounds = [x + "_c2" for x in rounds]
-    c2_rounds_w = [x + "_c2_w" for x in rounds]
-    all_rounds = c1_rounds+c1_rounds_w+c2_rounds+c2_rounds_w
-    
+    if "pig" in args.datatype_str:
+        rounds = ["b3", "n1", "np1", "np2", "np3"]
 
-    individual = [] # individual round specifiers are added here for one call to rbm_transfer at the end
-    for specifier in args.model_string:
-        rbm_transfer(c1_rounds) if specifier == "c1" else None
-        rbm_transfer(c2_rounds) if specifier == "c2" else None
-        rbm_transfer(c1_rounds_w) if specifier == "c1_w" else None
-        rbm_transfer(c2_rounds_w) if specifier == "c2_w" else None
-        rbm_transfer(all_rounds) if specifier == "all" else None
-        if specifier in all_rounds:
-            individual.append(specifier)
+        clusternum = int(args.datatype_str[-1])
 
-    if individual:
-        rbm_transfer(individual)
+        c_rounds = [[r+f"_c{i+1}" for r in rounds] for i in range(clusternum)]
+        c_w_rounds = [[r+f"_c{i+1}_w" for r in rounds] for i in range(clusternum)]
+
+        flat_c_rounds = [item for sublist in c_rounds for item in sublist]
+        flat_c_w_rounds = [item for sublist in c_rounds for item in sublist]
+        all_rounds = flat_c_rounds + flat_c_w_rounds
+
+        individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
+        for specifier in args.model_string:
+            if specifier.startswith("c"):
+                cluster = int(specifier[2])
+                if "_w" in specifier:
+                    individual += c_w_rounds[cluster - 1]
+                else:
+                    individual += c_rounds[cluster - 1]
+            elif specifier == "all":
+                individual += all_rounds
+            elif specifier in all_rounds:
+                individual.append(specifier)
+            else:
+                print("Specifier Strings not supported!")
+                exit(-1)
+
+    elif "cov" in args.datatype_str:
+        # The RBMS string specifiers
+        rounds = [f"r{i}" for i in range(1, 13)]
+        rounds_w = [f"r{i}_w" for i in range(1, 13)]
+        all_rounds = rounds + rounds_w
+
+        individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
+        for specifier in args.model_string:
+            if specifier == "r":
+                individual += rounds
+            elif specifier == "r_w":
+                individual += rounds_w
+            elif specifier == "all":
+                individual += all_rounds
+            elif specifier in all_rounds:
+                individual.append(specifier)
+            else:
+                print("Specifier Strings not supported!")
+                exit(-1)
 
 
+    rbm_transfer(individual, source_dir, source_endpoint_dir, dest_dir)
