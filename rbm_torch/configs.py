@@ -142,6 +142,10 @@ pig_configs = {"pig_c1_ge2": pig_c1_2_default_config,
                "pig_c2_gm4": pig_c2_4_default_config,
                "pig_c3_gm4": pig_c3_4_default_config,
                "pig_c4_gm4": pig_c4_4_default_config,
+               "pig_c1_ge4": pig_c1_4_default_config,
+               "pig_c2_ge4": pig_c2_4_default_config,
+               "pig_c3_ge4": pig_c3_4_default_config,
+               "pig_c4_ge4": pig_c4_4_default_config,
              }
 
 

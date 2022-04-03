@@ -29,6 +29,7 @@ if __name__ == '__main__':
     log_dirs = {"pig_ge2": "pig_tissue/gaps_end_2_clusters",
                 "pig_gm2": "pig_tissue/gaps_middle_2_clusters",
                 "pig_gm4": "pig_tissue/gaps_middle_4_clusters",
+                "pig_ge4": "pig_tissue/gaps_end_4_clusters",
                 "invivo": "invivo", "rod":"rod", "cov":"cov"}
 
     file = os.path.basename(args.dataset)

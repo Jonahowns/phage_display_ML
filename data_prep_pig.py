@@ -95,7 +95,7 @@ def data_prop(seqs, round, outfile=sys.stdout):
     #     plt.savefig(violin_out+".png", dpi=300)
     return useqs, copy_number, edf
 
-
+# Attempts to correct start/end amino acids of cdr3 region, by accounting for single site mutations
 def corrector(seqs, mutations, lmin=0, lmax=10):
     fseqs = prep_data(seqs, lmin=lmin, lmax=lmax)
     adjseqs = []
@@ -106,16 +106,16 @@ def corrector(seqs, mutations, lmin=0, lmax=10):
     print(f'Corrector Fixed {len(adjseqs)} sequences of {len(fseqs)}')
     return adjseqs
 
-
+# Get all
 def prep_data(seqs, lmin=0, lmax=10, cpy_num=0):
-    fseqs = []
+    fseqs, affs = [], []
     for sid, s in enumerate(seqs):
         if lmin <= len(s) <= lmax:
             fseqs.append(s)
+            affs.append(cpy_num[sid])
         else:
             continue
     if cpy_num != 0:
-        affs = [cpy_num[xid] for xid, x in enumerate(fseqs)]
         return fseqs, affs
     else:
         return fseqs
@@ -208,10 +208,10 @@ focus = 'pig'
 mfolder = '/mnt/D1/phage_display_analysis/'
 ge2_datatype = {"id": "ge2", "process": "gaps_end", "clusters": 2, "gap_position_indices": [-1, -1], "cluster_indices": [[12, 22], [35, 45]]}
 gm2_datatype = {"id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
-ge4_datatype = {"id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40,45]]}
-gm4_datatype = {"id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40,45]]}
+ge4_datatype = {"id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
+gm4_datatype = {"id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
 
-datatype = ge4_datatype  # Change this to change the which dataset is generating files
+datatype = gm4_datatype  # Change this to change the which dataset is generating files
 
 
 # Fix this up (correct dirs)
@@ -355,8 +355,8 @@ def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
+# write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
 #
-# w_script_names = [x+"_w" for x in script_names]
-#
-# write_submission_scripts(datatype, all_rbm_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
+w_script_names = [x+"_w" for x in script_names]
+
+write_submission_scripts(datatype, all_rbm_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
