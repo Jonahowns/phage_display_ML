@@ -11,6 +11,7 @@ import json
 import subprocess as sp
 import numpy as np
 import torch
+import nbformat as nbf
 
 
 int_to_letter_dicts = {"protein": rbm_utils.aadict, "dna": rbm_utils.dnadict, "rna": rbm_utils.rnadict}
@@ -218,6 +219,31 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
         axd[f"cgf{hid}"].yaxis.set_label_position("right")
     plt.show()
 
+
+
+def default_notebook(nbname, dataset, rounds):
+    # Create Notebook Object
+    nb = nbf.v4.new_notebook()
+
+    nb = generate_notebook(nb, dataset, rounds)
+
+    # 1 markdown to 1 code cell
+
+    text = """\
+    # My first automatic Jupyter Notebook
+    This is an auto-generated notebook."""
+
+    code = """\
+    %pylab inline
+    hist(normal(size=2000), bins=50);"""
+
+    nb['cells'] = [nbf.v4.new_markdown_cell(text),
+                   nbf.v4.new_code_cell(code)]
+
+    with open(nbname, 'w') as f:
+        nbf.write(nb, f)
+
+# def generate_notebook(nb, dataset, rounds):
 
 
 if __name__ == '__main__':
