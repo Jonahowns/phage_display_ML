@@ -96,9 +96,9 @@ if __name__=='__main__':
 
     destination_dir = info["local_rbm_dir"] + "trained_rbms/"
 
-    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_location']}trained_rbms/"
+    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_dir']}"
 
-    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_location']}trained_rbms/"
+    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_dir']}"
 
     # The RBMS string specifiers
     if info["focus"] == "pig":
