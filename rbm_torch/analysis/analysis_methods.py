@@ -12,6 +12,9 @@ import subprocess as sp
 import numpy as np
 import torch
 import nbformat as nbf
+from notebook_generation_methods import generate_notebook
+
+# Clusters are 1 indexed
 
 
 int_to_letter_dicts = {"protein": rbm_utils.aadict, "dna": rbm_utils.dnadict, "rna": rbm_utils.rnadict}
@@ -21,9 +24,9 @@ supported_colors = ["b", "r", "g", "y", "m", "c", "w", "bl", "k", "c", "DarkKhak
 
 # Helper Functions for loading data and loading RBMs not in our current directory
 # assignment function assigns label based off the count (ex. returns "low" for count < 10 )
-def fetch_data(fasta_names, dir="", counts=False, assignment_function=None, threads=1):
+def fetch_data(fasta_names, dir="", counts=False, assignment_function=None, threads=1, molecule="protein"):
     for xid, x in enumerate(fasta_names):
-        seqs, counts, all_chars, q_data = fasta_read(dir + "/" + x + ".fasta", drop_duplicates=True, threads=threads)
+        seqs, counts, all_chars, q_data = fasta_read(dir + "/" + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
         round_label = [x for i in range(len(seqs))]
         if assignment_function is not None:
             assignment = [assignment_function(i) for i in counts]
@@ -220,25 +223,20 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     plt.show()
 
 
-
-def default_notebook(nbname, dataset, rounds):
+# Other notebook types "default_pig", "default_cov"
+def write_notebook(nbname, datatype_str, notebook="default_pig", cluster=None, weights=False):
     # Create Notebook Object
     nb = nbf.v4.new_notebook()
 
-    nb = generate_notebook(nb, dataset, rounds)
+    # Just a list of strings, see notebook_generation_methods
+    nb_text = generate_notebook(datatype_str, cluster=cluster, weights=weights, notebook="default_pig")
 
-    # 1 markdown to 1 code cell
+    nb['cells'] = [nbf.v4.new_code_cell(text) for text in nb_text]
 
-    text = """\
-    # My first automatic Jupyter Notebook
-    This is an auto-generated notebook."""
-
-    code = """\
-    %pylab inline
-    hist(normal(size=2000), bins=50);"""
-
-    nb['cells'] = [nbf.v4.new_markdown_cell(text),
-                   nbf.v4.new_code_cell(code)]
+    try:
+        nbname.split(".")[1]
+    except IndexError:
+        nbname = nbname + ".ipynb"
 
     with open(nbname, 'w') as f:
         nbf.write(nb, f)

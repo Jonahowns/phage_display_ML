@@ -1,6 +1,8 @@
 import globus_sdk
 from glob import glob
 import argparse
+import sys
+import rbm_torch.analysis.global_info
 
 # Should be run on Agave, Pushes latest models to our Work Dell
 # Goal is to Transfer the most recent version of each RBM automatically to our local computer for analysis
@@ -89,77 +91,61 @@ if __name__=='__main__':
     parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
-    data_dict = {"pig_gm2": "pig_tissue/gaps_middle_2_clusters/",
-                 "pig_ge2": "pig_tissue/gaps_end_2_clusters/",
-                 "pig_ge4": "pig_tissue/gaps_end_4_clusters/",
-                 "pig_gm4": "pig_tissue/gaps_middle_4_clusters/",
-                 "cov": "cov/"}
+    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=False)
+    info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True)
 
-    local_dests = {"pig_gm2": "/mnt/D1/globus/pig_trained_rbms/gm2/",
-                   "pig_ge2": "/mnt/D1/globus/pig_trained_rbms/ge2/",
-                   "pig_gm4": "/mnt/D1/globus/pig_trained_rbms/gm4/",
-                   "pig_ge4": "/mnt/D1/globus/pig_trained_rbms/ge4/",
-                   "cov": "/mnt/D1/globus/cov_trained_rbms"}
+    destination_dir = info["local_rbm_dir"] + "trained_rbms/"
 
-    assert args.datatype_str in data_dict.keys()
-    data_dir = data_dict[args.datatype_str]
+    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_location']}trained_rbms/"
 
-    # Let's Get Our Specifics, Source of the trained RBMS
-    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{data_dir}trained_rbms/"
-    # Path from our endpoint since it's mounted at /scratch
-    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{data_dir}trained_rbms/"
-
-    # local destination on my computer
-    dest_dir = local_dests[args.datatype_str]
+    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_location']}trained_rbms/"
 
     # The RBMS string specifiers
-    if "pig" in args.datatype_str:
-        rounds = ["b3", "n1", "np1", "np2", "np3"]
-
-        clusternum = int(args.datatype_str[-1])
-
-        c_rounds = [[r+f"_c{i+1}" for r in rounds] for i in range(clusternum)]
-        c_w_rounds = [[r+f"_c{i+1}_w" for r in rounds] for i in range(clusternum)]
+    if info["focus"] == "pig":
+        c_rounds = info["all_rounds"]
+        c_w_rounds = info_w["all_rounds"]
 
         flat_c_rounds = [item for sublist in c_rounds for item in sublist]
         flat_c_w_rounds = [item for sublist in c_rounds for item in sublist]
         all_rounds = flat_c_rounds + flat_c_w_rounds
 
         individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
-        for specifier in args.model_string:
-            if specifier.startswith("c"):
-                cluster = int(specifier[2])
+        for specifier in args.model_string:  # specifier is the rbm name, ususally something like n1_c2_w etc.
+            if specifier.startswith("c"):  # Tranfer a Cluster
+                cluster = int(specifier[1])
                 if "_w" in specifier:
                     individual += c_w_rounds[cluster - 1]
                 else:
                     individual += c_rounds[cluster - 1]
-            elif specifier == "all":
-                individual += all_rounds
+            elif specifier == "all":   # Transfer all rbms under this datatype_str
+                for i in range(info["clusters"]):
+                    individual += c_rounds[i]
+                    individual += c_w_rounds[i]
             elif specifier in all_rounds:
                 individual.append(specifier)
             else:
-                print("Specifier Strings not supported!")
+                print(f"Specifier Strings {specifier} not supported!")
                 exit(-1)
 
     elif "cov" in args.datatype_str:
         # The RBMS string specifiers
-        rounds = [f"r{i}" for i in range(1, 13)]
-        rounds_w = [f"r{i}_w" for i in range(1, 13)]
+        rounds = info["rounds"]
+        rounds_w = info["rounds_w"]
         all_rounds = rounds + rounds_w
 
         individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
         for specifier in args.model_string:
-            if specifier == "r":
+            if specifier == "r": # all rounds
                 individual += rounds
-            elif specifier == "r_w":
+            elif specifier == "r_w":  # all rounds weighted
                 individual += rounds_w
-            elif specifier == "all":
+            elif specifier == "all":  # All
                 individual += all_rounds
             elif specifier in all_rounds:
                 individual.append(specifier)
             else:
-                print("Specifier Strings not supported!")
+                print(f"Specifier String {specifier} not supported!")
                 exit(-1)
 
+    rbm_transfer(individual, source_dir, source_endpoint_dir, destination_dir)
 
-    rbm_transfer(individual, source_dir, source_endpoint_dir, dest_dir)
