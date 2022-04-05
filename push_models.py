@@ -102,8 +102,8 @@ if __name__=='__main__':
 
     # The RBMS string specifiers
     if "pig" in args.datatype_str:
-        c_rounds = info["all_rbm_names"]
-        c_w_rounds = info_w["all_rbm_names"]
+        c_rounds = info["rbm_names"]
+        c_w_rounds = info_w["rbm_names"]
 
         flat_c_rounds = [item for sublist in c_rounds for item in sublist]
         flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]
