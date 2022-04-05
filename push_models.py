@@ -102,11 +102,11 @@ if __name__=='__main__':
 
     # The RBMS string specifiers
     if "pig" in args.datatype_str:
-        c_rounds = info["rounds"]
-        c_w_rounds = info_w["rounds"]
+        c_rounds = info["all_rbm_names"]
+        c_w_rounds = info_w["all_rbm_names"]
 
         flat_c_rounds = [item for sublist in c_rounds for item in sublist]
-        flat_c_w_rounds = [item for sublist in c_rounds for item in sublist]
+        flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]
         all_rounds = flat_c_rounds + flat_c_w_rounds
 
         individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
@@ -129,8 +129,8 @@ if __name__=='__main__':
 
     elif "cov" in args.datatype_str:
         # The RBMS string specifiers
-        rounds = info["rounds"]
-        rounds_w = info["rounds"]
+        rounds = info["all_rbm_names"]
+        rounds_w = info["all_rbm_names"]
         all_rounds = rounds + rounds_w
 
         individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
