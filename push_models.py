@@ -46,7 +46,7 @@ transfer_client = globus_sdk.TransferClient(
 # So to use the agave scratch endpoint to transfer files we need to take into account that scratch is mounted directly at /scratch
 # Any paths with /scratch in them will fail
 def find_version(round, source_dir, endpoint_dir=None):
-    path = endpoint_dir+round
+    path = source_dir+round
     subdirs = glob(path+"/*/", recursive=True)  # list of all versions of the RBM
     versions = [int(x[:-1].rsplit("_")[-1]) for x in subdirs]  # extracted version numbers
     maxv = max(versions)  # get highest version number
