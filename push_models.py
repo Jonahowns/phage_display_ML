@@ -101,7 +101,7 @@ if __name__=='__main__':
     source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_dir']}"
 
     # The RBMS string specifiers
-    if info["focus"] == "pig":
+    if "pig" in args.datatype_str:
         c_rounds = info["all_rounds"]
         c_w_rounds = info_w["all_rounds"]
 
