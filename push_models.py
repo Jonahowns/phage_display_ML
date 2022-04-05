@@ -118,7 +118,7 @@ if __name__=='__main__':
                 else:
                     individual += c_rounds[cluster - 1]
             elif specifier == "all":   # Transfer all rbms under this datatype_str
-                for i in range(info["clusters"]):
+                for i in range(len(info["rounds"])):
                     individual += c_rounds[i]
                     individual += c_w_rounds[i]
             elif specifier in all_rounds:
