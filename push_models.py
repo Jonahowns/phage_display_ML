@@ -94,7 +94,7 @@ if __name__=='__main__':
     info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=False)
     info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True)
 
-    destination_dir = info["local_rbm_dir"] + "trained_rbms/"
+    destination_dir = info["local_rbm_dir"]
 
     source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_dir']}"
 
