@@ -41,7 +41,7 @@ def get_global_info(datatype_str, cluster=0, weights=False):
         rounds = ['np1', 'np2', 'np3', 'n1', 'b3']
         if type(cluster) == str and cluster == "all":
             all_data_files, all_rbm_names, all_rounds, all_configkeys = [], [], [], []
-            for i in datatype["clusters"]:
+            for i in range(datatype["clusters"]):
                 all_data_files.append([x + f'_c{i+1}.fasta' for x in rounds])
                 all_configkeys.append(f"{datatype_str[:4]}c{i+1}_{datatype_str[4:]}")
                 if weights:

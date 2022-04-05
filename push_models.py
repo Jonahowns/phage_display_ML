@@ -87,7 +87,7 @@ def rbm_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
-    parser.add_argument('datatype_str', type=str, nargs="1", help="Which dataset to transfer")
+    parser.add_argument('datatype_str', type=str, help="Which dataset to transfer")
     parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
