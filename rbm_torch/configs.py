@@ -202,7 +202,7 @@ lattice_default_config = {"fasta_file": "",
               "molecule": "protein",
               "h_num": 20,  # number of hidden units, can be variable
               "v_num": 27,
-              "q": 21,
+              "q": 20,
               "batch_size": 20000,
               "mc_moves": 6,
               "seed": 38,

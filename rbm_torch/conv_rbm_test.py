@@ -6,7 +6,7 @@ import time
 # import argparse
 # import json
 import pandas as pd
-from rbm_test import RBMCaterogical
+from rbm import RBMCaterogical
 
 import rbm_utils
 import math
@@ -25,46 +25,36 @@ import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
 import multiprocessing # Just to set the worker number
 
-
-
+import configs
+from rbm import fasta_read
 from rbm_utils import aadict, dnadict, rnadict
-class conv(nn.module):
-    def __init__(self, batch_size, v_num, q, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=False):
-        self.batch_size = batch_size
-        self.v_num = v_num
-        self.q = q
 
-        self.forwardconv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding,
-                                     dilation=dilation, bias=bias)
+def conv2d_dim(input_shape, conv_topology):
+    [batch_size, input_channels, v_num, q] = input_shape
+    stride = conv_topology["stride"]
+    padding = conv_topology["padding"]
+    kernel = conv_topology["kernel"]
+    dilation = conv_topology["dilation"]
+    h_num = conv_topology["number"]
 
-        self.conv_weights = self.forwardconv.weight.data
+    input_sizex = v_num + padding[0]*2
+    input_sizey = q + padding[1] * 2
 
-        self.reverseconv = nn.ConvTranspose2d(out_channels, in_channels, kernel_size, stride=stride, padding=padding,
-                                              dilation=dilation, bias=bias)
+    # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+    convx_num = (input_sizex - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1
+    convy_num = (input_sizey - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1  # most configurations will set this to 0
 
-        self.reverseconv.weight.data = self.conv_weights
+    weight_size = (h_num, input_channels, kernel[0], kernel[1])
 
-    def forward(self, X): # Return Wi*Vq   # X, one-hot encoded (Batch_size, V_num, q_states)
-        return self.forwardconv(X)
+    conv_output_size = (batch_size, h_num, convx_num, convy_num)
 
-    def reverse(self, Y):  # Y, Size will vary
-        return self.reverseconv(Y)
-
-    def output_size(self):
-        return self.forward(torch.zeros((self.batch_size, self.v_num, self.q))).shape()
-
-
-def conv2d_dim(input_shape, kernel=(1,1), stride=(1, 1), padding=(0, 0)):
-    # math
-    pass
-    weight_shape = 1
-    return weight_shape
+    return {"weight_shape": weight_size, "conv_shape": conv_output_size}
 
 
 class CRBM(LightningModule):
     def __init__(self, config, debug=False):
         super().__init__()
-        self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
+        # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
         self.v_num = config['v_num']   # Number of visible nodes
         self.q = config['q']  # Number of categories the input sequence has (ex. DNA:4 bases + 1 gap)
         self.mc_moves = config['mc_moves']  # Number of MC samples to take to update hidden and visible configurations
@@ -169,33 +159,42 @@ class CRBM(LightningModule):
         torch.set_default_dtype(torch.float64)  # Double Precision
 
         # get dimensions of our convolution
-        self.kernel = (1, 1)
-        self.stride = (1, 1)
-        self.padding = (1, 1)
-        conv_dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q],
-                               kernel=self.kernel, stride=self.stride, padding=self.padding)
+        # self.kernel = (1, 1)
+        # self.stride = (1, 1)
+        # self.padding = (1, 1)
+        # conv_dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q],
+        #                        kernel=self.kernel, stride=self.stride, padding=self.padding)
 
+
+        self.convolution_topology = {
+            "hidden1": {"number": 20, "kernel": (3, self.q), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)}
+        }
+
+        self.hidden_unit_types = len(self.convolution_topology)
+
+        # Parameters that shouldn't change
         self.params = nn.ParameterDict({
-            # weights
-            # 'W_raw': nn.Parameter(self.weight_intial_amplitude * torch.randn((self.h_num, self.v_num, self.q), device=self.device)),
-            "W_conv" : nn.Parameter(self.weight_intial_amplitude * torch.randn(conv_dims, device=self.device)),
-            # hidden layer parameters
-            'theta+': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            'theta-': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            'gamma+': nn.Parameter(torch.ones(self.h_num, device=self.device)),
-            'gamma-': nn.Parameter(torch.ones(self.h_num, device=self.device)),
-
-            # Used in PT Sampling / AIS
-            '0theta+': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            '0theta-': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            '0gamma+': nn.Parameter(torch.ones(self.h_num, device=self.device)),
-            '0gamma-': nn.Parameter(torch.ones(self.h_num, device=self.device)),
             # visible layer parameters
             'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
-            'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False),
+            'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False)
         })
 
-        # self.W = torch.zeros((self.h_num, self.v_num, self.q), device=self.device, requires_grad=False)
+        self.hidden_convolution_keys = self.convolution_topology.keys()
+        for key in self.hidden_convolution_keys:
+            self.convolution_topology[key]["weight_dims"] = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])["weight_shape"]
+            # Convolution Weights
+            self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
+            # hidden layer parameters
+            self.params[f'{key}_theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            self.params[f'{key}_theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            self.params[f'{key}_gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            self.params[f'{key}_gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            # Used in PT Sampling / AIS
+            self.params[f'{key}_0theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            self.params[f'{key}_0theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            self.params[f'{key}_0gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            self.params[f'{key}_0gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i. e. Simplifies loading a model that has already been run
@@ -207,15 +206,29 @@ class CRBM(LightningModule):
         self.a1 = torch.tensor(0.3480242, device=self.device, requires_grad=False)
         self.a2 = torch.tensor(- 0.0958798, device=self.device, requires_grad=False)
         self.a3 = torch.tensor(0.7478556, device=self.device, requires_grad=False)
+        self.invsqrt2 = torch.tensor(0.7071067812, device=self.device, requires_grad=False)
+        self.sqrt2 = torch.tensor(1.4142135624, device=self.device, requires_grad=False)
 
         # Initialize PT members, might b
         self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
 
-    def forward_conv(self, X):
-        return F.conv2d(X, self.params["W_conv"], stride=self.stride, padding=self.padding, dilation=self.dilation)
+    def forward_conv(self, X): # input X has dimension (Batch_Size, V_num, q)
+        outputs = []
+        input = X.unsqueeze(1).double()
+        for i in self.hidden_convolution_keys:
+            outputs.append(F.conv2d(input, self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
+                                    padding=self.convolution_topology[i]["padding"], dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+        return outputs
 
-    def reverse_conv(self, Y):
-        return F.conv_transpose2d(Y, self.params["W_conv"], stride=self.stride, padding=self.padding, dilation=self.dilation)
+    def reverse_conv(self, Y): # input is list of h_uk s for each hidden topology
+        outputs = []
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
+                                    padding=self.convolution_topology[i]["padding"], dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
+        if len(outputs) > 1:
+            return torch.mean(torch.stack(outputs))  # Average over input from all hidden layers
+        else:
+            return outputs[0]
 
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
         self.N_PT = N_PT
@@ -251,17 +264,38 @@ class CRBM(LightningModule):
 
     ############################################################# RBM Functions
     ## Compute Psudeo likelihood of given visible config
+    # TODO: Figure this out
     def psuedolikelihood(self, v):
-        config = v.long()
-        ind_x = torch.arange(config.shape[0], dtype=torch.long, device=self.device)
-        ind_y = torch.randint(self.v_num, (config.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
-        E_vlayer_ref = self.energy_v(config) + self.params['fields'][ind_y, config[ind_x, ind_y]]
-        output_ref = self.compute_output_v(config) - self.W[:, ind_y, config[ind_x, ind_y]].T
-        fe = torch.zeros([config.shape[0], self.q], device=self.device)
+        categorical = v.argmax(2)
+        ind_x = torch.arange(categorical.shape[0], dtype=torch.long, device=self.device)
+        ind_y = torch.randint(self.v_num, (categorical.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
+        E_vlayer_ref = self.energy_v(v) + self.params['fields'][ind_y, categorical[ind_x, ind_y]]
+
+        y = categorical[ind_x, ind_y].unsqueeze(1)
+        random_config = F.one_hot(categorical[ind_x, ind_y], self.q)
+        random_config_output = self.compute_output_v(random_config)
+        # output_ref = self.compute_output_v(v) - self.W[:, ind_y, config[ind_x, ind_y]].T
+
+        v_output = self.compute_output_v(v)
+        output_ref = []
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            output_ref.append(v_output[iid] - random_config_output)
+        # output_ref = self.compute_output_v(v) - random_config_output
+
+        fe = torch.zeros([categorical.shape[0], self.q], device=self.device)
+
+
         for c in range(self.q):
-            output = output_ref + self.W[:, ind_y, c].T
+            random_config_state = F.one_hot(categorical[ind_y, c], self.q)
+            random_config_state_output = self.compute_output_v(random_config_state)
+            output = []
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                output.append(output_ref[iid] + random_config_state_output[iid])
+            # output = output_ref + self.W[:, ind_y, c].T
+
             E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
-            fe[:, c] = E_vlayer - self.logpartition_h(output)
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                fe[:, c] += E_vlayer - self.logpartition_h(output[iid])
         return - fe[ind_x, config[ind_x, ind_y]] - torch.logsumexp(- fe, 1)
 
     ## Used in our Loss Function
@@ -269,12 +303,12 @@ class CRBM(LightningModule):
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
 
     ## Not used but may be useful
-    def free_energy_h(self, h):
-        return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
+    # def free_energy_h(self, h):
+    #     return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
 
     ## Total Energy of a given visible and hidden configuration
     def energy(self, v, h, remove_init=False):
-        return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, remove_init=remove_init) - self.bilinear_form(v, h)
+        return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, remove_init=remove_init) - self.bidirectional_weight_term(v, h)
 
         ## Total Energy of a given visible and hidden configuration
 
@@ -284,50 +318,60 @@ class CRBM(LightningModule):
             E[i, :] = self.energy_v(v[i, :, :], remove_init=remove_init) + self.energy_h(h[i, :, :], remove_init=remove_init) - self.bilinear_form(v[i, :, :], h[i, :, :])
         return E
 
-    ## Computes term sum(i, u) h_u w_iu(vi)
-    def bilinear_form(self, v, h):
-        output = torch.zeros((v.shape[0], self.h_num), device=self.device)
-        vd = v.long()
-        for u in range(self.h_num):  # for u in h_num
-            for i in range(self.v_num):  # for
-                # we'll try this first
-                output[:, u] += self.W[u][i][vd[:, i]]
 
-        return torch.sum(h * output, 1)
+    def bidirectional_weight_term(self, v, h):
+        conv = self.compute_output_v(v)
+        E = torch.zeros((len(self.hidden_convolution_keys)), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            h_uk = h[iid]
+            E[iid] = h_uk.matmul(conv[iid]).sum(2).sum(1)
+
+        if E.shape[0] > 1:
+            return E.sum(0)
+        else:
+            return E
 
     ############################################################# Individual Layer Functions
     ## Computes g(si) term of potential
     def energy_v(self, config, remove_init=False):
-        v = config.long()
+        # config is a one hot vector
+        v = config.double()
         E = torch.zeros(config.shape[0], device=self.device)
-        for color in range(self.q):
-            A = torch.where(v == color, 1, 0).double()
+        for i in range(self.q):
             if remove_init:
-                E -= A.dot(self.params['fields'][:, color] - self.params['fields0'][:, color])
+                E -= v[:, :, i].dot(self.params['fields'][:, i] - self.params['fields0'][:, i])
             else:
-                E -= A.matmul(self.params['fields'][:, color])
+                E -= v[:, :, i].matmul(self.params['fields'][:, i])
 
         return E
 
     ## Computes U(h) term of potential
     def energy_h(self, config, remove_init=False):
-        if remove_init:
-            a_plus = self.params['gamma+'].sub(self.params['0gamma+'])
-            a_minus = self.params['gamma-'].sub(self.params['0gamma-'])
-            theta_plus = self.params['theta+'].sub(self.params['0theta+'])
-            theta_minus = self.params['theta-'].sub(self.params['0theta-'])
-        else:
-            a_plus = self.params['gamma+']
-            a_minus = self.params['gamma-']
-            theta_plus = self.params['theta+']
-            theta_minus = self.params['theta-']
+        # config is list of h_uks
+        E = torch.zeros((len(self.hidden_convolution_keys)), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            if remove_init:
+                a_plus = self.params[f'{i}_gamma+'].sub(self.params[f'{i}_0gamma+']).unsqueeze(1)
+                a_minus = self.params[f'{i}_gamma-'].sub(self.params[f'{i}_0gamma-']).unsqueeze(1)
+                theta_plus = self.params[f'{i}_theta+'].sub(self.params[f'{i}_0theta+']).unsqueeze(1)
+                theta_minus = self.params[f'{i}_theta-'].sub(self.params[f'{i}_0theta-']).unsqueeze(1)
+            else:
+                a_plus = self.params[f'{i}_gamma+'].unsqueeze(1)
+                a_minus = self.params[f'{i}_gamma-'].unsqueeze(1)
+                theta_plus = self.params[f'{i}_theta+'].unsqueeze(1)
+                theta_minus = self.params[f'{i}_theta-'].unsqueeze(1)
 
-        # Applies the dReLU activation function
-        zero = torch.zeros_like(config, device=self.device)
-        config_plus = torch.maximum(config, zero)
-        config_minus = torch.maximum(-config, zero)
+            # Applies the dReLU activation function
+            zero = torch.zeros_like(config, device=self.device)
+            config_plus = torch.maximum(config, zero)
+            config_minus = torch.maximum(-config, zero)
 
-        return torch.matmul(config_plus.square(), a_plus) / 2 + torch.matmul(config_minus.square(), a_minus) / 2 + torch.matmul(config_plus, theta_plus) + torch.matmul(config_minus, theta_minus)
+            E[iid] = torch.matmul(config_plus.square(), a_plus) / 2 + torch.matmul(config_minus.square(), a_minus) / 2 + torch.matmul(config_plus, theta_plus) + torch.matmul(config_minus, theta_minus)
+
+        if E.shape[0] > 1:
+            E = E.sum(1)
+
+        return E
 
     ## Random Config of Visible Potts States
     def random_init_config_v(self, batch_size=None):
@@ -345,52 +389,30 @@ class CRBM(LightningModule):
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
-        if beta == 1:
-            a_plus = (self.params['gamma+']).unsqueeze(0)
-            a_minus = (self.params['gamma-']).unsqueeze(0)
-            theta_plus = (self.params['theta+']).unsqueeze(0)
-            theta_minus = (self.params['theta-']).unsqueeze(0)
-        else:
-            theta_plus = (beta * self.params['theta+'] + (1 - beta) * self.params['0theta+']).unsqueeze(0)
-            theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
-            a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
-            a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
-        return torch.logaddexp(self.log_erf_times_gauss((-inputs + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
-                1) + 0.5 * np.log(2 * np.pi) * self.h_num
-        # return y
-
-    # Looking for better Interpretation of weights with potential
-    # def energy_per_state(self):
-        # inputs 21 x v_num
-        # inputs = torch.arange(self.q).unsqueeze(1).expand(-1, self.v_num)
-        #
-        #
-        # indexTensor = inputs.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
-        # expandedweights = self.W.unsqueeze(0).expand(inputs.shape[0], -1, -1, -1)
-        # output = torch.gather(expandedweights, 3, indexTensor).squeeze(3)
-        # out = torch.swapaxes(output, 1, 2)
-        # energy = torch.zeros((self.q, self.v_num, self.h_num))
-        # for i in range(self.q):
-        #     for j in range(self.v_num):
-        #         energy[i, j, :] = self.logpartition_h(out[i, j, :])
-        #
-        # # Iu_flat = output.reshape((self.q*self.h_num, self.v_num))
-        # # Iu = self.compute_output_v(inputs)
-        #
-        # e_h = F.normalize(energy, dim=0)
-        # view = torch.swapaxes(e_h, 0, 2)
-        #
-        # W = self.get_param("W")
-        #
-        # rbm_utils.Sequence_logo_all(W, name="allweights" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
-        # rbm_utils.Sequence_logo_all(view.detach(), name="energything" + '.pdf', nrows=5, ncols=1, figsize=(10,5) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule="protein")
+        # Input is list of matrices I_uk
+        marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            if beta == 1:
+                a_plus = (self.params[f'{i}_gamma+']).unsqueeze(0).unsqueeze(2)
+                a_minus = (self.params[f'{i}_gamma-']).unsqueeze(0).unsqueeze(2)
+                theta_plus = (self.params[f'{i}_theta+']).unsqueeze(0).unsqueeze(2)
+                theta_minus = (self.params[f'{i}_theta-']).unsqueeze(0).unsqueeze(2)
+            else:
+                theta_plus = (beta * self.params[f'{i}_theta+'] + (1 - beta) * self.params[f'{i}_0theta+']).unsqueeze(0).unsqueeze(2)
+                theta_minus = (beta * self.params[f'{i}_theta-'] + (1 - beta) * self.params[f'{i}_0theta-']).unsqueeze(0).unsqueeze(2)
+                a_plus = (beta * self.params[f'{i}_gamma+'] + (1 - beta) * self.params[f'{i}_0gamma+']).unsqueeze(0).unsqueeze(2)
+                a_minus = (beta * self.params[f'{i}_gamma-'] + (1 - beta) * self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
+            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
+                    1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
+            marginal[iid] = y.sum(1)
+        return marginal.sum(0)
 
     ## Marginal over visible units
-    def logpartition_v(self, inputs, beta=1):
-        if beta == 1:
-            return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
-        else:
-            return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
+    # def logpartition_v(self, inputs, beta=1):
+    #     if beta == 1:
+    #         return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
+    #     else:
+    #         return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
 
     ## Compute Input for Hidden Layer from Visible Potts, Uses categorical not one hot vector
     def compute_output_v(self, visible_data_one_hot):
@@ -398,7 +420,6 @@ class CRBM(LightningModule):
 
         # compute_output of visible potts layer
         # vd = visible_data.long()
-        #
         #
         # # Newest Version also works, fastest version
         # indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
@@ -414,7 +435,7 @@ class CRBM(LightningModule):
 
     ## Gibbs Sampling of Potts Visbile Layer
     ## This thing is the source of my frustration with the ram
-    def sample_from_inputs_v(self, psi, beta=1):
+    def sample_from_inputs_v(self, psi, beta=1):  # Psi ohe (Batch_size, v_num, q)   fields (self.v_num, self.q)
         datasize = psi.shape[0]
 
         if beta == 1:
@@ -444,60 +465,62 @@ class CRBM(LightningModule):
 
             in_progress = low < high
 
-        return high
+        return F.one_hot(high, self.q)
 
     ## Gibbs Sampling of dReLU hidden layer
-    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):
-        if beta == 1:
-            a_plus = self.params['gamma+'].unsqueeze(0)
-            a_minus = self.params['gamma-'].unsqueeze(0)
-            theta_plus = self.params['theta+'].unsqueeze(0)
-            theta_minus = self.params['theta-'].unsqueeze(0)
-        else:
-            theta_plus = (beta * self.params['theta+'] + (1 - beta) * self.params['0theta+']).unsqueeze(0)
-            theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
-            a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
-            a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
-            psi *= beta
+    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
+        h_uks = []
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            if beta == 1:
+                a_plus = self.params[f'{i}_gamma+'].unsqueeze(0).unsqueeze(2)
+                a_minus = self.params[f'{i}_gamma-'].unsqueeze(0).unsqueeze(2)
+                theta_plus = self.params[f'{i}_theta+'].unsqueeze(0).unsqueeze(2)
+                theta_minus = self.params[f'{i}_theta-'].unsqueeze(0).unsqueeze(2)
+            else:
+                theta_plus = (beta * self.params[f'{i}_theta+'] + (1 - beta) * self.params[f'{i}_0theta+']).unsqueeze(0).unsqueeze(2)
+                theta_minus = (beta * self.params[f'{i}_theta-'] + (1 - beta) * self.params[f'{i}_0theta-']).unsqueeze(0).unsqueeze(2)
+                a_plus = (beta * self.params[f'{i}_gamma+'] + (1 - beta) * self.params[f'{i}_0gamma+']).unsqueeze(0).unsqueeze(2)
+                a_minus = (beta * self.params[f'{i}_gamma-'] + (1 - beta) * self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
+                psi[iid] *= beta
 
-        if nancheck:
-            nans = torch.isnan(psi)
-            if nans.max():
-                nan_unit = torch.nonzero(nans.max(0))[0]
-                print('NAN IN INPUT')
-                print('Hidden units', nan_unit)
+            if nancheck:
+                nans = torch.isnan(psi[iid])
+                if nans.max():
+                    nan_unit = torch.nonzero(nans.max(0))[0]
+                    print('NAN IN INPUT')
+                    print('Hidden units', nan_unit)
 
-        psi_plus = (-psi).add(theta_plus).div(torch.sqrt(a_plus))
-        psi_minus = psi.add(theta_minus).div(torch.sqrt(a_minus))
+            psi_plus = (-psi[iid]).add(theta_plus).div(torch.sqrt(a_plus))
+            psi_minus = psi[iid].add(theta_minus).div(torch.sqrt(a_minus))
 
-        etg_plus = self.erf_times_gauss(psi_plus)  # Z+
-        etg_minus = self.erf_times_gauss(psi_minus)  # Z-
+            etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
+            etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
 
-        p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+
-        nans = torch.isnan(p_plus)
+            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
+            nans = torch.isnan(p_plus)
 
-        if True in nans:
-            p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-        p_minus = 1 - p_plus
+            if True in nans:
+                p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+            p_minus = 1 - p_plus
 
-        is_pos = torch.rand(psi.shape, device=self.device) < p_plus
+            is_pos = torch.rand(psi[iid].shape, device=self.device) < p_plus
 
-        rmax = torch.zeros(p_plus.shape, device=self.device)
-        rmin = torch.zeros(p_plus.shape, device=self.device)
-        rmin[is_pos] = torch.erf(psi_plus[is_pos].div(np.sqrt(2)))  # Part of Phi(x)
-        rmax[is_pos] = 1  # pos values rmax set to one
-        rmin[~is_pos] = -1  # neg samples rmin set to -1
-        rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).div(np.sqrt(2)))  # Part of Phi(x)
-        # Pos vals stored as erf(x/sqrt(2)) where x is psi_plus and
+            rmax = torch.zeros(p_plus.shape, device=self.device)
+            rmin = torch.zeros(p_plus.shape, device=self.device)
+            rmin[is_pos] = torch.erf(psi_plus[is_pos].mul(self.invsqrt2))  # Part of Phi(x)
+            rmax[is_pos] = 1  # pos values rmax set to one
+            rmin[~is_pos] = -1  # neg samples rmin set to -1
+            rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).mul(self.invsqrt2))  # Part of Phi(x)
 
-        h = torch.zeros(psi.shape, dtype=torch.float64, device=self.device)
-        tmp = (rmax - rmin > 1e-14)
-        h = np.sqrt(2) * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
-        h[is_pos] -= psi_plus[is_pos]
-        h[~is_pos] += psi_minus[~is_pos]
-        h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
-        h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
-        return h
+            h = torch.zeros(psi[iid].shape, dtype=torch.float64, device=self.device)
+            tmp = (rmax - rmin > 1e-14)
+            h = self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
+            h[is_pos] -= psi_plus[is_pos]
+            h[~is_pos] += psi_minus[~is_pos]
+            h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
+            h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
+            h_uks.append(h)
+        return h_uks
 
     ## Visible Potts Supporting Function
     def cumulative_probabilities(self, X, maxi=1e9):
@@ -624,29 +647,32 @@ class CRBM(LightningModule):
     ## Loads Data to be trained from provided fasta file
     def prepare_data(self):
         try:
-            # make and partition data
-            if self.weights == "fasta":
-                seqs, seq_read_counts = fasta_read(self.fasta_file, seq_read_counts=True, drop_duplicates=True)
-                self.weights = np.asarray(seq_read_counts)
+            if self.worker_num == 0:
+                threads = 1
             else:
-                seqs = fasta_read(self.fasta_file, seq_read_counts=False, drop_duplicates=True)
-                seq_read_counts = self.weights
-
-            if self.weights is None:
-                data = pd.DataFrame(data={'sequence': seqs})
-            else:
-                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
-
+                threads = self.worker_num
+            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, self.molecule, drop_duplicates=True, threads=threads)
         except IOError:
             print(f"Provided Fasta File '{self.fasta_file}' Not Found")
             print(f"Current Directory '{os.curdir}'")
             exit()
 
+        if self.weights == "fasta":
+            self.weights = np.asarray(seq_read_counts)
+
+        if q_data != self.q:
+            print(
+                f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
+            exit(-1)
+
+        if self.weights is None:
+            data = pd.DataFrame(data={'sequence': seqs})
+        else:
+            data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
+
         train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
         self.validation_data = validate
         self.training_data = train
-
-        # self.training_data = data  # still pandas dataframe
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
@@ -667,7 +693,7 @@ class CRBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = RBMCaterogical(self.training_data, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        train_reader = RBMCaterogical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
 
         # initialize fields from data
         if init_fields:
@@ -676,23 +702,13 @@ class CRBM(LightningModule):
                 self.params['fields'] += initial_fields
                 self.params['fields0'] += initial_fields
 
-        # if hasattr(self, "trainer"): # Sets Pim Memory when GPU is being used
-        #     if hasattr(self.trainer, "on_gpu"):
-        #         pin_mem = self.trainer.on_gpu
-        #     else:
-        #         pin_mem = False
-        # else:
-        #     pin_mem = False
-
-        train_loader = torch.utils.data.DataLoader(
+        return torch.utils.data.DataLoader(
             train_reader,
             batch_size=self.batch_size,
             num_workers=self.worker_num,  # Set to 0 if debug = True
             pin_memory=self.pin_mem,
             shuffle=True
         )
-
-        return train_loader
 
     def val_dataloader(self):
         # Get Correct Validation weights
@@ -701,25 +717,15 @@ class CRBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = RBMCaterogical(self.validation_data, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        val_reader = RBMCaterogical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
 
-        # if hasattr(self, "trainer"):  # Sets Pim Memory when GPU is being used
-        #     if hasattr(self.trainer, "on_gpu"):
-        #         pin_mem = self.trainer.on_gpu
-        #     else:
-        #         pin_mem = False
-        # else:
-        #     pin_mem = False
-
-        train_loader = torch.utils.data.DataLoader(
+        return torch.utils.data.DataLoader(
             val_reader,
             batch_size=self.batch_size,
             num_workers=self.worker_num,  # Set to 0 to view tensors while debugging
             pin_memory=self.pin_mem,
             shuffle=False
         )
-
-        return train_loader
 
     ## Calls Corresponding Training Function
     def training_step(self, batch, batch_idx):
@@ -738,11 +744,10 @@ class CRBM(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # Needed for PsuedoLikelihood calculation
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
 
-        seqs, V_pos, seq_weights = batch
+        seqs, V_pos, one_hot, seq_weights = batch
 
-        psuedolikelihood = (self.psuedolikelihood(V_pos) * seq_weights).sum() / seq_weights.sum()
+        psuedolikelihood = (self.psuedolikelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
 
         batch_out = {
              "val_psuedolikelihood": psuedolikelihood.detach()
@@ -781,7 +786,7 @@ class CRBM(LightningModule):
 
     ## This works but not the exact quantity we want to maximize
     def training_step_CD_energy(self, batch, batch_idx):
-        seqs, V_pos, seq_weights = batch
+        seqs, V_pos, one_hot, seq_weights = batch
         weights = seq_weights.clone.detach()
         V_pos = V_pos.clone().detach()
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
@@ -791,7 +796,7 @@ class CRBM(LightningModule):
 
         cd_loss = energy_pos - energy_neg
 
-        psuedolikelihood = (self.psuedolikelihood(V_pos) * weights).sum() / weights.sum()
+        psuedolikelihood = (self.psuedolikelihood(one_hot) * weights).sum() / weights.sum()
 
         reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
@@ -812,7 +817,7 @@ class CRBM(LightningModule):
         return logs
 
     def training_step_PT_free_energy(self, batch, batch_idx):
-        seqs, V_pos, seq_weights = batch
+        seqs, V_pos, one_hot, seq_weights = batch
         V_pos = V_pos.clone().detach()
         V_neg, h_neg, V_pos, h_pos = self.forward(V_pos)
         weights = seq_weights.clone().detach()
@@ -822,7 +827,7 @@ class CRBM(LightningModule):
         F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit act
 
-        psuedolikelihood = (self.psuedolikelihood(V_pos).clone().detach() * weights).sum() / weights.sum()
+        psuedolikelihood = (self.psuedolikelihood(one_hot).clone().detach() * weights).sum() / weights.sum()
 
         reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
@@ -844,7 +849,7 @@ class CRBM(LightningModule):
 
     def training_step_CD_free_energy(self, batch, batch_idx):
         # seqs, V_pos, one_hot, seq_weights = batch
-        seqs, V_pos, seq_weights = batch
+        seqs, V_pos, one_hot, seq_weights = batch
         weights = seq_weights.clone()
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 
@@ -857,7 +862,7 @@ class CRBM(LightningModule):
         # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
         # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
-        psuedolikelihood = (self.psuedolikelihood(V_pos) * weights).sum() / weights.sum()
+        psuedolikelihood = (self.psuedolikelihood(one_hot) * weights).sum() / weights.sum()
 
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
@@ -886,7 +891,7 @@ class CRBM(LightningModule):
 
     def forward(self, V_pos):
         # Enforces Zero Sum Gauge on Weights
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        # self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
@@ -935,8 +940,8 @@ class CRBM(LightningModule):
         with torch.no_grad():
             likelihood = []
             for i, batch in enumerate(data_loader):
-                seqs, V_pos, seq_weights = batch
-                likelihood += self.likelihood(V_pos).detach().tolist()
+                seqs, V_pos, one_hot, seq_weights = batch
+                likelihood += self.likelihood(one_hot).detach().tolist()
 
         return X.sequence.tolist(), likelihood
 
@@ -953,8 +958,8 @@ class CRBM(LightningModule):
         with torch.no_grad():
             likelihood = []
             for i, batch in enumerate(data_loader):
-                seqs, V_pos, seq_weights = batch
-                likelihood += self.psuedolikelihood(V_pos).detach().tolist()
+                seqs, V_pos, one_hot, seq_weights = batch
+                likelihood += self.psuedolikelihood(one_hot).detach().tolist()
 
         return X.sequence.tolist(), likelihood
 
@@ -1284,27 +1289,6 @@ class CRBM(LightningModule):
 # returns list of strings containing sequences
 # optionally returns the affinities
 
-# Fasta File Reader
-def fasta_read(fastafile, seq_read_counts=False, drop_duplicates=False):
-    o = open(fastafile)
-    titles = []
-    seqs = []
-    for line in o:
-        if line.startswith('>'):
-            if seq_read_counts:
-                titles.append(float(line.rstrip().split('-')[1]))
-        else:
-            seqs.append(line.rstrip())
-    o.close()
-    if drop_duplicates:
-        all_seqs = pd.DataFrame(seqs).drop_duplicates()
-        seqs = all_seqs.values.tolist()
-        seqs = [j for i in seqs for j in i]
-
-    if seq_read_counts:
-        return seqs, titles
-    else:
-        return seqs
 
 # Get Model from checkpoint File with specified version and directory
 def get_checkpoint(version, dir=""):
@@ -1353,12 +1337,34 @@ if __name__ == '__main__':
               # "data_worker_num": 10  # Optionally Set these
               }
 
+    config = configs.lattice_default_config
+    # Edit config for dataset specific hyperparameters
+    config["fasta_file"] = lattice_data
+    config["sequence_weights"] = None
+    config["epochs"] = 2
 
-    # Training Code
-    rbm_lat = RBM(config, debug=False)
-    logger = TensorBoardLogger('tb_logs', name='lattice_trial')
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(rbm_lat)
+
+    # Debugging Code
+    rbm_lat = CRBM(config, debug=True)
+    rbm_lat.prepare_data()
+    td = rbm_lat.train_dataloader()
+    for iid, i in enumerate(td):
+        seq, cat, ohe, seq_weights = i
+        v_out = rbm_lat.compute_output_v(ohe)
+        h = rbm_lat.sample_from_inputs_h(v_out)
+        h_out = rbm_lat.compute_output_h(h)
+        nv = rbm_lat.sample_from_inputs_v(h_out)
+        fe = rbm_lat.free_energy(nv)
+        pl = rbm_lat.psuedolikelihood(nv)
+
+
+
+
+    # # Training Code
+    # rbm_lat = RBM(config, debug=False)
+    # logger = TensorBoardLogger('tb_logs', name='lattice_trial')
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(rbm_lat)
 
 
     # check weights

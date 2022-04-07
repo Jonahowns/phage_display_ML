@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 
 # import rbm_utils
 from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all
-
+import configs
 
 class RBMCaterogical(Dataset):
 
@@ -50,7 +50,7 @@ class RBMCaterogical(Dataset):
         self.seq_data = self.dataset.sequence.to_numpy()
         self.train_data = self.categorical(self.seq_data)
         if self.oh:
-            self.train_oh = self.one_hot(self.train_data)
+            self.train_oh = F.one_hot(self.train_data, q)
 
         if weights is not None:
             if len(self.train_data) != len(weights):
@@ -249,6 +249,8 @@ class RBM(LightningModule):
         self.a1 = torch.tensor(0.3480242, device=self.device, requires_grad=False)
         self.a2 = torch.tensor(-0.0958798, device=self.device, requires_grad=False)
         self.a3 = torch.tensor(0.7478556, device=self.device, requires_grad=False)
+        self.invsqrt2 = torch.tensor(0.7071067812, device=self.device, requires_grad=False)
+        self.sqrt2 = torch.tensor(1.4142135624, device=self.device, requires_grad=False)
 
         # Initialize PT members, might b
         self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
@@ -477,10 +479,10 @@ class RBM(LightningModule):
         psi_plus = (-psi).add(theta_plus).div(torch.sqrt(a_plus))
         psi_minus = psi.add(theta_minus).div(torch.sqrt(a_minus))
 
-        etg_plus = self.erf_times_gauss(psi_plus)  # Z+
-        etg_minus = self.erf_times_gauss(psi_minus)  # Z-
+        etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
+        etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
 
-        p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+
+        p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
         nans = torch.isnan(p_plus)
 
         if True in nans:
@@ -491,14 +493,14 @@ class RBM(LightningModule):
 
         rmax = torch.zeros(p_plus.shape, device=self.device)
         rmin = torch.zeros(p_plus.shape, device=self.device)
-        rmin[is_pos] = torch.erf(psi_plus[is_pos].div(np.sqrt(2)))  # Part of Phi(x)
+        rmin[is_pos] = torch.erf(psi_plus[is_pos].mul(self.invsqrt2))  # Part of Phi(x)
         rmax[is_pos] = 1  # pos values rmax set to one
         rmin[~is_pos] = -1  # neg samples rmin set to -1
-        rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).div(np.sqrt(2)))  # Part of Phi(x)
+        rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).mul(self.invsqrt2))  # Part of Phi(x)
 
         h = torch.zeros(psi.shape, dtype=torch.float64, device=self.device)
         tmp = (rmax - rmin > 1e-14)
-        h = np.sqrt(2) * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
+        h = self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
         h[is_pos] -= psi_plus[is_pos]
         h[~is_pos] += psi_minus[~is_pos]
         h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
@@ -630,7 +632,11 @@ class RBM(LightningModule):
     ## Loads Data to be trained from provided fasta file
     def prepare_data(self):
         try:
-            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, self.molecule, drop_duplicates=True, threads=self.worker_num)
+            if self.worker_num == 0:
+                threads = 1
+            else:
+                threads = self.worker_num
+            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, self.molecule, drop_duplicates=True, threads=threads)
         except IOError:
             print(f"Provided Fasta File '{self.fasta_file}' Not Found")
             print(f"Current Directory '{os.curdir}'")
@@ -1472,10 +1478,25 @@ if __name__ == '__main__':
 
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
-    # lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
     # b3_c1 = "../pig_tissue/b3_c1.fasta"
     # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
-    #
+
+    config = configs.lattice_default_config
+    # Edit config for dataset specific hyperparameters
+    config["fasta_file"] = lattice_data
+    config["sequence_weights"] = None
+    config["epochs"] = 2
+
+    # Training Code
+    rbm = RBM(config, debug=True)
+    logger = TensorBoardLogger('./lattice_proteins_verification/', name="lattice_rbm")
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt.fit(rbm)
+
+
+
+
     # config = {"fasta_file": bivalent_data,
     #           "molecule": "dna",
     #           "h_num": 20,  # number of hidden units, can be variable
