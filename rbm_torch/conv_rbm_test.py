@@ -181,7 +181,10 @@ class CRBM(LightningModule):
 
         self.hidden_convolution_keys = self.convolution_topology.keys()
         for key in self.hidden_convolution_keys:
-            self.convolution_topology[key]["weight_dims"] = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])["weight_shape"]
+            # Set information about the convolutions that will be useful
+            dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
+            self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
+            self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
             # Convolution Weights
             self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
             # hidden layer parameters
@@ -269,34 +272,56 @@ class CRBM(LightningModule):
         categorical = v.argmax(2)
         ind_x = torch.arange(categorical.shape[0], dtype=torch.long, device=self.device)
         ind_y = torch.randint(self.v_num, (categorical.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
+        # To shuffle our visible states
+        ind_k = torch.randint(self.v_num, (self.v_num, ), dtype=torch.long, device=self.device)
         E_vlayer_ref = self.energy_v(v) + self.params['fields'][ind_y, categorical[ind_x, ind_y]]
 
-        y = categorical[ind_x, ind_y].unsqueeze(1)
-        random_config = F.one_hot(categorical[ind_x, ind_y], self.q)
-        random_config_output = self.compute_output_v(random_config)
+        v_output = self.compute_output_v(v)
+
+        v_shuffle = v.clone()[:, ind_k, :]
+        v_shuffle_output = self.compute_output_v(v_shuffle)
+
+        # rand_config_output = []
+        # for iid, i in enumerate(self.hidden_convolution_keys):
+        #     v_shuffle = v_output[iid].clone()[ind_x, ind_y].view(v_output[iid].size()) # Shuffle
+        #     h_output = v_output[iid].clone()
+        #     k_num = self.convolution_dims[i]["convolution_shape"][2]  # convx in conv2d_dims function (dimension of the visible units)
+        #     ind_k = ind_y[:k_num]
+        #     h_random = h_output[:, :, ind_k].view(h_output.size())  # Shuffle by convolution
+        #     rand_config_output.append(h_random)
+
+        # Original
         # output_ref = self.compute_output_v(v) - self.W[:, ind_y, config[ind_x, ind_y]].T
 
-        v_output = self.compute_output_v(v)
         output_ref = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            output_ref.append(v_output[iid] - random_config_output)
+            output_ref.append(v_output[iid] - v_shuffle_output[iid])
         # output_ref = self.compute_output_v(v) - random_config_output
 
         fe = torch.zeros([categorical.shape[0], self.q], device=self.device)
 
+        random_config_state = v.clone()
 
         for c in range(self.q):
-            random_config_state = F.one_hot(categorical[ind_y, c], self.q)
+            random_config_state.fill_(0.)
+            random_config_state[:, :, c] = 1
             random_config_state_output = self.compute_output_v(random_config_state)
+
+            E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
+
             output = []
             for iid, i in enumerate(self.hidden_convolution_keys):
                 output.append(output_ref[iid] + random_config_state_output[iid])
-            # output = output_ref + self.W[:, ind_y, c].T
 
-            E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
-            for iid, i in enumerate(self.hidden_convolution_keys):
-                fe[:, c] += E_vlayer - self.logpartition_h(output[iid])
-        return - fe[ind_x, config[ind_x, ind_y]] - torch.logsumexp(- fe, 1)
+            # h_partition = self.logpartition_h(output)
+            # output = output_ref + self.W[:, ind_y, c].T
+            # for iid, i in enumerate(self.hidden_convolution_keys):
+            fe[:, c] += E_vlayer - self.logpartition_h(output)
+
+        fe_estimate = fe.gather(1, categorical[ind_x, ind_y].unsqueeze(1)).squeeze(1)
+        print("yo")
+        # return - fe[ind_x, categorical[ind_x, ind_y]] - torch.logsumexp(- fe, 1)
+        return - fe_estimate - torch.logsumexp(- fe, 1)
 
     ## Used in our Loss Function
     def free_energy(self, v):
@@ -382,10 +407,14 @@ class CRBM(LightningModule):
 
     ## Random Config of Hidden dReLU States
     def random_init_config_h(self, batch_size=None):
-        if batch_size is not None:
-            return torch.randn((batch_size, self.h_num), device=self.device)
-        else:
-            return torch.randn((self.batch_size, self.h_num), device=self.device)
+        config = []
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            batch, h_num, convx_num, convy_num = self.convolution_topology["conv_shape"]
+            if batch_size is not None:
+                config.append(torch.randn((batch_size, h_num, convx_num), device=self.device))
+            else:
+                config.append(torch.randn((self.batch_size, h_num, convx_num), device=self.device))
+        return config
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
@@ -851,18 +880,18 @@ class CRBM(LightningModule):
         # seqs, V_pos, one_hot, seq_weights = batch
         seqs, V_pos, one_hot, seq_weights = batch
         weights = seq_weights.clone()
-        V_neg, h_neg, V_pos, h_pos = self(V_pos)
+        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg_oh) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         # Reconstruction Loss, Did not work very well
         # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
         # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
-        psuedolikelihood = (self.psuedolikelihood(one_hot) * weights).sum() / weights.sum()
+        psuedolikelihood = (self.psuedolikelihood(V_pos_oh) * weights).sum() / weights.sum()
 
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
@@ -889,13 +918,13 @@ class CRBM(LightningModule):
     #     self.grad_norm_clip_value = 10
     #     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip_value)
 
-    def forward(self, V_pos):
+    def forward(self, V_pos_ohe):
         # Enforces Zero Sum Gauge on Weights
         # self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
-            fantasy_v = V_pos.clone()
+            fantasy_v = V_pos_ohe.clone()
             h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
             # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
             for _ in range(self.mc_moves-1):
@@ -904,13 +933,13 @@ class CRBM(LightningModule):
             V_neg, fantasy_h = self.markov_step(fantasy_v)
             h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
 
-            return V_neg, h_neg, V_pos, h_pos
+            return V_neg, h_neg, V_pos_ohe, h_pos
 
         elif self.sample_type == "pt":
             # Parallel Tempering
-            h_pos = self.sample_from_inputs_h(self.compute_output_v(V_pos))
+            h_pos = self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
-            n_chains = V_pos.shape[0]
+            n_chains = V_pos_ohe.shape[0]
             fantasy_v = self.random_init_config_v(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.v_num])
             fantasy_h = self.random_init_config_h(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.h_num])
             fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
@@ -922,7 +951,7 @@ class CRBM(LightningModule):
             V_neg = fantasy_v[0, :, :]
             h_neg = fantasy_h[0, :, :]
 
-            return V_neg, h_neg, V_pos, h_pos
+            return V_neg, h_neg, V_pos_ohe, h_pos
 
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
@@ -974,8 +1003,6 @@ class CRBM(LightningModule):
             initial_fields = train_reader.field_init()
             self.params['fields'] += initial_fields
             self.params['fields0'] += initial_fields
-
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
 
         v = self.random_init_config_v()
         h = self.sample_from_inputs_h(self.compute_output_v(v))
@@ -1343,6 +1370,11 @@ if __name__ == '__main__':
     config["sequence_weights"] = None
     config["epochs"] = 2
 
+    # crbm = CRBM(config)
+    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=0)  # gpus=1,
+    # plt.fit(crbm)
+
 
     # Debugging Code
     rbm_lat = CRBM(config, debug=True)
@@ -1351,11 +1383,12 @@ if __name__ == '__main__':
     for iid, i in enumerate(td):
         seq, cat, ohe, seq_weights = i
         v_out = rbm_lat.compute_output_v(ohe)
-        h = rbm_lat.sample_from_inputs_h(v_out)
-        h_out = rbm_lat.compute_output_h(h)
-        nv = rbm_lat.sample_from_inputs_v(h_out)
-        fe = rbm_lat.free_energy(nv)
-        pl = rbm_lat.psuedolikelihood(nv)
+        # h = rbm_lat.sample_from_inputs_h(v_out)
+        # h_out = rbm_lat.compute_output_h(h)
+        # nv = rbm_lat.sample_from_inputs_v(h_out)
+        # fe = rbm_lat.free_energy(nv)
+        pl = rbm_lat.psuedolikelihood(ohe)
+        # print(pl)
 
 
 
