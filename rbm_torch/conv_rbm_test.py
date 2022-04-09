@@ -215,23 +215,6 @@ class CRBM(LightningModule):
         # Initialize PT members, might b
         self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
 
-    def forward_conv(self, X): # input X has dimension (Batch_Size, V_num, q)
-        outputs = []
-        input = X.unsqueeze(1).double()
-        for i in self.hidden_convolution_keys:
-            outputs.append(F.conv2d(input, self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
-                                    padding=self.convolution_topology[i]["padding"], dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
-        return outputs
-
-    def reverse_conv(self, Y): # input is list of h_uk s for each hidden topology
-        outputs = []
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
-                                    padding=self.convolution_topology[i]["padding"], dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
-        if len(outputs) > 1:
-            return torch.mean(torch.stack(outputs))  # Average over input from all hidden layers
-        else:
-            return outputs[0]
 
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
         self.N_PT = N_PT
@@ -300,10 +283,10 @@ class CRBM(LightningModule):
 
         fe = torch.zeros([categorical.shape[0], self.q], device=self.device)
 
-        random_config_state = v.clone()
+        zero_state = torch.zeros(v.shape, device=self.device)
 
         for c in range(self.q):
-            random_config_state.fill_(0.)
+            random_config_state = zero_state.clone()
             random_config_state[:, :, c] = 1
             random_config_state_output = self.compute_output_v(random_config_state)
 
@@ -319,7 +302,6 @@ class CRBM(LightningModule):
             fe[:, c] += E_vlayer - self.logpartition_h(output)
 
         fe_estimate = fe.gather(1, categorical[ind_x, ind_y].unsqueeze(1)).squeeze(1)
-        print("yo")
         # return - fe[ind_x, categorical[ind_x, ind_y]] - torch.logsumexp(- fe, 1)
         return - fe_estimate - torch.logsumexp(- fe, 1)
 
@@ -409,7 +391,7 @@ class CRBM(LightningModule):
     def random_init_config_h(self, batch_size=None):
         config = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            batch, h_num, convx_num, convy_num = self.convolution_topology["conv_shape"]
+            batch, h_num, convx_num, convy_num = self.convolution_topology[i]["conv_shape"]
             if batch_size is not None:
                 config.append(torch.randn((batch_size, h_num, convx_num), device=self.device))
             else:
@@ -444,23 +426,27 @@ class CRBM(LightningModule):
     #         return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
 
     ## Compute Input for Hidden Layer from Visible Potts, Uses categorical not one hot vector
-    def compute_output_v(self, visible_data_one_hot):
-        # output = torch.zeros((visible_data.shape[0], self.h_num), device=self.device)
-
-        # compute_output of visible potts layer
-        # vd = visible_data.long()
-        #
-        # # Newest Version also works, fastest version
-        # indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
-        # expandedweights = self.W.unsqueeze(0).expand(visible_data.shape[0], -1, -1, -1)
-        # output = torch.gather(expandedweights, 3, indexTensor).squeeze(3).sum(2)
-
-        return self.forward_conv(visible_data_one_hot)
+    def compute_output_v(self, X): # X is the one hot vector
+        outputs = []
+        input = X.unsqueeze(1).double() # make 4d input with single channel (B, 1 convx, convy)
+        for i in self.hidden_convolution_keys:
+            outputs.append(F.conv2d(input, self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
+                                    padding=self.convolution_topology[i]["padding"],
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+        return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
-    def compute_output_h(self, config):
-        return self.reverse_conv(config)
-        # return torch.tensordot(config, self.W, ([1], [0]))
+    def compute_output_h(self, Y):  # from h_uk (B, hidden_num, convx_num)
+        outputs = []
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
+                                              stride=self.convolution_topology[i]["stride"],
+                                              padding=self.convolution_topology[i]["padding"],
+                                              dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
+        if len(outputs) > 1:
+            return torch.mean(torch.stack(outputs))  # Average over input from all hidden layers
+        else:
+            return outputs[0]
 
     ## Gibbs Sampling of Potts Visbile Layer
     ## This thing is the source of my frustration with the ram
