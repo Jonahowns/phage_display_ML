@@ -251,6 +251,7 @@ class CRBM(LightningModule):
     ############################################################# RBM Functions
     ## Compute Psudeo likelihood of given visible config
     # TODO: Figure this out
+    # Currently gives wrong values
     def psuedolikelihood(self, v):
         with torch.no_grad():
             categorical = v.argmax(2)
@@ -366,7 +367,7 @@ class CRBM(LightningModule):
         E = torch.zeros((len(self.hidden_convolution_keys)), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             h_uk = h[iid]
-            E[iid] = h_uk.matmul(conv[iid]).sum(2).sum(1)
+            E[iid] = h_uk.matmul(conv[iid]).sum(1).mean(2) # 1/q sum u sum k huk(Iuk)
 
         if E.shape[0] > 1:
             return E.sum(0)
@@ -409,6 +410,7 @@ class CRBM(LightningModule):
             config_minus = torch.maximum(-config, zero)
 
             E[iid] = torch.matmul(config_plus.square(), a_plus) / 2 + torch.matmul(config_minus.square(), a_minus) / 2 + torch.matmul(config_plus, theta_plus) + torch.matmul(config_minus, theta_minus)
+            E[iid] /= self.convolution_topology[i]["convolution_dims"][2] # Normalize across different convolution sizes
 
         if E.shape[0] > 1:
             E = E.sum(1)
@@ -426,7 +428,7 @@ class CRBM(LightningModule):
     def random_init_config_h(self, batch_size=None):
         config = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            batch, h_num, convx_num, convy_num = self.convolution_topology[i]["conv_shape"]
+            batch, h_num, convx_num, convy_num = self.convolution_topology[i]["convolution_dims"]
             if batch_size is not None:
                 config.append(torch.randn((batch_size, h_num, convx_num), device=self.device))
             else:
@@ -451,6 +453,7 @@ class CRBM(LightningModule):
             y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                     1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
             marginal[iid] = y.sum(1)
+            marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
         return marginal.sum(0)
 
     ## Marginal over visible units
@@ -465,9 +468,10 @@ class CRBM(LightningModule):
         outputs = []
         input = X.unsqueeze(1).double() # make 4d input with single channel (B, 1 convx, convy)
         for i in self.hidden_convolution_keys:
+            convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv2d(input, self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
-                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3).div(convx))
         return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
@@ -798,18 +802,23 @@ class CRBM(LightningModule):
         seqs, V_pos, one_hot, seq_weights = batch
 
         psuedolikelihood = (self.psuedolikelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
+        free_energy_avg = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()
 
         batch_out = {
-             "val_psuedolikelihood": psuedolikelihood.detach()
+             # "val_psuedolikelihood": psuedolikelihood.detach()
+             "val_free_energy": free_energy_avg.detach()
         }
 
-        self.log("ptl/val_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/val_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_free_energy", free_energy_avg, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return batch_out
 
     def validation_epoch_end(self, outputs):
-        avg_pl = torch.stack([x['val_psuedolikelihood'] for x in outputs]).mean()
-        self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl, self.current_epoch)
+        # avg_pl = torch.stack([x['val_psuedolikelihood'] for x in outputs]).mean()
+        # self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl, self.current_epoch)
+        avg_pl = torch.stack([x['val_free_energy'] for x in outputs]).mean()
+        self.logger.experiment.add_scalar("Validation Free Energy", avg_pl, self.current_epoch)
 
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
     def training_epoch_end(self, outputs):
@@ -818,23 +827,23 @@ class CRBM(LightningModule):
         avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
         field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
         weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
-        free_energy = torch.stack([x["free_energy"] for x in outputs]).mean()
-        psuedolikelihood = torch.stack([x['train_psuedolikelihood'] for x in outputs]).mean()
+        free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
+        # psuedolikelihood = torch.stack([x['train_psuedolikelihood'] for x in outputs]).mean()
         # reconstruction = torch.stack([x['log']['reconstruction_loss'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
                                                            "CD_Loss": avg_dF,
                                                            "Field Reg": field_reg,
                                                            "Weight Reg": weight_reg,
-                                                           "Train_Psuedolikelihood": psuedolikelihood,
-                                                           "Free Energy": free_energy
+                                                           # "Train_Psuedolikelihood": psuedolikelihood,
+                                                           "Train Free Energy": free_energy,
                                                            # "Reconstruction Loss": reconstruction,
                                                            }, self.current_epoch)
 
         for name, p in self.params.items():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
 
-    ## This works but not the exact quantity we want to maximize
+    ## Not yet rewritten for crbm
     def training_step_CD_energy(self, batch, batch_idx):
         seqs, V_pos, one_hot, seq_weights = batch
         weights = seq_weights.clone.detach()
@@ -866,6 +875,7 @@ class CRBM(LightningModule):
 
         return logs
 
+    # Not yet rewritten for CRBM
     def training_step_PT_free_energy(self, batch, batch_idx):
         seqs, V_pos, one_hot, seq_weights = batch
         V_pos = V_pos.clone().detach()
@@ -913,30 +923,34 @@ class CRBM(LightningModule):
         # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
         # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
-        psuedolikelihood = (self.psuedolikelihood(V_pos_oh) * weights).sum() / weights.sum()
+        # psuedolikelihood = (self.psuedolikelihood(V_pos_oh) * weights).sum() / weights.sum()
 
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
 
         tmp = torch.zeros((1), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
-            x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2)).square()
-            tmp += x.squeeze(1).sum(0)
+            # conv_shape = self.convolution_topology[i]["convolution_dims"]  # (batch, hidden u, hidden k, convy_num=1)
+            # x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2)).square() / (conv_shape[2])
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square() / (W_shape[1]*W_shape[2]*W_shape[3])
+            tmp += x.sum(0)
         # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
-        reg2 = self.l1_2 / (2 * self.q * self.v_num) * tmp
+        reg2 = self.l1_2 / 2 * tmp
 
         loss = cd_loss + reg1 + reg2 #  + reconstruction_loss
 
         logs = {"loss": loss,
-                "train_psuedolikelihood": psuedolikelihood.detach(),
+                # "train_psuedolikelihood": psuedolikelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
-                "free_energy": free_energy,
+                "train_free_energy": free_energy,
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
                 # "reconstruction_loss": reconstruction_loss.detach()
                 }
 
-        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_free_energy", free_energy, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
@@ -1376,7 +1390,7 @@ if __name__ == '__main__':
               "v_num": 27,
               "q": 21,
               "batch_size": 6000,
-              "mc_moves": 10,
+              "mc_moves": 4,
               "seed": 38,
               "lr": 0.0065,
               "lr_final": None,
@@ -1387,8 +1401,8 @@ if __name__ == '__main__':
               "optimizer": "AdamW",
               "epochs": 150,
               "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.185,
-              "lf": 0.05,
+              "l1_2": 0.01,
+              "lf": 0.25,
               # "data_worker_num": 10  # Optionally Set these
               }
 
@@ -1396,7 +1410,7 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 50
+    config["epochs"] = 200
 
     crbm = CRBM(config, debug=True)
     logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
