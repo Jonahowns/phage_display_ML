@@ -252,93 +252,93 @@ class CRBM(LightningModule):
     ## Compute Psudeo likelihood of given visible config
     # TODO: Figure this out
     # Currently gives wrong values
-    def psuedolikelihood(self, v):
-        with torch.no_grad():
-            categorical = v.argmax(2)
-            ind_x = torch.arange(categorical.shape[0], dtype=torch.long, device=self.device)
-            ind_y = torch.randint(self.v_num, (categorical.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
-
-            E_vlayer_ref = self.energy_v(v) + self.params['fields'][ind_y, categorical[ind_x, ind_y]]
-
-            v_output = self.compute_output_v(v)
-
-            fe = torch.zeros([categorical.shape[0], self.q], device=self.device)
-            zero_state = torch.zeros(v.shape, device=self.device)
-
-            # ind_tks = []
-            v_shuffle_output = []
-            output_ref = []
-            ind_ks = []
-            shuffle_indx = []
-            for iid, i in enumerate(self.hidden_convolution_keys):
-                # Will fill this at correct indices to make corresponding layer
-                zeros = torch.zeros(v_output[iid].shape, dtype=torch.double, device=self.device)
-
-                # Corrupted shuffle index
-                shuffle_indx.append(torch.randint(v_output[iid].shape[2], v_output[iid].shape, dtype=torch.long, device=self.device))
-                v_output_shuffled = v_output[iid].gather(2, shuffle_indx[iid])
-
-                # Random k for each huk
-                ind_ks.append(torch.randint(v_output_shuffled.shape[2], v_output_shuffled.shape[:2], device=self.device).unsqueeze(2))
-
-                # huks with random huk values filled
-                v_shuffle_output.append(zeros.scatter(2, ind_ks[iid], v_output_shuffled))
-
-                output_ref.append(v_output[iid] - v_shuffle_output[iid])
-
-            for c in range(self.q):
-                E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
-
-                rc_state = zero_state.clone()
-                rc_state[:, :, c] = 1
-                rc_output = self.compute_output_v(rc_state)
-                rc_shuffled = []
-                output = []
-                for iid, i in enumerate(self.hidden_convolution_keys):
-                    # Re use stored shuffle index
-                    rc_shuffled.append(rc_output[iid].gather(2, shuffle_indx[iid]))
-                    # Extract only 1 huk value per huk
-                    rc_out_single = zeros.scatter(2, ind_ks[iid], rc_shuffled[iid])
-                    output.append(output_ref[iid] + rc_out_single)
-
-
-                fe[:, c] += E_vlayer - self.logpartition_h(output)
-
-            fe_estimate = fe.gather(1, categorical[ind_x, ind_y].unsqueeze(1)).squeeze(1)
-
-            # To shuffle our visible states
-            # ind_k = torch.randint(self.v_num, (self.v_num, ), dtype=torch.long, device=self.device)
-
-            # # Shuffle all h_uk
-            # shuffle_indx = torch.randint(v_output[iid].shape[2], v_output[iid].shape, dtype=torch.long, device=self.device)
-            # v_shuffle_output.append(v_output[iid].gather(2, shuffle_indx))
-
-            # First attempt, shuffling of visible nodes
-            # v_shuffle = v.clone()[:, ind_k, :]
-            # v_shuffle_output = self.compute_output_v(v_shuffle)
-
-            # for iid, i in enumerate(self.hidden_convolution_keys):
-            #     output_ref.append(v_output[iid] - v_shuffle_output[iid])
-            # output_ref = self.compute_output_v(v) - random_config_output
-
-            # # Original try
-            # for c in range(self.q):
-            #     random_config_state = zero_state.clone()
-            #     random_config_state[:, :, c] = 1
-            #     random_config_state_output = self.compute_output_v(random_config_state)
-            #
-            #     E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
-            #
-            #     output = []
-            #     for iid, i in enumerate(self.hidden_convolution_keys):
-            #         output.append(output_ref[iid] + random_config_state_output[iid])
-            #
-            #     fec = E_vlayer - self.logpartition_h(output)
-            #     fe[:, c] += fec
-            #
-            # fe_estimate = fe.gather(1, categorical[ind_x, ind_y].unsqueeze(1)).squeeze(1)
-
-        return - fe_estimate - torch.logsumexp(- fe, 1)
+    # def psuedolikelihood(self, v):
+    #     with torch.no_grad():
+    #         categorical = v.argmax(2)
+    #         ind_x = torch.arange(categorical.shape[0], dtype=torch.long, device=self.device)
+    #         ind_y = torch.randint(self.v_num, (categorical.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
+    #
+    #         E_vlayer_ref = self.energy_v(v) + self.params['fields'][ind_y, categorical[ind_x, ind_y]]
+    #
+    #         v_output = self.compute_output_v(v)
+    #
+    #         fe = torch.zeros([categorical.shape[0], self.q], device=self.device)
+    #         zero_state = torch.zeros(v.shape, device=self.device)
+    #
+    #         # ind_tks = []
+    #         v_shuffle_output = []
+    #         output_ref = []
+    #         ind_ks = []
+    #         shuffle_indx = []
+    #         for iid, i in enumerate(self.hidden_convolution_keys):
+    #             # Will fill this at correct indices to make corresponding layer
+    #             zeros = torch.zeros(v_output[iid].shape, dtype=torch.double, device=self.device)
+    #
+    #             # Corrupted shuffle index
+    #             shuffle_indx.append(torch.randint(v_output[iid].shape[2], v_output[iid].shape, dtype=torch.long, device=self.device))
+    #             v_output_shuffled = v_output[iid].gather(2, shuffle_indx[iid])
+    #
+    #             # Random k for each huk
+    #             ind_ks.append(torch.randint(v_output_shuffled.shape[2], v_output_shuffled.shape[:2], device=self.device).unsqueeze(2))
+    #
+    #             # huks with random huk values filled
+    #             v_shuffle_output.append(zeros.scatter(2, ind_ks[iid], v_output_shuffled))
+    #
+    #             output_ref.append(v_output[iid] - v_shuffle_output[iid])
+    #
+    #         for c in range(self.q):
+    #             E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
+    #
+    #             rc_state = zero_state.clone()
+    #             rc_state[:, :, c] = 1
+    #             rc_output = self.compute_output_v(rc_state)
+    #             rc_shuffled = []
+    #             output = []
+    #             for iid, i in enumerate(self.hidden_convolution_keys):
+    #                 # Re use stored shuffle index
+    #                 rc_shuffled.append(rc_output[iid].gather(2, shuffle_indx[iid]))
+    #                 # Extract only 1 huk value per huk
+    #                 rc_out_single = zeros.scatter(2, ind_ks[iid], rc_shuffled[iid])
+    #                 output.append(output_ref[iid] + rc_out_single)
+    #
+    #
+    #             fe[:, c] += E_vlayer - self.logpartition_h(output)
+    #
+    #         fe_estimate = fe.gather(1, categorical[ind_x, ind_y].unsqueeze(1)).squeeze(1)
+    #
+    #         # To shuffle our visible states
+    #         # ind_k = torch.randint(self.v_num, (self.v_num, ), dtype=torch.long, device=self.device)
+    #
+    #         # # Shuffle all h_uk
+    #         # shuffle_indx = torch.randint(v_output[iid].shape[2], v_output[iid].shape, dtype=torch.long, device=self.device)
+    #         # v_shuffle_output.append(v_output[iid].gather(2, shuffle_indx))
+    #
+    #         # First attempt, shuffling of visible nodes
+    #         # v_shuffle = v.clone()[:, ind_k, :]
+    #         # v_shuffle_output = self.compute_output_v(v_shuffle)
+    #
+    #         # for iid, i in enumerate(self.hidden_convolution_keys):
+    #         #     output_ref.append(v_output[iid] - v_shuffle_output[iid])
+    #         # output_ref = self.compute_output_v(v) - random_config_output
+    #
+    #         # # Original try
+    #         # for c in range(self.q):
+    #         #     random_config_state = zero_state.clone()
+    #         #     random_config_state[:, :, c] = 1
+    #         #     random_config_state_output = self.compute_output_v(random_config_state)
+    #         #
+    #         #     E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
+    #         #
+    #         #     output = []
+    #         #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         #         output.append(output_ref[iid] + random_config_state_output[iid])
+    #         #
+    #         #     fec = E_vlayer - self.logpartition_h(output)
+    #         #     fe[:, c] += fec
+    #         #
+    #         # fe_estimate = fe.gather(1, categorical[ind_x, ind_y].unsqueeze(1)).squeeze(1)
+    #
+    #     return - fe_estimate - torch.logsumexp(- fe, 1)
 
 
     ## Used in our Loss Function
@@ -457,11 +457,11 @@ class CRBM(LightningModule):
         return marginal.sum(0)
 
     ## Marginal over visible units
-    # def logpartition_v(self, inputs, beta=1):
-    #     if beta == 1:
-    #         return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
-    #     else:
-    #         return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
+    def logpartition_v(self, inputs, beta=1):
+        if beta == 1:
+            return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
+        else:
+            return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
 
     ## Compute Input for Hidden Layer from Visible Potts, Uses categorical not one hot vector
     def compute_output_v(self, X): # X is the one hot vector
@@ -483,6 +483,7 @@ class CRBM(LightningModule):
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
         if len(outputs) > 1:
+            # not sure about the mean here, might have effects not accounted for by rest  of the model
             return torch.mean(torch.stack(outputs))  # Average over input from all hidden layers
         else:
             return outputs[0]
@@ -1052,17 +1053,12 @@ class CRBM(LightningModule):
 
     # Return param as a numpy array
     def get_param(self, param_name):
-        if param_name == "W":
-            W_raw = self.params['W_raw'].clone()
-            tensor = W_raw - W_raw.sum(-1).unsqueeze(2) / self.q
+        try:
+            tensor = self.params[param_name].clone()
             return tensor.detach().numpy()
-        else:
-            try:
-                tensor = self.params[param_name].clone()
-                return tensor.detach.numpy()
-            except KeyError:
-                print(f"Key {param_name} not found")
-                exit()
+        except KeyError:
+            print(f"Key {param_name} not found")
+            exit()
 
     def update_betas(self, beta=1):
         with torch.no_grad():
@@ -1368,12 +1364,12 @@ def get_checkpoint(version, dir=""):
             checkpoint_file = os.path.join(checkpoint_dir, file)
     return checkpoint_file
 
-def get_beta_and_W(rbm):
-    W = rbm.get_param("W")
+def get_beta_and_W(crbm, Wname):
+    W = crbm.get_param(Wname).squeeze(1)
     return np.sqrt((W ** 2).sum(-1).sum(-1)), W
 
-def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
-    beta, W = get_beta_and_W(rbm)
+def all_weights(rbm, Wname, name, rows, columns, h, w, molecule='rna'):
+    beta, W = get_beta_and_W(rbm, Wname)
     order = np.argsort(beta)[::-1]
     fig = rbm_utils.Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
 
@@ -1410,18 +1406,22 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 200
+    config["epochs"] = 500
 
-    crbm = CRBM(config, debug=True)
-    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(crbm)
+    # Training Code
+    # crbm = CRBM(config, debug=True)
+    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(crbm)
 
 
     # Debugging Code1
-    # checkpoint = "./tb_logs/conv_lattice_trial/version_6/checkpoints/epoch=39-step=79.ckpt"
-    # rbm_lat = CRBM.load_from_checkpoint(checkpoint)
+    checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=499-step=999.ckpt"
+    crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+    # h1_W = crbm_lat.get_param("hidden1_W")
+    # rbm_utils.Sequence_logo(h1_W.squeeze(1)[1], None, data_type="weights", molecule="protein")
 
+    all_weights(crbm_lat, "hidden1_W", "crbm_lattice_weights", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()

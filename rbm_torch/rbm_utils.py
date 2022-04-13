@@ -74,8 +74,8 @@ aadict['.'] = -1
 
 def get_ax(ax, i, nrows, ncols):
     if (ncols > 1) & (nrows > 1):
-        col = i % ncols
-        row = i / ncols
+        col = int(i % ncols)
+        row = int(i / ncols)
         ax_ = ax[row, col]
     elif (ncols > 1) & (nrows == 1):
         ax_ = ax[i]
