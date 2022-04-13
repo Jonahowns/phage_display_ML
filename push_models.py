@@ -130,7 +130,7 @@ if __name__=='__main__':
     elif "cov" in args.datatype_str:
         # The RBMS string specifiers
         rounds = info["rbm_names"]
-        rounds_w = info["rbm_names"]
+        rounds_w = info_w["rbm_names"]
         all_rounds = rounds + rounds_w
 
         individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
