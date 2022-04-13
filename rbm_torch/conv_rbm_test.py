@@ -148,9 +148,6 @@ class CRBM(LightningModule):
         # Normal dist. times this value sets initial weight values
         self.weight_intial_amplitude = np.sqrt(0.1 / self.v_num)
 
-        ## Only Used as a test so far, not super effective
-        # self.reconstruction_loss = nn.MSELoss(reduction="mean")
-
         ## Might Need if grad values blow up
         # self.grad_norm_clip_value = 1000 # i have no context for setting this value at all lol, it isn't in use currently but may be later
 
@@ -158,17 +155,7 @@ class CRBM(LightningModule):
         torch.manual_seed(self.seed)  # For reproducibility
         torch.set_default_dtype(torch.float64)  # Double Precision
 
-        # get dimensions of our convolution
-        # self.kernel = (1, 1)
-        # self.stride = (1, 1)
-        # self.padding = (1, 1)
-        # conv_dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q],
-        #                        kernel=self.kernel, stride=self.stride, padding=self.padding)
-
-
-        self.convolution_topology = {
-            "hidden1": {"number": 20, "kernel": (3, self.q), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)}
-        }
+        self.convolution_topology = config["convolution_topology"]
 
         self.hidden_unit_types = len(self.convolution_topology)
 
@@ -346,8 +333,8 @@ class CRBM(LightningModule):
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
 
     ## Not used but may be useful
-    # def free_energy_h(self, h):
-    #     return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
+    def free_energy_h(self, h):
+        return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
 
     ## Total Energy of a given visible and hidden configuration
     def energy(self, v, h, remove_init=False):
@@ -358,7 +345,7 @@ class CRBM(LightningModule):
     def energy_PT(self, v, h, remove_init=False):
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
-            E[i, :] = self.energy_v(v[i, :, :], remove_init=remove_init) + self.energy_h(h[i, :, :], remove_init=remove_init) - self.bilinear_form(v[i, :, :], h[i, :, :])
+            E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h[i], remove_init=remove_init) - self.bidirectional_weight_form(v[i, :, :, :], h[i, :, :, :])
         return E
 
 
@@ -489,7 +476,6 @@ class CRBM(LightningModule):
             return outputs[0]
 
     ## Gibbs Sampling of Potts Visbile Layer
-    ## This thing is the source of my frustration with the ram
     def sample_from_inputs_v(self, psi, beta=1):  # Psi ohe (Batch_size, v_num, q)   fields (self.v_num, self.q)
         datasize = psi.shape[0]
 
@@ -620,8 +606,8 @@ class CRBM(LightningModule):
 
     def markov_PT_and_exchange(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
-            v[i, :, :], h[i, :, :] = self.markov_step(v[i, :, :], beta=beta)
-            e[i, :] = self.energy(v[i, :, :], h[i, :, :])
+            v[i, :, :, :], h[i, :, :, :] = self.markov_step(v[i, :, :, :], beta=beta)
+            e[i, :] = self.energy(v[i, :, :, :], h[i, :, :, :])
 
         if self.record_swaps:
             particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
@@ -631,14 +617,14 @@ class CRBM(LightningModule):
             proba = torch.exp(betadiff[i] * e[i + 1, :] - e[i, :]).minimum(torch.ones_like(e[i, :]))
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
-                v[i:i + 2, swap, :] = torch.flip(v[i - 1: i + 1], [0])[:, swap, :]
-                h[i:i + 2, swap, :] = torch.flip(h[i - 1: i + 1], [0])[:, swap, :]
+                v[i:i + 2, swap, :, :] = torch.flip(v[i - 1: i + 1], [0])[:, swap, :, :]
+                h[i:i + 2, swap, :, :] = torch.flip(h[i - 1: i + 1], [0])[:, swap, :, :]
                 e[i:i + 2, swap] = torch.flip(e[i - 1: i + 1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[i - 1: i + 1], [0])[:, swap]
             else:
-                v[i:i + 2, swap, :] = torch.flip(v[:i + 1], [0])[:, swap, :]
-                h[i:i + 2, swap, :] = torch.flip(h[:i + 1], [0])[:, swap, :]
+                v[i:i + 2, swap, :] = torch.flip(v[:i + 1], [0])[:, swap, :, :]
+                h[i:i + 2, swap, :] = torch.flip(h[:i + 1], [0])[:, swap, :, :]
                 e[i:i + 2, swap] = torch.flip(e[:i + 1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i + 1], [0])[:, swap]
@@ -658,21 +644,21 @@ class CRBM(LightningModule):
     ## Markov Step for Parallel Tempering
     def markov_step_PT(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
-            v[i, :, :], h[i, :, :] = self.markov_step(v[i, :, :], beta=beta)
-            e[i, :] = self.energy(v[i, :, :], h[i, :, :])
+            v[i], h[i] = self.markov_step(v[i], beta=beta)
+            e[i] = self.energy(v[i], h[i])
         return v, h, e
 
     def exchange_step_PT(self, v, h, e, compute_energy=True):
         if compute_energy:
             for i in torch.arange(self.N_PT):
-                e[i, :] = self.energy(v[i, :, :], h[i, :, :], remove_init=True)
+                e[i] = self.energy(v[i], h[i], remove_init=True)
 
         if self.record_swaps:
             particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
 
         betadiff = self.betas[1:] - self.betas[:-1]
         for i in np.arange(self.count_swaps % 2, self.N_PT - 1, 2):
-            proba = torch.exp(betadiff[i] * e[i+1, :] - e[i, :]).minimum(torch.ones_like(e[i, :]))
+            proba = torch.exp(betadiff[i] * e[i+1] - e[i]).minimum(torch.ones_like(e[i]))
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
                 v[i:i + 2, swap, :] = torch.flip(v[i-1: i+1], [0])[:, swap, :]
@@ -802,7 +788,7 @@ class CRBM(LightningModule):
 
         seqs, V_pos, one_hot, seq_weights = batch
 
-        psuedolikelihood = (self.psuedolikelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
+        # psuedolikelihood = (self.psuedolikelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy_avg = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()
 
         batch_out = {
@@ -830,7 +816,6 @@ class CRBM(LightningModule):
         weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
         free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
         # psuedolikelihood = torch.stack([x['train_psuedolikelihood'] for x in outputs]).mean()
-        # reconstruction = torch.stack([x['log']['reconstruction_loss'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
                                                            "CD_Loss": avg_dF,
@@ -838,7 +823,6 @@ class CRBM(LightningModule):
                                                            "Weight Reg": weight_reg,
                                                            # "Train_Psuedolikelihood": psuedolikelihood,
                                                            "Train Free Energy": free_energy,
-                                                           # "Reconstruction Loss": reconstruction,
                                                            }, self.current_epoch)
 
         for name, p in self.params.items():
@@ -856,7 +840,7 @@ class CRBM(LightningModule):
 
         cd_loss = energy_pos - energy_neg
 
-        psuedolikelihood = (self.psuedolikelihood(one_hot) * weights).sum() / weights.sum()
+        # psuedolikelihood = (self.psuedolikelihood(one_hot) * weights).sum() / weights.sum()
 
         reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
@@ -865,13 +849,13 @@ class CRBM(LightningModule):
         loss = cd_loss + reg1 + reg2
 
         logs = {"loss": loss.detach(),
-                "train_psuedolikelihood": psuedolikelihood.detach(),
+                # "train_psuedolikelihood": psuedolikelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach()
                 }
 
-        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
@@ -920,9 +904,6 @@ class CRBM(LightningModule):
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         free_energy = F_v.detach()
-        # Reconstruction Loss, Did not work very well
-        # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
-        # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
         # psuedolikelihood = (self.psuedolikelihood(V_pos_oh) * weights).sum() / weights.sum()
 
@@ -939,7 +920,7 @@ class CRBM(LightningModule):
         # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / 2 * tmp
 
-        loss = cd_loss + reg1 + reg2 #  + reconstruction_loss
+        loss = cd_loss + reg1 + reg2
 
         logs = {"loss": loss,
                 # "train_psuedolikelihood": psuedolikelihood.detach(),
@@ -947,7 +928,6 @@ class CRBM(LightningModule):
                 "train_free_energy": free_energy,
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
-                # "reconstruction_loss": reconstruction_loss.detach()
                 }
 
         # self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -983,7 +963,8 @@ class CRBM(LightningModule):
             h_pos = self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
             n_chains = V_pos_ohe.shape[0]
-            fantasy_v = self.random_init_config_v(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.v_num])
+            fantasy_v = self.random_init_config_v(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.v_num, self.q])
+            # this definitely needs to be fixed
             fantasy_h = self.random_init_config_h(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.h_num])
             fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
 
@@ -999,8 +980,7 @@ class CRBM(LightningModule):
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
-        # Needs to be set
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        # Read in data
         reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
@@ -1017,39 +997,23 @@ class CRBM(LightningModule):
 
         return X.sequence.tolist(), likelihood
 
-    def predict_psuedo(self, X):
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
-        reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
-        data_loader = torch.utils.data.DataLoader(
-            reader,
-            batch_size=self.batch_size,
-            num_workers=self.worker_num,  # Set to 0 if debug = True
-            pin_memory=self.pin_mem,
-            shuffle=False
-        )
-        with torch.no_grad():
-            likelihood = []
-            for i, batch in enumerate(data_loader):
-                seqs, V_pos, one_hot, seq_weights = batch
-                likelihood += self.psuedolikelihood(one_hot).detach().tolist()
-
-        return X.sequence.tolist(), likelihood
-
-
-    ## For debugging of main functions
-    def sampling_test(self):
-        self.prepare_data()
-        train_reader = RBMCaterogical(self.training_data, weights=self.weights, max_length=self.v_num, shuffle=False, base_to_id=self.base_to_id, device=self.device)
-
-        # initialize fields from data
-        with torch.no_grad():
-            initial_fields = train_reader.field_init()
-            self.params['fields'] += initial_fields
-            self.params['fields0'] += initial_fields
-
-        v = self.random_init_config_v()
-        h = self.sample_from_inputs_h(self.compute_output_v(v))
-        v2 = self.sample_from_inputs_v(self.compute_output_h(h))
+    # disabled until I figure out pseudo likelihood function
+    # def predict_psuedo(self, X):
+    #     reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+    #     data_loader = torch.utils.data.DataLoader(
+    #         reader,
+    #         batch_size=self.batch_size,
+    #         num_workers=self.worker_num,  # Set to 0 if debug = True
+    #         pin_memory=self.pin_mem,
+    #         shuffle=False
+    #     )
+    #     with torch.no_grad():
+    #         likelihood = []
+    #         for i, batch in enumerate(data_loader):
+    #             seqs, V_pos, one_hot, seq_weights = batch
+    #             likelihood += self.psuedolikelihood(one_hot).detach().tolist()
+    #
+    #     return X.sequence.tolist(), likelihood
 
     # Return param as a numpy array
     def get_param(self, param_name):
@@ -1109,7 +1073,13 @@ class CRBM(LightningModule):
             config = self.gen_data(Nchains=M, Lchains=1, Nthermalize=0, beta=0)
 
             log_Z_init = torch.zeros(1)
-            log_Z_init += self.logpartition_h(torch.zeros((1, self.h_num), device=self.device), beta=0)
+
+            zero_hidden = []
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                conv_shape = self.convolution_topology[i]["convolution_dims"]
+                zero_hidden.append(torch.zeros((1, conv_shape[1], conv_shape[2]), device=self.device))
+
+            log_Z_init += self.logpartition_h(zero_hidden, beta=0)
             log_Z_init += self.logpartition_v(torch.zeros((1, self.v_num, self.q), device=self.device), beta=0)
 
             if verbose:
@@ -1135,20 +1105,21 @@ class CRBM(LightningModule):
             self.AIS()
         return -self.free_energy(data) - self.log_Z_AIS
 
-    def cgf_from_inputs_h(self, I):
-        B = I.shape[0]
-        out = torch.zeros(I.shape, device=self.device)
-        sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
-        sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
-        log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
-        log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
-
-        Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-        Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
-        map = Z_plus > Z_minus
-        out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
-        out[~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
-        return out
+    # not yet implemented for crbm
+    # def cgf_from_inputs_h(self, I):
+    #     B = I.shape[0]
+    #     out = torch.zeros(I.shape, device=self.device)
+    #     sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
+    #     sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
+    #     log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
+    #     log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
+    #
+    #     Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+    #     Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+    #     map = Z_plus > Z_minus
+    #     out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
+    #     out[~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
+    #     return out
 
     def gen_data(self, Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, config_init=[], beta=1, batches=None, reshape=True, record_replica=False, record_acceptance=None, update_betas=None, record_swaps=False):
         """
@@ -1407,6 +1378,9 @@ if __name__ == '__main__':
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
     config["epochs"] = 500
+    config["convolution_topology"] = {
+        "hidden1": {"number": 20, "kernel": (3, config["q"]), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)}
+    }
 
     # Training Code
     # crbm = CRBM(config, debug=True)
