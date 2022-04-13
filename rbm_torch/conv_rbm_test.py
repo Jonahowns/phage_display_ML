@@ -1368,7 +1368,7 @@ if __name__ == '__main__':
               "optimizer": "AdamW",
               "epochs": 150,
               "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.01,
+              "l1_2": 0.001,
               "lf": 0.25,
               # "data_worker_num": 10  # Optionally Set these
               }
@@ -1377,25 +1377,26 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 500
+    config["epochs"] = 50
     config["convolution_topology"] = {
-        "hidden1": {"number": 20, "kernel": (3, config["q"]), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)}
+        "hidden1": {"number": 10, "kernel": (8, config["q"]), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)},
+        "hidden2": {"number": 10, "kernel": (3, config["q"]), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)}
     }
 
     # Training Code
-    # crbm = CRBM(config, debug=True)
-    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(crbm)
+    crbm = CRBM(config, debug=True)
+    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt.fit(crbm)
 
 
     # Debugging Code1
-    checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=499-step=999.ckpt"
-    crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=499-step=999.ckpt"
+    # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
     # h1_W = crbm_lat.get_param("hidden1_W")
     # rbm_utils.Sequence_logo(h1_W.squeeze(1)[1], None, data_type="weights", molecule="protein")
 
-    all_weights(crbm_lat, "hidden1_W", "crbm_lattice_weights", 4, 2, 11, 8, molecule="protein")
+    # all_weights(crbm_lat, "hidden1_W", "crbm_lattice_weights", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()
