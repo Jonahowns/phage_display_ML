@@ -335,7 +335,7 @@ class CRBM(LightningModule):
     def energy_PT(self, v, h, remove_init=False):
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
-            E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h[i], remove_init=remove_init) - self.bidirectional_weight_form(v[i, :, :, :], h[i, :, :, :])
+            E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h[i], remove_init=remove_init) - self.bidirectional_weight_term(v[i], h[i])
         return E
 
 
