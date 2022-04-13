@@ -16,8 +16,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # import rbm_utils
-from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all
+from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read
 import configs
+
 
 class RBMCaterogical(Dataset):
 
@@ -107,8 +108,6 @@ class RBMCaterogical(Dataset):
         self.count = 0
         if self.shuffle:
             self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
-
-
 
 
 class RBM(LightningModule):
@@ -974,6 +973,7 @@ class RBM(LightningModule):
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
+        # X must be a pandas dataframe
         # Needs to be set
         self.prep_W()
         reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
@@ -1318,123 +1318,6 @@ class RBM(LightningModule):
             return data
 
 
-# returns list of strings containing sequences
-# optionally returns the affinities in the file found
-# ex. with 5 as affinity
-# >seq1-5
-# ACGPTTACDKLLE
-# Fasta File Reader
-def fasta_read(fastafile, molecule, threads=1, drop_duplicates=False):
-    o = open(fastafile)
-    all_content = o.readlines()
-    o.close()
-
-    line_num = math.floor(len(all_content)/threads)
-    # Which lines of file each process should read
-    initial_bounds = [line_num*(i+1) for i in range(threads)]
-    # initial_bounds = initial_bounds[:-1]
-    initial_bounds.insert(0, 0)
-    new_bounds = []
-    for bound in initial_bounds[:-1]:
-        idx = bound
-        while not all_content[idx].startswith(">"):
-            idx += 1
-        new_bounds.append(idx)
-    new_bounds.append(len(all_content))
-
-    split_content = (all_content[new_bounds[xid]:new_bounds[xid+1]] for xid, x in enumerate(new_bounds[:-1]))
-
-    p = Pool(threads)
-
-    start = time.time()
-    results = p.map(process_lines, split_content)
-    end = time.time()
-
-    print("Process Time", end-start)
-    all_seqs, all_counts, all_chars = [], [], []
-    for i in range(threads):
-        all_seqs += results[i][0]
-        all_counts += results[i][1]
-        for char in results[i][2]:
-            if char not in all_chars:
-                all_chars.append(char)
-
-    # Sometimes multiple characters mean the same thing, this code checks for that and adjusts q accordingly
-    valuedict = {"protein": aadict, "dna": dnadict, "rna":rnadict}
-    assert molecule in valuedict.keys()
-    char_values = [valuedict[molecule][x] for x in all_chars]
-    unique_char_values = list(set(char_values))
-
-    q = len(unique_char_values)
-
-    if drop_duplicates:
-        if not all_counts:   # check if counts were found from fasta file
-            all_counts = [1 for x in range(len(all_seqs))]
-        assert len(all_seqs) == len(all_counts)
-        df = pd.DataFrame({"sequence": all_seqs, "copy_num":all_counts})
-        ndf = df.drop_duplicates(subset="sequence", keep="first")
-        all_seqs = ndf.sequence.tolist()
-        all_counts = ndf.copy_num.tolist()
-
-    return all_seqs, all_counts, all_chars, q
-
-
-def process_lines(assigned_lines):
-    titles, seqs, all_chars = [], [], []
-
-    hdr_indices = []
-    for lid, line in enumerate(assigned_lines):
-        if line.startswith('>'):
-            hdr_indices.append(lid)
-
-    for hid, hdr in enumerate(hdr_indices):
-        try:
-            titles.append(float(assigned_lines[hdr].rstrip().split('-')[1]))
-        except IndexError:
-            pass
-
-        if hid == len(hdr_indices) - 1:
-            seq = "".join([line.rstrip() for line in assigned_lines[hdr + 1:]])
-        else:
-            seq = "".join([line.rstrip() for line in assigned_lines[hdr + 1: hdr_indices[hid+1]]])
-
-        seqs.append(seq.upper())
-
-    for seq in seqs:
-        letters = set(list(seq))
-        for l in letters:
-            if l not in all_chars:
-                all_chars.append(l)
-
-    return seqs, titles, all_chars
-
-def fasta_read_old(fastafile, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
-    o = open(fastafile)
-    titles = []
-    seqs = []
-    all_chars = []
-    for line in o:
-        if line.startswith('>'):
-            if seq_read_counts:
-                titles.append(float(line.rstrip().split('-')[1]))
-        else:
-            seq = line.rstrip()
-            letters = set(list(seq))
-            for l in letters:
-                if l not in all_chars:
-                    all_chars.append(l)
-            seqs.append(seq)
-    o.close()
-    if drop_duplicates:
-        all_seqs = pd.DataFrame(seqs).drop_duplicates()
-        seqs = all_seqs.values.tolist()
-        seqs = [j for i in seqs for j in i]
-
-    if seq_read_counts:
-        return seqs, titles
-    else:
-        return seqs
-
 
 # Get Model from checkpoint File with specified version and directory
 def get_checkpoint(version, dir=""):
@@ -1513,5 +1396,4 @@ if __name__ == '__main__':
     #           "sequence_weights": None,
     #           "optimizer": "AdamW",
     #           "epochs": 200,
-    e
 

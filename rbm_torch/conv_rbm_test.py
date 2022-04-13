@@ -1,17 +1,8 @@
 import time
-# import pandas as pd
-# import pytorch_lightning.profiler
-# import seaborn
-# from pytorch_lightning.utilities.cloud_io import load as pl_load
-# import argparse
-# import json
 import pandas as pd
 from rbm import RBMCaterogical
-
-import rbm_utils
 import math
 import numpy as np
-from torch.utils.data import Dataset
 # import pytorch_lightning as pl
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -23,11 +14,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
-import multiprocessing # Just to set the worker number
+import multiprocessing  # Just to set the worker number
 
 import configs
-from rbm import fasta_read
-from rbm_utils import aadict, dnadict, rnadict
+from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read
 
 def conv2d_dim(input_shape, conv_topology):
     [batch_size, input_channels, v_num, q] = input_shape
@@ -1342,7 +1332,7 @@ def get_beta_and_W(crbm, Wname):
 def all_weights(rbm, Wname, name, rows, columns, h, w, molecule='rna'):
     beta, W = get_beta_and_W(rbm, Wname)
     order = np.argsort(beta)[::-1]
-    fig = rbm_utils.Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
+    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
 
 
 if __name__ == '__main__':
@@ -1394,7 +1384,7 @@ if __name__ == '__main__':
     # checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=499-step=999.ckpt"
     # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
     # h1_W = crbm_lat.get_param("hidden1_W")
-    # rbm_utils.Sequence_logo(h1_W.squeeze(1)[1], None, data_type="weights", molecule="protein")
+    # Sequence_logo(h1_W.squeeze(1)[1], None, data_type="weights", molecule="protein")
 
     # all_weights(crbm_lat, "hidden1_W", "crbm_lattice_weights", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
