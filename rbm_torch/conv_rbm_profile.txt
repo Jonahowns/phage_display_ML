@@ -1,0 +1,223 @@
+FIT Profiler Report
+Profile stats for: on_before_accelerator_backend_setup
+         25 function calls in 0.000 seconds
+
+   Ordered by: cumulative time
+
+Profile stats for: validation_step
+         417975 function calls (390169 primitive calls) in 0.401 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.401    0.134 accelerator.py:209(validation_step)
+        3    0.000    0.000    0.306    0.102 training_type_plugin.py:160(validation_step)
+        3    0.000    0.000    0.306    0.102 conv_rbm_test.py:781(validation_step)
+        3    0.000    0.000    0.305    0.102 conv_rbm_test.py:322(free_energy)
+        3    0.001    0.000    0.206    0.069 conv_rbm_test.py:356(energy_v)
+       60    0.204    0.003    0.204    0.003 {method 'matmul' of 'torch._C._TensorBase' objects}
+        3    0.002    0.001    0.096    0.032 conv_rbm_test.py:416(logpartition_h)
+        3    0.000    0.000    0.095    0.032 gpu.py:65(to_device)
+        3    0.000    0.000    0.095    0.032 accelerator.py:392(to_device)
+        3    0.000    0.000    0.095    0.032 accelerator.py:166(batch_to_device)
+        3    0.000    0.000    0.095    0.032 lightning.py:214(_apply_batch_transfer_handler)
+        3    0.000    0.000    0.095    0.032 hooks.py:654(transfer_batch_to_device)
+        3    0.000    0.000    0.095    0.032 apply_func.py:136(move_data_to_device)
+  27774/3    0.012    0.000    0.095    0.032 apply_func.py:58(apply_to_collection)
+      6/3    0.013    0.002    0.095    0.032 apply_func.py:102(<listcomp>)
+       18    0.092    0.005    0.093    0.005 conv_rbm_test.py:587(log_erf_times_gauss)
+   138864    0.018    0.000    0.054    0.000 {built-in method builtins.isinstance}
+    83313    0.009    0.000    0.037    0.000 abc.py:96(__instancecheck__)
+    83313    0.014    0.000    0.027    0.000 {built-in method _abc._abc_instancecheck}
+        9    0.000    0.000    0.015    0.002 apply_func.py:154(batch_to)
+        9    0.015    0.002    0.015    0.002 {method 'to' of 'torch._C._TensorBase' objects}
+27784/27768    0.003    0.000    0.013    0.000 abc.py:100(__subclasscheck__)
+27784/27768    0.008    0.000    0.010    0.000 {built-in method _abc._abc_subclasscheck}
+        3    0.000    0.000    0.002    0.001 conv_rbm_test.py:444(compute_output_v)
+    27762    0.002    0.000    0.002    0.000 _collections_abc.py:302(__subclasshook__)
+        9    0.002    0.000    0.002    0.000 {built-in method conv2d}
+      126    0.000    0.000    0.001    0.000 _tensor.py:26(wrapped)
+        6    0.000    0.000    0.000    0.000 {method 'double' of 'torch._C._TensorBase' objects}
+       54    0.000    0.000    0.000    0.000 {method 'pow' of 'torch._C._TensorBase' objects}
+       36    0.000    0.000    0.000    0.000 _tensor.py:600(__rsub__)
+       72    0.000    0.000    0.000    0.000 {built-in method log}
+       36    0.000    0.000    0.000    0.000 _tensor.py:606(__rdiv__)
+       75    0.000    0.000    0.000    0.000 {method 'unsqueeze' of 'torch._C._TensorBase' objects}
+       36    0.000    0.000    0.000    0.000 {built-in method rsub}
+       27    0.000    0.000    0.000    0.000 {method 'sum' of 'torch._C._TensorBase' objects}
+        3    0.000    0.000    0.000    0.000 lightning.py:241(log)
+       18    0.000    0.000    0.000    0.000 {built-in method zeros_like}
+        9    0.000    0.000    0.000    0.000 {method 'div' of 'torch._C._TensorBase' objects}
+       18    0.000    0.000    0.000    0.000 {built-in method sqrt}
+        6    0.000    0.000    0.000    0.000 {built-in method zeros}
+       18    0.000    0.000    0.000    0.000 {built-in method erf}
+        3    0.000    0.000    0.000    0.000 step_result.py:83(log)
+       36    0.000    0.000    0.000    0.000 {method 'reciprocal' of 'torch._C._TensorBase' objects}
+        9    0.000    0.000    0.000    0.000 {built-in method logaddexp}
+      105    0.000    0.000    0.000    0.000 module.py:1172(__getattr__)
+        9    0.000    0.000    0.000    0.000 device_dtype_mixin.py:38(device)
+        9    0.000    0.000    0.000    0.000 step_result.py:185(__set_meta)
+        9    0.000    0.000    0.000    0.000 {method 'squeeze' of 'torch._C._TensorBase' objects}
+      105    0.000    0.000    0.000    0.000 container.py:600(__getitem__)
+        6    0.000    0.000    0.000    0.000 contextlib.py:238(helper)
+        6    0.000    0.000    0.000    0.000 contextlib.py:82(__init__)
+        9    0.000    0.000    0.000    0.000 contextlib.py:117(__exit__)
+      126    0.000    0.000    0.000    0.000 {built-in method torch._C._has_torch_function}
+        6    0.000    0.000    0.000    0.000 training_type_plugin.py:122(lightning_module)
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        6    0.000    0.000    0.000    0.000 base.py:69(unwrap_lightning_module)
+        6    0.000    0.000    0.000    0.000 {method 'detach' of 'torch._C._TensorBase' objects}
+        3    0.000    0.000    0.000    0.000 accelerator.py:152(root_device)
+       18    0.000    0.000    0.000    0.000 step_result.py:39(__getitem__)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        4    0.000    0.000    0.000    0.000 apply_func.py:128(__subclasshook__)
+        3    0.000    0.000    0.000    0.000 accelerator.py:144(lightning_module)
+        3    0.000    0.000    0.000    0.000 profilers.py:88(profile)
+       72    0.000    0.000    0.000    0.000 {built-in method torch._C._has_torch_function_variadic}
+        3    0.000    0.000    0.000    0.000 profilers.py:362(stop)
+        6    0.000    0.000    0.000    0.000 contextlib.py:108(__enter__)
+        3    0.000    0.000    0.000    0.000 properties.py:71(training_type_plugin)
+        9    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+       16    0.000    0.000    0.000    0.000 _collections_abc.py:392(__subclasshook__)
+        6    0.000    0.000    0.000    0.000 properties.py:62(accelerator)
+       12    0.000    0.000    0.000    0.000 base_plugin.py:38(val_step_context)
+        3    0.000    0.000    0.000    0.000 single_device.py:58(root_device)
+        9    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       18    0.000    0.000    0.000    0.000 {function Result.__getitem__ at 0x7ffbaf6d8550}
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        3    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        3    0.000    0.000    0.000    0.000 lightning.py:464(__auto_choose_log_on_step)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        3    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        3    0.000    0.000    0.000    0.000 hooks.py:739(on_after_batch_transfer)
+        3    0.000    0.000    0.000    0.000 hooks.py:706(on_before_batch_transfer)
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+        3    0.000    0.000    0.000    0.000 lightning.py:477(__auto_choose_log_on_epoch)
+
+Profile stats for: training_step
+         1129842 function calls (1055790 primitive calls) in 8.537 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        4    0.000    0.000    8.537    2.134 accelerator.py:185(training_step)
+        4    0.000    0.000    8.287    2.072 training_type_plugin.py:154(training_step)
+        4    0.001    0.000    8.287    2.072 conv_rbm_test.py:767(training_step)
+        4    0.001    0.000    8.286    2.072 conv_rbm_test.py:890(training_step_CD_free_energy)
+        4    0.000    0.000    7.793    1.948 module.py:1104(_call_impl)
+        4    0.002    0.001    7.792    1.948 conv_rbm_test.py:939(forward)
+       24    0.002    0.000    7.261    0.303 conv_rbm_test.py:596(markov_step)
+       24    0.146    0.006    5.698    0.237 conv_rbm_test.py:474(sample_from_inputs_v)
+      240    0.004    0.000    5.563    0.023 _tensor.py:746(__contains__)
+      240    5.555    0.023    5.555    0.023 {method 'item' of 'torch._C._TensorBase' objects}
+       32    0.196    0.006    2.074    0.065 conv_rbm_test.py:507(sample_from_inputs_h)
+      192    1.797    0.009    1.823    0.009 conv_rbm_test.py:572(erf_times_gauss)
+        8    0.000    0.000    0.491    0.061 conv_rbm_test.py:322(free_energy)
+        8    0.004    0.001    0.482    0.060 conv_rbm_test.py:416(logpartition_h)
+       48    0.469    0.010    0.475    0.010 conv_rbm_test.py:587(log_erf_times_gauss)
+        4    0.000    0.000    0.251    0.063 gpu.py:65(to_device)
+        4    0.000    0.000    0.251    0.063 accelerator.py:392(to_device)
+        4    0.000    0.000    0.251    0.063 accelerator.py:166(batch_to_device)
+        4    0.000    0.000    0.251    0.063 lightning.py:214(_apply_batch_transfer_handler)
+        4    0.000    0.000    0.250    0.063 hooks.py:654(transfer_batch_to_device)
+        4    0.000    0.000    0.250    0.063 apply_func.py:136(move_data_to_device)
+  74044/4    0.033    0.000    0.250    0.063 apply_func.py:58(apply_to_collection)
+      8/4    0.035    0.004    0.250    0.063 apply_func.py:102(<listcomp>)
+   370460    0.048    0.000    0.144    0.000 {built-in method builtins.isinstance}
+   222360    0.025    0.000    0.097    0.000 abc.py:96(__instancecheck__)
+   222360    0.037    0.000    0.072    0.000 {built-in method _abc._abc_instancecheck}
+       12    0.000    0.000    0.039    0.003 apply_func.py:154(batch_to)
+       12    0.039    0.003    0.039    0.003 {method 'to' of 'torch._C._TensorBase' objects}
+74033/74029    0.009    0.000    0.035    0.000 abc.py:100(__subclasscheck__)
+     1872    0.002    0.000    0.028    0.000 _tensor.py:26(wrapped)
+74033/74029    0.020    0.000    0.026    0.000 {built-in method _abc._abc_subclasscheck}
+       40    0.001    0.000    0.011    0.000 conv_rbm_test.py:444(compute_output_v)
+      576    0.006    0.000    0.011    0.000 _tensor.py:606(__rdiv__)
+      912    0.009    0.000    0.009    0.000 {method 'pow' of 'torch._C._TensorBase' objects}
+        8    0.003    0.000    0.007    0.001 conv_rbm_test.py:356(energy_v)
+       24    0.001    0.000    0.007    0.000 conv_rbm_test.py:455(compute_output_h)
+      120    0.007    0.000    0.007    0.000 {built-in method conv2d}
+    74028    0.006    0.000    0.006    0.000 _collections_abc.py:302(__subclasshook__)
+      384    0.000    0.000    0.005    0.000 _tensor.py:600(__rsub__)
+      384    0.005    0.000    0.005    0.000 {built-in method rsub}
+      528    0.005    0.000    0.005    0.000 {built-in method sqrt}
+      576    0.005    0.000    0.005    0.000 {method 'reciprocal' of 'torch._C._TensorBase' objects}
+      380    0.004    0.000    0.004    0.000 {built-in method zeros}
+      432    0.004    0.000    0.004    0.000 {built-in method logical_and}
+       72    0.004    0.000    0.004    0.000 {built-in method conv_transpose2d}
+      312    0.003    0.000    0.003    0.000 {method 'div' of 'torch._C._TensorBase' objects}
+      240    0.003    0.000    0.003    0.000 {method 'any' of 'torch._C._TensorBase' objects}
+      160    0.003    0.000    0.003    0.000 {method 'matmul' of 'torch._C._TensorBase' objects}
+      216    0.003    0.000    0.003    0.000 {built-in method rand}
+     1240    0.003    0.000    0.003    0.000 {method 'unsqueeze' of 'torch._C._TensorBase' objects}
+      240    0.003    0.000    0.003    0.000 {built-in method zeros_like}
+       96    0.003    0.000    0.003    0.000 {built-in method erfinv}
+      384    0.003    0.000    0.003    0.000 {built-in method exp}
+       24    0.001    0.000    0.003    0.000 conv_rbm_test.py:562(cumulative_probabilities)
+      240    0.002    0.000    0.002    0.000 {built-in method erf}
+      604    0.002    0.000    0.002    0.000 device_dtype_mixin.py:38(device)
+       96    0.002    0.000    0.002    0.000 {built-in method isinf}
+      192    0.002    0.000    0.002    0.000 {method 'mul' of 'torch._C._TensorBase' objects}
+      120    0.002    0.000    0.002    0.000 {built-in method gather}
+      192    0.002    0.000    0.002    0.000 {method 'add' of 'torch._C._TensorBase' objects}
+      192    0.002    0.000    0.002    0.000 {built-in method isnan}
+       24    0.001    0.000    0.001    0.000 {built-in method stack}
+      120    0.001    0.000    0.001    0.000 {built-in method add}
+      312    0.001    0.000    0.001    0.000 {method 'squeeze' of 'torch._C._TensorBase' objects}
+      192    0.001    0.000    0.001    0.000 {built-in method log}
+      120    0.001    0.000    0.001    0.000 {method 'long' of 'torch._C._TensorBase' objects}
+       88    0.001    0.000    0.001    0.000 {method 'sum' of 'torch._C._TensorBase' objects}
+      120    0.001    0.000    0.001    0.000 {built-in method floor}
+       48    0.001    0.000    0.001    0.000 {method 'double' of 'torch._C._TensorBase' objects}
+      872    0.001    0.000    0.001    0.000 module.py:1172(__getattr__)
+       24    0.001    0.000    0.001    0.000 {built-in method torch._C._nn.one_hot}
+       24    0.001    0.000    0.001    0.000 {method 'detach' of 'torch._C._TensorBase' objects}
+       24    0.001    0.000    0.001    0.000 {built-in method mean}
+       24    0.000    0.000    0.000    0.000 {method 'max' of 'torch._C._TensorBase' objects}
+     1872    0.000    0.000    0.000    0.000 {built-in method torch._C._has_torch_function}
+        8    0.000    0.000    0.000    0.000 {method 'clone' of 'torch._C._TensorBase' objects}
+      872    0.000    0.000    0.000    0.000 container.py:600(__getitem__)
+        8    0.000    0.000    0.000    0.000 lightning.py:241(log)
+       24    0.000    0.000    0.000    0.000 {method 'cumsum_' of 'torch._C._TensorBase' objects}
+       24    0.000    0.000    0.000    0.000 {built-in method logaddexp}
+        8    0.000    0.000    0.000    0.000 step_result.py:83(log)
+       24    0.000    0.000    0.000    0.000 {method 'exp_' of 'torch._C._TensorBase' objects}
+       12    0.000    0.000    0.000    0.000 {built-in method abs}
+       16    0.000    0.000    0.000    0.000 {method 'square' of 'torch._C._TensorBase' objects}
+       12    0.000    0.000    0.000    0.000 {built-in method sum}
+       24    0.000    0.000    0.000    0.000 {method 'fill_' of 'torch._C._TensorBase' objects}
+      960    0.000    0.000    0.000    0.000 {built-in method torch._C._has_torch_function_variadic}
+       24    0.000    0.000    0.000    0.000 {method 'unsqueeze_' of 'torch._C._TensorBase' objects}
+       24    0.000    0.000    0.000    0.000 step_result.py:185(__set_meta)
+      240    0.000    0.000    0.000    0.000 {built-in method torch._C._has_torch_function_unary}
+      288    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       12    0.000    0.000    0.000    0.000 contextlib.py:117(__exit__)
+        8    0.000    0.000    0.000    0.000 contextlib.py:238(helper)
+       48    0.000    0.000    0.000    0.000 step_result.py:39(__getitem__)
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        8    0.000    0.000    0.000    0.000 contextlib.py:82(__init__)
+        8    0.000    0.000    0.000    0.000 training_type_plugin.py:122(lightning_module)
+        8    0.000    0.000    0.000    0.000 base.py:69(unwrap_lightning_module)
+        4    0.000    0.000    0.000    0.000 profilers.py:88(profile)
+        8    0.000    0.000    0.000    0.000 properties.py:71(training_type_plugin)
+        4    0.000    0.000    0.000    0.000 profilers.py:362(stop)
+        4    0.000    0.000    0.000    0.000 {built-in method torch._C._get_tracing_state}
+        4    0.000    0.000    0.000    0.000 accelerator.py:152(root_device)
+       32    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        4    0.000    0.000    0.000    0.000 accelerator.py:144(lightning_module)
+        4    0.000    0.000    0.000    0.000 accelerator.py:206(post_training_step)
+       24    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+       16    0.000    0.000    0.000    0.000 properties.py:62(accelerator)
+        8    0.000    0.000    0.000    0.000 contextlib.py:108(__enter__)
+        8    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       48    0.000    0.000    0.000    0.000 {function Result.__getitem__ at 0x7ffbaf6d8550}
+       16    0.000    0.000    0.000    0.000 base_plugin.py:33(train_step_context)
+        4    0.000    0.000    0.000    0.000 single_device.py:58(root_device)
+        8    0.000    0.000    0.000    0.000 lightning.py:464(__auto_choose_log_on_step)
+        4    0.000    0.000    0.000    0.000 hooks.py:739(on_after_batch_transfer)
+        4    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        4    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        8    0.000    0.000    0.000    0.000 lightning.py:477(__auto_choose_log_on_epoch)
+        4    0.000    0.000    0.000    0.000 training_type_plugin.py:157(post_training_step)
+        4    0.000    0.000    0.000    0.000 hooks.py:706(on_before_batch_transfer)

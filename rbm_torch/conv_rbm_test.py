@@ -455,13 +455,18 @@ class CRBM(LightningModule):
     def compute_output_h(self, Y):  # from h_uk (B, hidden_num, convx_num)
         outputs = []
         for iid, i in enumerate(self.hidden_convolution_keys):
+            # outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
+            #                                   stride=self.convolution_topology[i]["stride"],
+            #                                   padding=self.convolution_topology[i]["padding"],
+            #                                   dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
             outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
                                               stride=self.convolution_topology[i]["stride"],
                                               padding=self.convolution_topology[i]["padding"],
-                                              dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
+                                              dilation=self.convolution_topology[i]["dilation"],
+                                              output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
         if len(outputs) > 1:
             # not sure about the mean here, might have effects not accounted for by rest  of the model
-            return torch.mean(torch.stack(outputs))  # Average over input from all hidden layers
+            return torch.mean(torch.stack(outputs), 0)  # Average over input from all hidden layers
         else:
             return outputs[0]
 
@@ -1367,11 +1372,34 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 50
+    config["epochs"] = 2
     config["convolution_topology"] = {
-        "hidden1": {"number": 10, "kernel": (8, config["q"]), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)},
-        "hidden2": {"number": 10, "kernel": (3, config["q"]), "stride": (1, 1), "padding": (1, 0), "dilation": (1, 1)}
+        "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden2": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden3": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     }
+
+    # (kernel[0] - 1) - 1) / stride[0]
+    shapes1 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden1"])
+    shapes2 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden2"])
+    shapes3 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden3"])
+
+
+    # This works program this in!!!!
+    #   (27   -  1 * (kernel[0] -1 ) - 1) / stride[0]
+    # h1(26   - kernel )/stride       26-6 -> 18
+    # (input_sizex - dilation[0] * (kernel[0] - 1) - 1)
+    # def calc_output_transpose(convolution_definition, input_size):
+    #     Hout = (input_size[2] - 1) * convolution_definition["stride"][0] - 2* convolution_definition["padding"][0] + convolution_definition['dilation'][0] * (convolution_definition["kernel"][0] - 1) + convolution_definition["output_padding"][0] + 1
+    #     Wout = (input_size[3] - 1) * convolution_definition["stride"][1] - 2* convolution_definition["padding"][1] + convolution_definition['dilation'][1] * (convolution_definition["kernel"][1] - 1) + convolution_definition["output_padding"][1] + 1
+    #     print("size", Hout, Wout)
+
+    # input_size = (500, 5, convx_num)
+    # calc_output_transpose(config["convolution_topology"]["hidden1"], )
+    # calc_output_transpose(config["convolution_topology"]["hidden2"])
+    # calc_output_transpose(config["convolution_topology"]["hidden3"])
+
+
 
     # Training Code
     crbm = CRBM(config, debug=True)
@@ -1381,12 +1409,12 @@ if __name__ == '__main__':
 
 
     # Debugging Code1
-    # checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=499-step=999.ckpt"
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_23/checkpoints/epoch=49-step=99.ckpt"
     # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
     # h1_W = crbm_lat.get_param("hidden1_W")
-    # Sequence_logo(h1_W.squeeze(1)[1], None, data_type="weights", molecule="protein")
 
-    # all_weights(crbm_lat, "hidden1_W", "crbm_lattice_weights", 4, 2, 11, 8, molecule="protein")
+    # all_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
+    # all_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()
@@ -1455,34 +1483,8 @@ if __name__ == '__main__':
     # print("Trial took", tim, "seconds")
 
 
-
-    # version 11 of fixed trial is 50 epochs of pt sampled
-
-
-    # check weights
-    # version = 15
-    # # checkpoint = get_checkpoint(version, dir="./tb_logs/trial/")
-    # checkpoint = get_checkpoint(version, dir="./tb_logs/bench_trial/")
-    #
-    # rbm = RBM.load_from_checkpoint(checkpoint)
-    # all_weights(rbm, "./tb_logs/bench_trial/version_" + str(version) + "/allweights", 5, 1, 10, 2, molecule="protein")
-
-
-
-
     # plt = Trainer(gpus=1, max_epochs=10)
     # plt = Trainer(gpus=1, profiler='advanced', max_epochs=10)
     # plt = Trainer(profiler='advanced', max_epochs=10)
     # plt = Trainer(max_epochs=1)
     # plt.fit(rbm)
-
-
-    # total = 0
-    # for i, batch in enumerate(d):
-    #     print(len(batch))
-    #     seqs, tens = batch
-    #     if i == 0:
-    #         # rbm.testing()
-    #         rbm.training_step(batch, i)
-
-
