@@ -1363,7 +1363,7 @@ if __name__ == '__main__':
               "optimizer": "AdamW",
               "epochs": 150,
               "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.001,
+              "l1_2": 0.0005,
               "lf": 0.25,
               # "data_worker_num": 10  # Optionally Set these
               }
@@ -1372,17 +1372,18 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 2
+    config["epochs"] = 500
     config["convolution_topology"] = {
         "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
         "hidden2": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden3": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden3": {"number": 5, "kernel": (3, config["q"]), "stride": (2, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden4": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     }
 
     # (kernel[0] - 1) - 1) / stride[0]
-    shapes1 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden1"])
-    shapes2 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden2"])
-    shapes3 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden3"])
+    # shapes1 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden1"])
+    # shapes2 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden2"])
+    # shapes3 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden3"])
 
 
     # This works program this in!!!!
@@ -1402,7 +1403,7 @@ if __name__ == '__main__':
 
 
     # Training Code
-    crbm = CRBM(config, debug=True)
+    crbm = CRBM(config, debug=False)
     logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(crbm)
