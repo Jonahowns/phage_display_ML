@@ -1334,7 +1334,7 @@ def get_beta_and_W(crbm, Wname):
     W = crbm.get_param(Wname).squeeze(1)
     return np.sqrt((W ** 2).sum(-1).sum(-1)), W
 
-def all_weights(rbm, Wname, name, rows, columns, h, w, molecule='rna'):
+def conv_weights(rbm, Wname, name, rows, columns, h, w, molecule='rna'):
     beta, W = get_beta_and_W(rbm, Wname)
     order = np.argsort(beta)[::-1]
     fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
@@ -1388,7 +1388,7 @@ if __name__ == '__main__':
 
     # This works program this in!!!!
     #   (27   -  1 * (kernel[0] -1 ) - 1) / stride[0]
-    # h1(26   - kernel )/stride       26-6 -> 18
+    # h1(26   - (kernel-1) )/stride       26-6 -> 18
     # (input_sizex - dilation[0] * (kernel[0] - 1) - 1)
     # def calc_output_transpose(convolution_definition, input_size):
     #     Hout = (input_size[2] - 1) * convolution_definition["stride"][0] - 2* convolution_definition["padding"][0] + convolution_definition['dilation'][0] * (convolution_definition["kernel"][0] - 1) + convolution_definition["output_padding"][0] + 1
@@ -1414,8 +1414,8 @@ if __name__ == '__main__':
     # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
     # h1_W = crbm_lat.get_param("hidden1_W")
 
-    # all_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
-    # all_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()
@@ -1448,7 +1448,7 @@ if __name__ == '__main__':
     # checkpoint = "/mnt/D1/globus/rbm_hyperparam_results/train_rbm_ad5d7_00005_5_l1_2=0.3832,lf=0.00011058,lr=0.065775,weight_decay=0.086939_2022-01-18_11-02-53/checkpoints/epoch=99-step=499.ckpt"
     # rbm = RBM.load_from_checkpoint(checkpoint)
     # rbm.energy_per_state()
-    # all_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
+    # conv_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
 
     # checkpoint = torch.load(checkpoint_file)
     # model.prepare_data()

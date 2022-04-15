@@ -2,6 +2,7 @@ import sys
 sys.path.append("../")
 from rbm import fasta_read, RBM, get_beta_and_W
 import rbm_utils
+import crbm_test as cr
 
 import pandas as pd
 from glob import glob
@@ -222,6 +223,80 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
         axd[f"cgf{hid}"].yaxis.set_label_position("right")
     plt.show()
 
+def cgf_with_weights_plot_cgf(crbm, dataframe, hidden_unit_numbers):
+    # Convert Sequences to Integer Format and Compute Hidden Unit Input
+    v_num = crbm.v_num
+    h_nums = [crbm.convolution_topology[x]["number"] for x in crbm.hidden_convolution_keys]
+    base_to_id = int_to_letter_dicts[crbm.molecule]
+    data_tensor, weights = dataframe_to_input(dataframe, base_to_id, v_num, weights=True)
+
+    input_hiddens = crbm.compute_output_v(data_tensor)
+    input_hiddens = [x.detach().numpy() for x in input_hiddens]
+
+    # Get Beta and sort hidden Units by Frobenius Norms
+    beta, W = get_beta_and_W(crbm)
+    order = np.argsort(beta)[::-1]
+
+    gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
+    grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
+    fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+
+    npoints = 1000  # Number of points for graphing CGF curve
+    lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]  # Get limits for each hidden unit
+
+    Ws = [cr.get_beta_and_W(x+"_W")[1] for x in crbm.hidden_convolution_keys]
+    lims = []
+    # W shape h_num, kernel[0], kernel[1]
+    for W in Ws:
+        Wshrunk = W.squeeze(2)
+        lim_min = np.min(W, axis=1)
+        lim_max = np.max(W, axis=1)
+        lims.append([lim_min, lim_max])
+
+
+    fullranges = []
+    for hid, hn in enumerate(h_nums):
+        [mini, maxi] = lims[hid]
+        W = Ws[hid].squeeze(2)
+        for i in hn:  # for each hidden unit
+            W[i, :]
+        fullranges.append(torch)
+        fullranges.append([lims[]])
+
+
+    fullranges = torch.zeros((npoints, h_num))
+    for i in range(h_num):
+        x = lims[i]
+        fullranges[:, i] = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+
+    pre_cgf = rbm.cgf_from_inputs_h(fullranges)
+    # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+    # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
+    for hid, hu_num in enumerate(hidden_unit_numbers):
+        ix = order[hu_num]  # get weight index
+        # Make Sequence Logo
+        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
+        # Make CGF Plot
+        # x = lims[ix]
+        # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+        # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
+
+
+        t_x = np.asarray(fullranges[:, ix])
+        t_y = np.asarray(pre_cgf[:, ix])
+        deltay = np.min(t_y)
+        counts, bins = np.histogram(input_hiddens[:, ix], bins=30, weights=weights)
+        factor = np.max(t_y) / np.max(counts)
+        # WEIGHTS SHOULD HAVE SAME SIZE AS BINS
+        axd[f"cgf{hid}"].hist(bins[:-1], bins, color='grey', label='All sequences', weights=counts*factor,
+                   histtype='step', lw=3, fill=True, alpha=0.7, edgecolor='black', linewidth=1)
+        axd[f"cgf{hid}"].plot(t_x, t_y - deltay, lw=3, color='C1')
+        axd[f"cgf{hid}"].set_ylabel('CGF', fontsize=18)
+        axd[f"cgf{hid}"].tick_params(axis='both', direction='in', length=6, width=2, colors='k')
+        axd[f"cgf{hid}"].tick_params(axis='both', labelsize=16)
+        axd[f"cgf{hid}"].yaxis.tick_right()
+        axd[f"cgf{hid}"].yaxis.set_label_position("right")
+    plt.show()
 
 # Other notebook types "default_pig", "default_cov"
 def write_notebook(nbname, datatype_str, notebook="default_pig", cluster=None, weights=False):
