@@ -395,22 +395,48 @@ class CRBM(LightningModule):
         return E
 
     ## Random Config of Visible Potts States
-    def random_init_config_v(self, batch_size=None):
-        if batch_size is not None:
-            return self.sample_from_inputs_v(torch.zeros((batch_size, self.v_num, self.q), device=self.device), beta=0)
+    def random_init_config_v(self, custom_size=False, zeros=False):
+        if custom_size:
+            size = (*custom_size, self.v_num, self.q)
         else:
-            return self.sample_from_inputs_v(torch.zeros((self.batch_size, self.v_num, self.q), device=self.device), beta=0)
+            size = (self.batch_size, self.v_num, self.q)
+
+        if zeros:
+            return torch.zeros(size, device=self.device)
+        else:
+            return self.sample_from_inputs_v(torch.zeros(size, device=self.device).flatten(0, -2), beta=0).reshape(size)
 
     ## Random Config of Hidden dReLU States
-    def random_init_config_h(self, batch_size=None):
+    # N_PT and nchains arguments are used only for generating data currently
+    def random_init_config_h(self, zeros=False, custom_size=False):
         config = []
         for iid, i in enumerate(self.hidden_convolution_keys):
             batch, h_num, convx_num, convy_num = self.convolution_topology[i]["convolution_dims"]
-            if batch_size is not None:
-                config.append(torch.randn((batch_size, h_num, convx_num), device=self.device))
+
+            if custom_size:
+                size = (*custom_size, h_num, convx_num)
             else:
-                config.append(torch.randn((self.batch_size, h_num, convx_num), device=self.device))
+                size = (self.batch_size, h_num, convx_num)
+
+            if zeros:
+                config.append(torch.zeros(size, device=self.device))
+            else:
+                config.append(torch.randn(size, device=self.device))
+
         return config
+
+    def clone_h(self, hidden_config, reduce_dims=[], expand_dims=[]):
+        new_config = []
+        for hc in hidden_config:
+            new_h = hc.clone()
+            for dim in reduce_dims:
+                new_h = new_h.squeeze(dim)
+            for dim in expand_dims:
+                new_h = new_h.unsqueeze(dim)
+            new_config.append(new_h)
+        return new_config
+
+    def assign_h(self, ):
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
@@ -601,25 +627,25 @@ class CRBM(LightningModule):
 
     def markov_PT_and_exchange(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
-            v[i, :, :, :], h[i, :, :, :] = self.markov_step(v[i, :, :, :], beta=beta)
-            e[i, :] = self.energy(v[i, :, :, :], h[i, :, :, :])
+            v[i], h[i] = self.markov_step(v[i], beta=beta)
+            e[i] = self.energy(v[i], h[i])
 
         if self.record_swaps:
             particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
 
         betadiff = self.betas[1:] - self.betas[:-1]
         for i in np.arange(self.count_swaps % 2, self.N_PT - 1, 2):
-            proba = torch.exp(betadiff[i] * e[i + 1, :] - e[i, :]).minimum(torch.ones_like(e[i, :]))
+            proba = torch.exp(betadiff[i] * e[i + 1] - e[i]).minimum(torch.ones_like(e[i]))
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
-                v[i:i + 2, swap, :, :] = torch.flip(v[i - 1: i + 1], [0])[:, swap, :, :]
-                h[i:i + 2, swap, :, :] = torch.flip(h[i - 1: i + 1], [0])[:, swap, :, :]
+                v[i:i + 2, swap] = torch.flip(v[i - 1: i + 1], [0])[:, swap]
+                h[i:i + 2, swap] = torch.flip(h[i - 1: i + 1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[i - 1: i + 1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[i - 1: i + 1], [0])[:, swap]
             else:
-                v[i:i + 2, swap, :] = torch.flip(v[:i + 1], [0])[:, swap, :, :]
-                h[i:i + 2, swap, :] = torch.flip(h[:i + 1], [0])[:, swap, :, :]
+                v[i:i + 2, swap] = torch.flip(v[:i + 1], [0])[:, swap]
+                h[i:i + 2, swap] = torch.flip(h[:i + 1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[:i + 1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i + 1], [0])[:, swap]
@@ -656,14 +682,14 @@ class CRBM(LightningModule):
             proba = torch.exp(betadiff[i] * e[i+1] - e[i]).minimum(torch.ones_like(e[i]))
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
-                v[i:i + 2, swap, :] = torch.flip(v[i-1: i+1], [0])[:, swap, :]
-                h[i:i + 2, swap, :] = torch.flip(h[i-1: i+1], [0])[:, swap, :]
+                v[i:i + 2, swap] = torch.flip(v[i-1: i+1], [0])[:, swap]
+                h[i:i + 2, swap] = torch.flip(h[i-1: i+1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[i-1: i+1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[i-1: i+1], [0])[:, swap]
             else:
-                v[i:i + 2, swap, :] = torch.flip(v[:i+1], [0])[:, swap, :]
-                h[i:i + 2, swap, :] = torch.flip(h[:i+1], [0])[:, swap, :]
+                v[i:i + 2, swap] = torch.flip(v[:i+1], [0])[:, swap]
+                h[i:i + 2, swap] = torch.flip(h[:i+1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[:i+1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i+1], [0])[:, swap]
@@ -958,17 +984,16 @@ class CRBM(LightningModule):
             h_pos = self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
             n_chains = V_pos_ohe.shape[0]
-            fantasy_v = self.random_init_config_v(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.v_num, self.q])
-            # this definitely needs to be fixed
-            fantasy_h = self.random_init_config_h(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.h_num])
+            fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
+            fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
             fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
 
             for _ in range(self.mc_moves):
                 fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
                 self.update_betas()
 
-            V_neg = fantasy_v[0, :, :]
-            h_neg = fantasy_h[0, :, :]
+            V_neg = fantasy_v[0]
+            h_neg = fantasy_h[0]
 
             return V_neg, h_neg, V_pos_ohe, h_pos
 
@@ -1069,13 +1094,8 @@ class CRBM(LightningModule):
 
             log_Z_init = torch.zeros(1)
 
-            zero_hidden = []
-            for iid, i in enumerate(self.hidden_convolution_keys):
-                conv_shape = self.convolution_topology[i]["convolution_dims"]
-                zero_hidden.append(torch.zeros((1, conv_shape[1], conv_shape[2]), device=self.device))
-
-            log_Z_init += self.logpartition_h(zero_hidden, beta=0)
-            log_Z_init += self.logpartition_v(torch.zeros((1, self.v_num, self.q), device=self.device), beta=0)
+            log_Z_init += self.logpartition_h(self.random_init_config_h(custom_size=(1), zeros=True), beta=0)
+            log_Z_init += self.logpartition_v(self.random_init_config_v(custom_size=(1), zeros=True), beta=0)
 
             if verbose:
                 print(f'Initial evaluation: log(Z) = {log_Z_init.data}')
@@ -1158,12 +1178,12 @@ class CRBM(LightningModule):
                 update_betas = False
 
             if (N_PT > 1) and record_replica:
-                visible_data = torch.zeros((Nchains, N_PT, Lchains, self.v_num), dtype=torch.long)
-                hidden_data = torch.zeros((Nchains, N_PT, Lchains, self.v_num), dtype=torch.float64)
+                visible_data = self.random_init_config_v(custom_size=(Nchains, N_PT, Lchains), zeros=True)
+                hidden_data = self.random_init_config_h(custom_size=(Nchains, N_PT, Lchains), zeros=True)
                 data = [visible_data, hidden_data]
             else:
-                visible_data = torch.zeros((Nchains, Lchains, self.v_num), dtype=torch.long)
-                hidden_data = torch.zeros((Nchains, Lchains, self.h_num), dtype=torch.float64)
+                visible_data = self.random_init_config_v(custom_size=(Nchains, Lchains), zeros=True)
+                hidden_data = self.random_init_config_h(custom_size=(Nchains, Lchains), zeros=True)
                 data = [visible_data, hidden_data]
 
             if config_init is not []:
@@ -1182,14 +1202,14 @@ class CRBM(LightningModule):
                                             update_betas=update_betas, record_swaps=record_swaps)
 
                 if (N_PT > 1) & record_replica:
-                    data[0][batches * i:batches * (i + 1), :, :, :] = torch.swapaxes(config[0], 0, 2).clone()
-                    data[1][batches * i:batches * (i + 1), :, :, :] = torch.swapaxes(config[1], 0, 2).clone()
+                    data[0][batches * i:batches * (i + 1)] = torch.swapaxes(config[0], 0, 2).clone()
+                    data[1][batches * i:batches * (i + 1)] = torch.swapaxes(config[1], 0, 2).clone()
                 else:
-                    data[0][batches * i:batches * (i + 1), :, :] = torch.swapaxes(config[0], 0, 1).clone()
-                    data[1][batches * i:batches * (i + 1), :, :] = torch.swapaxes(config[1], 0, 1).clone()
+                    data[0][batches * i:batches * (i + 1)] = torch.swapaxes(config[0], 0, 1).clone()
+                    data[1][batches * i:batches * (i + 1)] = torch.swapaxes(config[1], 0, 1).clone()
 
             if reshape:
-                return [data[0].reshape([Nchains * Lchains, self.v_num]), data[1].reshape([Nchains * Lchains, self.h_num])]
+                return [data[0].flatten(0, -2), [hd.flatten(0, -2) for hd in data[1]]]
             else:
                 return data
 
@@ -1212,16 +1232,22 @@ class CRBM(LightningModule):
             Ndata /= batches
             Ndata = int(Ndata)
             if N_PT > 1:
-                config = [self.random_init_config_v(batch_size=batches*N_PT).reshape((N_PT, batches, self.v_num)), self.random_init_config_h(batch_size=batches*N_PT).reshape((N_PT, batches, self.h_num))]
                 if config_init != []:
-                    config[0] = config_init[0]
-                    config[1] = config_init[1]
+                    config = config_init
+                    # config[0] = config_init[0]
+                    # config[1] = config_init[1]
+                else:
+                    # config = [self.random_init_config_v(batch_size=batches * N_PT).reshape((N_PT, batches, self.v_num)),
+                    #           self.random_init_config_h(batch_size=batches * N_PT).reshape((N_PT, batches, self.h_num))]
+                    config = [self.random_init_config_v(custom_size=(N_PT, batches)),
+                              self.random_init_config_h(custom_size=(N_PT, batches))]
+
                 energy = torch.zeros([N_PT, batches])
             else:
                 if config_init != []:
                     config = config_init
                 else:
-                    config = [self.random_init_config_v(batch_size=batches), self.random_init_config_h(batch_size=batches)]
+                    config = [self.random_init_config_v(custom_size=(batches)), self.random_init_config_h(custom_size=(batches))]
 
             for _ in range(Nthermalize):
                 if N_PT > 1:
@@ -1234,23 +1260,34 @@ class CRBM(LightningModule):
 
             if N_PT > 1:
                 if record_replica:
-                    data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
+                    data = [config[0].clone().unsqueeze(0), self.clone_h(config[1], expand_dims=[0])]
                 else:
-                    data = [config[0][0].clone().unsqueeze(0), config[1][0].clone().unsqueeze(0)]
+                    data = [config[0][0].clone().unsqueeze(0), self.clone_h(config[1][0], expand_dims=[0])]
             else:
-                data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
+                data = [config[0].clone().unsqueeze(0), self.clone_h(config[1], expand_dims=[0])]
 
             if N_PT > 1:
                 if Ndata > 1:
                     if record_replica:
-                        data_gen_v = torch.zeros((Ndata-1, N_PT, batches, self.v_num))
-                        data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
+                        data_gen_size = (Ndata-1, N_PT, batches)
+                        # data_gen_v = torch.zeros((Ndata-1, N_PT, batches, self.v_num))
+                        # data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
+                        # data_gen_v = self.random_init_config_v(custom_size=(Ndata-1, N_PT, batches), zeros=True)
+                        # data_gen_h = self.random_init_config_h(custom_size=(Ndata-1, N_PT, batches), zeros=True)
+                        # data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
                     else:
-                        data_gen_v = torch.zeros((Ndata - 1, N_PT, self.v_num))
-                        data_gen_h = torch.zeros((Ndata - 1, N_PT, self.h_num))
+                        data_gen_size = (Ndata - 1, N_PT)
+                        # data_gen_v = torch.zeros((Ndata - 1, N_PT, self.v_num))
+                        # data_gen_v = self.random_init_config_v(custom_size=(Ndata-1, N_PT), zeros=True)
+                        # data_gen_h = self.random_init_config_h(custom_size=(Ndata-1, N_PT), zeros=True)
             else:
-                data_gen_v = torch.zeros((Ndata - 1, self.v_num))
-                data_gen_h = torch.zeros((Ndata - 1, self.h_num))
+                data_gen_size = (Ndata - 1)
+                # data_gen_v = torch.zeros((Ndata - 1, self.v_num))
+                # data_gen_h = torch.zeros((Ndata - 1, self.h_num))
+
+            data_gen_v = self.random_init_config_v(custom_size=data_gen_size, zeros=True)
+            data_gen_h = self.random_init_config_h(custom_size=data_gen_size, zeros=True)
+            # data_gen_h = [(ndata - 1,n_pt, batches, h, cx)]
 
 
             for n in range(Ndata - 1):
@@ -1266,17 +1303,30 @@ class CRBM(LightningModule):
                 if N_PT > 1 and Ndata > 1:
                     if record_replica:
                         data_gen_v[n] = config[0].clone()
-                        data_gen_h[n] = config[1].clone()
+                        # data_gen_h[n] = self.clone_h(config[1])
+
+                        clone = self.clone_h(config[1])
+                        for hid, hidden in enumerate(data_gen_h):
+                            hidden[n] = clone[hid]
+
                         # data[0].append(config[0].clone())
                         # data[1].append(config[1].clone())
                     else:
                         data_gen_v[n] = config[0][0].clone()
-                        data_gen_h[n] = config[1][0].clone()
+                        # data_gen_h[n] = self.clone_h(config[1][0])
+
+                        clone = self.clone_h(config[1][0])
+                        for hid, hidden in enumerate(data_gen_h):
+                            hidden[n] = clone[hid]
                         # data[0].append(config[0][0].clone())
                         # data[1].append(config[1][0].clone())
                 else:
                     data_gen_v[n] = config[0].clone()
-                    data_gen_h[n] = config[1].clone()
+                    # data_gen_h[n] = self.clone_h(config[1])
+
+                    clone = self.clone_h(config[1])
+                    for hid, hidden in enumerate(data_gen_h):
+                        hidden[n] = clone[hid]
                     # data[0].append(config[0].clone())
                     # data[1].append(config[1].clone())
 
@@ -1309,8 +1359,8 @@ class CRBM(LightningModule):
                         self.trip_duration[b, i] = self.last_at_zero[b, i, np.nonzero(invert[b, i, :] == 9)[0]]
 
             if reshape:
-                data[0] = data[0].reshape([Ndata * batches, self.v_num])
-                data[1] = data[1].reshape([Ndata * batches, self.h_num])
+                data[0] = data[0].flatten(0, -2)
+                data[1] = [hd.flatten(0, -2) for hd in data[1]]
             else:
                 data[0] = data[0]
                 data[1] = data[1]

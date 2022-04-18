@@ -1159,7 +1159,7 @@ class RBM(LightningModule):
 
             if (N_PT > 1) and record_replica:
                 visible_data = torch.zeros((Nchains, N_PT, Lchains, self.v_num), dtype=torch.long)
-                hidden_data = torch.zeros((Nchains, N_PT, Lchains, self.v_num), dtype=torch.float64)
+                hidden_data = torch.zeros((Nchains, N_PT, Lchains, self.h_num), dtype=torch.float64)
                 data = [visible_data, hidden_data]
             else:
                 visible_data = torch.zeros((Nchains, Lchains, self.v_num), dtype=torch.long)
