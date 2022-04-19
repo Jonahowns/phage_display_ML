@@ -31,8 +31,8 @@ def conv2d_dim(input_shape, conv_topology):
     input_sizey = q + padding[1] * 2
 
     # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
-    convx_num = (input_sizex - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1
-    convy_num = (input_sizey - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1  # most configurations will set this to 0
+    convx_num = math.floor((input_sizex - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1)
+    convy_num = math.floor((input_sizey - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1)  # most configurations will set this to 0
 
     weight_size = (h_num, input_channels, kernel[0], kernel[1])
 
@@ -335,16 +335,22 @@ class CRBM(LightningModule):
     def energy_PT(self, v, h, remove_init=False):
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
-            E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h[i], remove_init=remove_init) - self.bidirectional_weight_term(v[i], h[i])
+            # ve = self.energy_v(v[i], remove_init=remove_init)
+            # he = self.energy_h(h, remove_init=remove_init, sub_index=i)
+            # bdw = self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
+            E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h, sub_index=i, remove_init=remove_init) - self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
         return E
 
 
-    def bidirectional_weight_term(self, v, h):
+    def bidirectional_weight_term(self, v, h, hidden_sub_index=-1):
         conv = self.compute_output_v(v)
-        E = torch.zeros((len(self.hidden_convolution_keys)), device=self.device)
+        E = torch.zeros((len(self.hidden_convolution_keys), conv[0].shape[0]), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
-            h_uk = h[iid]
-            E[iid] = h_uk.matmul(conv[iid]).sum(1).mean(2) # 1/q sum u sum k huk(Iuk)
+            if hidden_sub_index != -1:
+                h_uk = h[iid][hidden_sub_index]
+            else:
+                h_uk = h[iid]
+            E[iid] = h_uk.mul(conv[iid]).mean(2).sum(1)# 1/k sum u sum k huk(Iuk)
 
         if E.shape[0] > 1:
             return E.sum(0)
@@ -366,31 +372,40 @@ class CRBM(LightningModule):
         return E
 
     ## Computes U(h) term of potential
-    def energy_h(self, config, remove_init=False):
+    def energy_h(self, config, remove_init=False, sub_index=-1):
         # config is list of h_uks
-        E = torch.zeros((len(self.hidden_convolution_keys)), device=self.device)
+        if sub_index != -1:
+            E = torch.zeros((len(self.hidden_convolution_keys), config[0].shape[1]), device=self.device)
+        else:
+            E = torch.zeros((len(self.hidden_convolution_keys), config[0].shape[0]), device=self.device)
+
         for iid, i in enumerate(self.hidden_convolution_keys):
             if remove_init:
-                a_plus = self.params[f'{i}_gamma+'].sub(self.params[f'{i}_0gamma+']).unsqueeze(1)
-                a_minus = self.params[f'{i}_gamma-'].sub(self.params[f'{i}_0gamma-']).unsqueeze(1)
-                theta_plus = self.params[f'{i}_theta+'].sub(self.params[f'{i}_0theta+']).unsqueeze(1)
-                theta_minus = self.params[f'{i}_theta-'].sub(self.params[f'{i}_0theta-']).unsqueeze(1)
+                a_plus = self.params[f'{i}_gamma+'].sub(self.params[f'{i}_0gamma+']).unsqueeze(0).unsqueeze(2)
+                a_minus = self.params[f'{i}_gamma-'].sub(self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
+                theta_plus = self.params[f'{i}_theta+'].sub(self.params[f'{i}_0theta+']).unsqueeze(0).unsqueeze(2)
+                theta_minus = self.params[f'{i}_theta-'].sub(self.params[f'{i}_0theta-']).unsqueeze(0).unsqueeze(2)
             else:
-                a_plus = self.params[f'{i}_gamma+'].unsqueeze(1)
-                a_minus = self.params[f'{i}_gamma-'].unsqueeze(1)
-                theta_plus = self.params[f'{i}_theta+'].unsqueeze(1)
-                theta_minus = self.params[f'{i}_theta-'].unsqueeze(1)
+                a_plus = self.params[f'{i}_gamma+'].unsqueeze(0).unsqueeze(2)
+                a_minus = self.params[f'{i}_gamma-'].unsqueeze(0).unsqueeze(2)
+                theta_plus = self.params[f'{i}_theta+'].unsqueeze(0).unsqueeze(2)
+                theta_minus = self.params[f'{i}_theta-'].unsqueeze(0).unsqueeze(2)
+
+            if sub_index != -1:
+                con = config[iid][sub_index]
+            else:
+                con = config[iid]
 
             # Applies the dReLU activation function
-            zero = torch.zeros_like(config, device=self.device)
-            config_plus = torch.maximum(config, zero)
-            config_minus = torch.maximum(-config, zero)
+            zero = torch.zeros_like(con, device=self.device)
+            config_plus = torch.maximum(con, zero)
+            config_minus = torch.maximum(-con, zero)
 
-            E[iid] = torch.matmul(config_plus.square(), a_plus) / 2 + torch.matmul(config_minus.square(), a_minus) / 2 + torch.matmul(config_plus, theta_plus) + torch.matmul(config_minus, theta_minus)
+            E[iid] = ((config_plus.square() * a_plus) / 2 + (config_minus.square() * a_minus) / 2 + (config_plus * theta_plus) + (config_minus * theta_minus)).sum((2, 1))
             E[iid] /= self.convolution_topology[i]["convolution_dims"][2] # Normalize across different convolution sizes
 
         if E.shape[0] > 1:
-            E = E.sum(1)
+            E = E.sum(0)
 
         return E
 
@@ -404,7 +419,7 @@ class CRBM(LightningModule):
         if zeros:
             return torch.zeros(size, device=self.device)
         else:
-            return self.sample_from_inputs_v(torch.zeros(size, device=self.device).flatten(0, -2), beta=0).reshape(size)
+            return self.sample_from_inputs_v(torch.zeros(size, device=self.device).flatten(0, -3), beta=0).reshape(size)
 
     ## Random Config of Hidden dReLU States
     # N_PT and nchains arguments are used only for generating data currently
@@ -436,7 +451,7 @@ class CRBM(LightningModule):
             new_config.append(new_h)
         return new_config
 
-    def assign_h(self, ):
+    def assign_h(self):
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
@@ -1209,7 +1224,7 @@ class CRBM(LightningModule):
                     data[1][batches * i:batches * (i + 1)] = torch.swapaxes(config[1], 0, 1).clone()
 
             if reshape:
-                return [data[0].flatten(0, -2), [hd.flatten(0, -2) for hd in data[1]]]
+                return [data[0].flatten(0, -3), [hd.flatten(0, -3) for hd in data[1]]]
             else:
                 return data
 
@@ -1239,8 +1254,7 @@ class CRBM(LightningModule):
                 else:
                     # config = [self.random_init_config_v(batch_size=batches * N_PT).reshape((N_PT, batches, self.v_num)),
                     #           self.random_init_config_h(batch_size=batches * N_PT).reshape((N_PT, batches, self.h_num))]
-                    config = [self.random_init_config_v(custom_size=(N_PT, batches)),
-                              self.random_init_config_h(custom_size=(N_PT, batches))]
+                    config = [self.random_init_config_v(custom_size=(N_PT, batches)), self.random_init_config_h(custom_size=(N_PT, batches))]
 
                 energy = torch.zeros([N_PT, batches])
             else:
@@ -1359,8 +1373,8 @@ class CRBM(LightningModule):
                         self.trip_duration[b, i] = self.last_at_zero[b, i, np.nonzero(invert[b, i, :] == 9)[0]]
 
             if reshape:
-                data[0] = data[0].flatten(0, -2)
-                data[1] = [hd.flatten(0, -2) for hd in data[1]]
+                data[0] = data[0].flatten(0, -3)
+                data[1] = [hd.flatten(0, -3) for hd in data[1]]
             else:
                 data[0] = data[0]
                 data[1] = data[1]
@@ -1472,12 +1486,14 @@ if __name__ == '__main__':
     # Debugging Code1
     checkpoint = "./tb_logs/conv_lattice_trial/version_57/checkpoints/epoch=499-step=999.ckpt"
     crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+
+    crbm_lat.AIS()
     # h1_W = crbm_lat.get_param("hidden1_W")
 
-    conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
-    conv_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights", 4, 2, 11, 8, molecule="protein")
-    conv_weights(crbm_lat, "hidden3_W", "crbm_lattice_h3_weights", 4, 2, 11, 8, molecule="protein")
-    conv_weights(crbm_lat, "hidden4_W", "crbm_lattice_h4_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden3_W", "crbm_lattice_h3_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden4_W", "crbm_lattice_h4_weights", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()
