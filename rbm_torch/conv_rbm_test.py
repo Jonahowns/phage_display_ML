@@ -28,16 +28,15 @@ def conv2d_dim(input_shape, conv_topology):
     h_num = conv_topology["number"]
 
     # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
-    convx_num = math.floor((v_num + padding[0]*2 - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1)
-    convy_num = math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1)  # most configurations will set this to 1
+    convx_num = int(math.floor((v_num + padding[0]*2 - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1))
+    convy_num = int(math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1))  # most configurations will set this to 1
 
     # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
     recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
-    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] * (kernel[1] - 1) + 1
+    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel[1] - 1) + 1
 
     # Pad for the unsampled visible units (depends on stride, and tensor size)
-    output_padding_x = v_num - recon_x
-    output_padding_y = v_num - recon_y
+    output_padding = (v_num - recon_x, q - recon_y)
 
     # Size of Convolution Filters
     weight_size = (h_num, input_channels, kernel[0], kernel[1])
@@ -45,7 +44,7 @@ def conv2d_dim(input_shape, conv_topology):
     # Size of Hidden unit Inputs h_uk
     conv_output_size = (batch_size, h_num, convx_num, convy_num)
 
-    return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": (output_padding_x, output_padding_y)}
+    return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
 
 
 
@@ -75,10 +74,7 @@ class hidden:
                 conv_top[iid]["output_padding"][dl] = dims["output_padding"]
 
         self.hidden_params = conv_top
-        self.data = {}
 
-
-    def
 
 
 
@@ -194,8 +190,6 @@ class CRBM(LightningModule):
 
         self.convolution_topology = config["convolution_topology"]
 
-        self.hidden_unit_types = len(self.convolution_topology)
-
         # Parameters that shouldn't change
         self.params = nn.ParameterDict({
             # visible layer parameters
@@ -204,11 +198,13 @@ class CRBM(LightningModule):
         })
 
         self.hidden_convolution_keys = self.convolution_topology.keys()
+        self.h_layer_num = len(self.hidden_convolution_keys)
         for key in self.hidden_convolution_keys:
             # Set information about the convolutions that will be useful
-            # dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
-            # self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
-            # self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
+            dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
+            self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
+            self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
+            self.convolution_topology[key]["output_padding"] = dims["output_padding"]
             # Convolution Weights
             self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
             # hidden layer parameters
@@ -374,17 +370,14 @@ class CRBM(LightningModule):
         return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
 
     ## Total Energy of a given visible and hidden configuration
-    def energy(self, v, h, remove_init=False):
-        return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, remove_init=remove_init) - self.bidirectional_weight_term(v, h)
+    def energy(self, v, h, remove_init=False, hidden_sub_index=-1):
+        return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, sub_index=hidden_sub_index, remove_init=remove_init) - self.bidirectional_weight_term(v, h, hidden_sub_index=hidden_sub_index)
 
         ## Total Energy of a given visible and hidden configuration
 
     def energy_PT(self, v, h, remove_init=False):
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
-            # ve = self.energy_v(v[i], remove_init=remove_init)
-            # he = self.energy_h(h, remove_init=remove_init, sub_index=i)
-            # bdw = self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
             E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h, sub_index=i, remove_init=remove_init) - self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
         return E
 
@@ -487,10 +480,13 @@ class CRBM(LightningModule):
 
         return config
 
-    def clone_h(self, hidden_config, reduce_dims=[], expand_dims=[]):
+    def clone_h(self, hidden_config, reduce_dims=[], expand_dims=[], sub_index=-1):
         new_config = []
         for hc in hidden_config:
-            new_h = hc.clone()
+            if sub_index != -1:
+                new_h = hc[sub_index].clone()
+            else:
+                new_h = hc.clone()
             for dim in reduce_dims:
                 new_h = new_h.squeeze(dim)
             for dim in expand_dims:
@@ -498,8 +494,8 @@ class CRBM(LightningModule):
             new_config.append(new_h)
         return new_config
 
-    def assign_h(self, h, index, assignment):
-        for i in h:
+    # def assign_h(self, h, index, assignment):
+    #     for i in h:
 
 
     ## Marginal over hidden units
@@ -533,10 +529,9 @@ class CRBM(LightningModule):
     ## Compute Input for Hidden Layer from Visible Potts, Uses categorical not one hot vector
     def compute_output_v(self, X): # X is the one hot vector
         outputs = []
-        input = X.unsqueeze(1).double() # make 4d input with single channel (B, 1 convx, convy)
         for i in self.hidden_convolution_keys:
             convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv2d(input, self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
+            outputs.append(F.conv2d(X.unsqueeze(1).double(), self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3).div(convx))
         return outputs
@@ -544,19 +539,18 @@ class CRBM(LightningModule):
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h(self, Y):  # from h_uk (B, hidden_num, convx_num)
         outputs = []
+        nonzero_masks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            # outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
-            #                                   stride=self.convolution_topology[i]["stride"],
-            #                                   padding=self.convolution_topology[i]["padding"],
-            #                                   dilation=self.convolution_topology[i]["dilation"]).squeeze(1))
             outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
                                               stride=self.convolution_topology[i]["stride"],
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
+            nonzero_masks.append((outputs[-1] != 0.).double())  # Used for calculating mean of outputs, don't want zeros to influence mean
         if len(outputs) > 1:
-            # not sure about the mean here, might have effects not accounted for by rest  of the model
-            return torch.mean(torch.stack(outputs), 0)  # Average over input from all hidden layers
+            # Returns mean output from all hidden layers
+            mean_denominator = torch.sum(torch.stack(nonzero_masks))
+            return torch.sum(torch.stack(outputs), 0) / mean_denominator
         else:
             return outputs[0]
 
@@ -691,8 +685,10 @@ class CRBM(LightningModule):
 
     def markov_PT_and_exchange(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
-            v[i], h[i] = self.markov_step(v[i], beta=beta)
-            e[i] = self.energy(v[i], h[i])
+            v[i], htmp = self.markov_step(v[i], beta=beta)
+            for hid in range(self.h_layer_num):
+                h[hid][i] = htmp[hid]
+            e[i] = self.energy(v[i], h, hidden_sub_index=i)
 
         if self.record_swaps:
             particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
@@ -703,13 +699,16 @@ class CRBM(LightningModule):
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
                 v[i:i + 2, swap] = torch.flip(v[i - 1: i + 1], [0])[:, swap]
-                h[i:i + 2, swap] = torch.flip(h[i - 1: i + 1], [0])[:, swap]
+                for hid in range(self.h_layer_num):
+                    h[hid][i:i + 2, swap] = torch.flip(h[hid][i - 1: i + 1], [0])[:, swap]
+                # h[i:i + 2, swap] = torch.flip(h[i - 1: i + 1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[i - 1: i + 1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[i - 1: i + 1], [0])[:, swap]
             else:
                 v[i:i + 2, swap] = torch.flip(v[:i + 1], [0])[:, swap]
-                h[i:i + 2, swap] = torch.flip(h[:i + 1], [0])[:, swap]
+                for hid in range(self.h_layer_num):
+                    h[hid][i:i + 2, swap] = torch.flip(h[hid][:i + 1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[:i + 1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i + 1], [0])[:, swap]
@@ -729,14 +728,16 @@ class CRBM(LightningModule):
     ## Markov Step for Parallel Tempering
     def markov_step_PT(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
-            v[i], h[i] = self.markov_step(v[i], beta=beta)
-            e[i] = self.energy(v[i], h[i])
+            v[i], htmp = self.markov_step(v[i], beta=beta)
+            for kid, k in self.hidden_convolution_keys:
+                h[kid][i] = htmp[kid]
+            e[i] = self.energy(v[i], h, hidden_sub_index=i)
         return v, h, e
 
     def exchange_step_PT(self, v, h, e, compute_energy=True):
         if compute_energy:
             for i in torch.arange(self.N_PT):
-                e[i] = self.energy(v[i], h[i], remove_init=True)
+                e[i] = self.energy(v[i], h, hidden_sub_index=i)
 
         if self.record_swaps:
             particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
@@ -747,13 +748,15 @@ class CRBM(LightningModule):
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
                 v[i:i + 2, swap] = torch.flip(v[i-1: i+1], [0])[:, swap]
-                h[i:i + 2, swap] = torch.flip(h[i-1: i+1], [0])[:, swap]
+                for hid in range(self.h_layer_num):
+                    h[hid][i:i + 2, swap] = torch.flip(h[hid][i - 1: i + 1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[i-1: i+1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[i-1: i+1], [0])[:, swap]
             else:
                 v[i:i + 2, swap] = torch.flip(v[:i+1], [0])[:, swap]
-                h[i:i + 2, swap] = torch.flip(h[:i+1], [0])[:, swap]
+                for hid in range(self.h_layer_num):
+                    h[hid][i:i + 2, swap] = torch.flip(h[hid][:i + 1], [0])[:, swap]
                 e[i:i + 2, swap] = torch.flip(e[:i+1], [0])[:, swap]
                 if self.record_swaps:
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i+1], [0])[:, swap]
@@ -1065,7 +1068,7 @@ class CRBM(LightningModule):
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
         # Read in data
-        reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1158,8 +1161,8 @@ class CRBM(LightningModule):
 
             log_Z_init = torch.zeros(1)
 
-            log_Z_init += self.logpartition_h(self.random_init_config_h(custom_size=(1), zeros=True), beta=0)
-            log_Z_init += self.logpartition_v(self.random_init_config_v(custom_size=(1), zeros=True), beta=0)
+            log_Z_init += self.logpartition_h(self.random_init_config_h(custom_size=(1,), zeros=True), beta=0)
+            log_Z_init += self.logpartition_v(self.random_init_config_v(custom_size=(1,), zeros=True), beta=0)
 
             if verbose:
                 print(f'Initial evaluation: log(Z) = {log_Z_init.data}')
@@ -1184,21 +1187,22 @@ class CRBM(LightningModule):
             self.AIS()
         return -self.free_energy(data) - self.log_Z_AIS
 
-    # not yet implemented for crbm
-    # def cgf_from_inputs_h(self, I):
-    #     B = I.shape[0]
-    #     out = torch.zeros(I.shape, device=self.device)
-    #     sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
-    #     sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
-    #     log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
-    #     log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
-    #
-    #     Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-    #     Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
-    #     map = Z_plus > Z_minus
-    #     out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
-    #     out[~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
-    #     return out
+    # not yet functional, needs debugging
+    def cgf_from_inputs_h(self, I):
+        B = I.shape[0]
+        out = torch.zeros((self.h_layer_num, I.shape), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            sqrt_gamma_plus = torch.sqrt(self.params[f"{i}_gamma+"]).expand(B, -1)
+            sqrt_gamma_minus = torch.sqrt(self.params[f"{i}_gamma-"]).expand(B, -1)
+            log_gamma_plus = torch.log(self.params[f"{i}_gamma+"]).expand(B, -1)
+            log_gamma_minus = torch.log(self.params[f"{i}_gamma-"]).expand(B, -1)
+
+            Z_plus = -self.log_erf_times_gauss((-I[iid] + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+            Z_minus = self.log_erf_times_gauss((I[iid] + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+            map = Z_plus > Z_minus
+            out[iid][map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
+            out[iid][~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
+        return out
 
     def gen_data(self, Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, config_init=[], beta=1, batches=None, reshape=True, record_replica=False, record_acceptance=None, update_betas=None, record_swaps=False):
         """
@@ -1267,10 +1271,12 @@ class CRBM(LightningModule):
 
                 if (N_PT > 1) & record_replica:
                     data[0][batches * i:batches * (i + 1)] = torch.swapaxes(config[0], 0, 2).clone()
-                    data[1][batches * i:batches * (i + 1)] = torch.swapaxes(config[1], 0, 2).clone()
+                    for hid in range(self.h_layer_num):
+                        data[1][hid][batches * i:batches * (i + 1)] = torch.swapaxes(config[1][hid], 0, 2).clone()
                 else:
                     data[0][batches * i:batches * (i + 1)] = torch.swapaxes(config[0], 0, 1).clone()
-                    data[1][batches * i:batches * (i + 1)] = torch.swapaxes(config[1], 0, 1).clone()
+                    for hid in range(self.h_layer_num):
+                        data[1][hid][batches * i:batches * (i + 1)] = torch.swapaxes(config[1][hid], 0, 1).clone()
 
             if reshape:
                 return [data[0].flatten(0, -3), [hd.flatten(0, -3) for hd in data[1]]]
@@ -1298,11 +1304,7 @@ class CRBM(LightningModule):
             if N_PT > 1:
                 if config_init != []:
                     config = config_init
-                    # config[0] = config_init[0]
-                    # config[1] = config_init[1]
                 else:
-                    # config = [self.random_init_config_v(batch_size=batches * N_PT).reshape((N_PT, batches, self.v_num)),
-                    #           self.random_init_config_h(batch_size=batches * N_PT).reshape((N_PT, batches, self.h_num))]
                     config = [self.random_init_config_v(custom_size=(N_PT, batches)), self.random_init_config_h(custom_size=(N_PT, batches))]
 
                 energy = torch.zeros([N_PT, batches])
@@ -1310,7 +1312,7 @@ class CRBM(LightningModule):
                 if config_init != []:
                     config = config_init
                 else:
-                    config = [self.random_init_config_v(custom_size=(batches)), self.random_init_config_h(custom_size=(batches))]
+                    config = [self.random_init_config_v(custom_size=(batches,)), self.random_init_config_h(custom_size=(batches,))]
 
             for _ in range(Nthermalize):
                 if N_PT > 1:
@@ -1325,7 +1327,7 @@ class CRBM(LightningModule):
                 if record_replica:
                     data = [config[0].clone().unsqueeze(0), self.clone_h(config[1], expand_dims=[0])]
                 else:
-                    data = [config[0][0].clone().unsqueeze(0), self.clone_h(config[1][0], expand_dims=[0])]
+                    data = [config[0][0].clone().unsqueeze(0), self.clone_h(config[1], expand_dims=[0], sub_index=0)]
             else:
                 data = [config[0].clone().unsqueeze(0), self.clone_h(config[1], expand_dims=[0])]
 
@@ -1333,25 +1335,14 @@ class CRBM(LightningModule):
                 if Ndata > 1:
                     if record_replica:
                         data_gen_size = (Ndata-1, N_PT, batches)
-                        # data_gen_v = torch.zeros((Ndata-1, N_PT, batches, self.v_num))
-                        # data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
-                        # data_gen_v = self.random_init_config_v(custom_size=(Ndata-1, N_PT, batches), zeros=True)
-                        # data_gen_h = self.random_init_config_h(custom_size=(Ndata-1, N_PT, batches), zeros=True)
-                        # data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
                     else:
                         data_gen_size = (Ndata - 1, N_PT)
-                        # data_gen_v = torch.zeros((Ndata - 1, N_PT, self.v_num))
-                        # data_gen_v = self.random_init_config_v(custom_size=(Ndata-1, N_PT), zeros=True)
-                        # data_gen_h = self.random_init_config_h(custom_size=(Ndata-1, N_PT), zeros=True)
             else:
                 data_gen_size = (Ndata - 1)
-                # data_gen_v = torch.zeros((Ndata - 1, self.v_num))
-                # data_gen_h = torch.zeros((Ndata - 1, self.h_num))
 
-            data_gen_v = self.random_init_config_v(custom_size=data_gen_size, zeros=True)
-            data_gen_h = self.random_init_config_h(custom_size=data_gen_size, zeros=True)
-            # data_gen_h = [(ndata - 1,n_pt, batches, h, cx)]
-
+            if Ndata > 1 or N_PT == 1:
+                data_gen_v = self.random_init_config_v(custom_size=data_gen_size, zeros=True)
+                data_gen_h = self.random_init_config_h(custom_size=data_gen_size, zeros=True)
 
             for n in range(Ndata - 1):
                 for _ in range(Nstep):
@@ -1366,32 +1357,24 @@ class CRBM(LightningModule):
                 if N_PT > 1 and Ndata > 1:
                     if record_replica:
                         data_gen_v[n] = config[0].clone()
-                        # data_gen_h[n] = self.clone_h(config[1])
 
                         clone = self.clone_h(config[1])
-                        for hid, hidden in enumerate(data_gen_h):
-                            hidden[n] = clone[hid]
+                        for hid in range(self.h_layer_num):
+                            data_gen_h[n][hid] = clone[hid]
 
-                        # data[0].append(config[0].clone())
-                        # data[1].append(config[1].clone())
                     else:
                         data_gen_v[n] = config[0][0].clone()
-                        # data_gen_h[n] = self.clone_h(config[1][0])
 
-                        clone = self.clone_h(config[1][0])
-                        for hid, hidden in enumerate(data_gen_h):
-                            hidden[n] = clone[hid]
-                        # data[0].append(config[0][0].clone())
-                        # data[1].append(config[1][0].clone())
+                        clone = self.clone_h(config[1], sub_index=0)
+                        for hid in range(self.h_layer_num):
+                            data_gen_h[n][hid] = clone[hid]
+
                 else:
                     data_gen_v[n] = config[0].clone()
-                    # data_gen_h[n] = self.clone_h(config[1])
 
                     clone = self.clone_h(config[1])
-                    for hid, hidden in enumerate(data_gen_h):
-                        hidden[n] = clone[hid]
-                    # data[0].append(config[0].clone())
-                    # data[1].append(config[1].clone())
+                    for hid in range(self.h_layer_num):
+                        data_gen_h[n][hid] = clone[hid]
 
             if Ndata > 1:
                 data = [data_gen_v, data_gen_h]
@@ -1495,9 +1478,12 @@ if __name__ == '__main__':
 
     # TODO List
     # 1: Add support for non perfect convolutions (involving mismatch of input, stride, and kernel)
+    #       X Non Perfect Convolutions are now supported
     #       1.1 Add function that suggest kernel/stride sizes based off input size
     # 2: Add support for sampling of conv_rbm. Be able to choose hidden units you sample from
     #       2.1 Get Likelihood/AIS/PT/Gen_Data working for CRBM
+    #   X rewrote AIS/PT/Gen_data methods to work with crbm
+    #   X Choosing which to sample from will require making a new crbm out of only the selected hidden layers. From there sampling should be easy and supported
     # 3: Test this out on multiple datasets
     # 4: Extend Analysis Methods for crbm
     #       4.1 Finish cgf viewing in analysis_methods
@@ -1536,7 +1522,10 @@ if __name__ == '__main__':
     checkpoint = "./tb_logs/conv_lattice_trial/version_57/checkpoints/epoch=499-step=999.ckpt"
     crbm_lat = CRBM.load_from_checkpoint(checkpoint)
 
+    crbm_lat.prepare_data()
     crbm_lat.AIS()
+    seqs, likelis = crbm_lat.predict(crbm_lat.validation_data)
+    print("hi")
     # h1_W = crbm_lat.get_param("hidden1_W")
 
     # conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
