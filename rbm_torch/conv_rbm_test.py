@@ -27,18 +27,65 @@ def conv2d_dim(input_shape, conv_topology):
     dilation = conv_topology["dilation"]
     h_num = conv_topology["number"]
 
-    input_sizex = v_num + padding[0]*2
-    input_sizey = q + padding[1] * 2
-
     # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
-    convx_num = math.floor((input_sizex - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1)
-    convy_num = math.floor((input_sizey - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1)  # most configurations will set this to 0
+    convx_num = math.floor((v_num + padding[0]*2 - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1)
+    convy_num = math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1)  # most configurations will set this to 1
 
+    # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+    recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
+    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] * (kernel[1] - 1) + 1
+
+    # Pad for the unsampled visible units (depends on stride, and tensor size)
+    output_padding_x = v_num - recon_x
+    output_padding_y = v_num - recon_y
+
+    # Size of Convolution Filters
     weight_size = (h_num, input_channels, kernel[0], kernel[1])
 
+    # Size of Hidden unit Inputs h_uk
     conv_output_size = (batch_size, h_num, convx_num, convy_num)
 
-    return {"weight_shape": weight_size, "conv_shape": conv_output_size}
+    return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": (output_padding_x, output_padding_y)}
+
+
+
+ # config["convolution_topology"] = {
+ #        "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+ #        "hidden2": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+ #        "hidden3": {"number": 5, "kernel": (3, config["q"]), "stride": (2, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+ #        "hidden4": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+ #    }
+
+
+
+class hidden:
+    def __init__(self, convolution_topology, hidden_keys, datalengths, q):
+        conv_top = {}
+        data = {}
+        for iid, i in enumerate(hidden_keys):
+            conv_top[iid] = convolution_topology[i]
+
+            conv_top[iid]["weight_dims"] = {}
+            conv_top[iid]["conv_dims"] = {}
+            for dl in datalengths:
+                example_input = (50, 1, dl, q)
+                dims = conv2d_dim(example_input, conv_top[iid])
+                conv_top[iid]["weight_dims"][dl] = dims["weight_shape"]
+                conv_top[iid]["conv_shape"][dl] = dims["conv_shape"]
+                conv_top[iid]["output_padding"][dl] = dims["output_padding"]
+
+        self.hidden_params = conv_top
+        self.data = {}
+
+
+    def
+
+
+
+
+
+
+
 
 
 class CRBM(LightningModule):
@@ -159,9 +206,9 @@ class CRBM(LightningModule):
         self.hidden_convolution_keys = self.convolution_topology.keys()
         for key in self.hidden_convolution_keys:
             # Set information about the convolutions that will be useful
-            dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
-            self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
-            self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
+            # dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
+            # self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
+            # self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
             # Convolution Weights
             self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
             # hidden layer parameters
@@ -451,7 +498,9 @@ class CRBM(LightningModule):
             new_config.append(new_h)
         return new_config
 
-    def assign_h(self):
+    def assign_h(self, h, index, assignment):
+        for i in h:
+
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
