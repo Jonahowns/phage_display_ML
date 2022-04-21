@@ -131,6 +131,7 @@ class CRBM(LightningModule):
         self.decay_after = config['decay_after'] # hyperparameter for when the lr decay should occur
         self.l1_2 = config['l1_2']  # regularization on weights, ex. 0.25
         self.lf = config['lf']  # regularization on fields, ex. 0.001
+        self.ld = config['ld']
         self.seed = config['seed']
 
 
@@ -390,7 +391,7 @@ class CRBM(LightningModule):
                 h_uk = h[iid][hidden_sub_index]
             else:
                 h_uk = h[iid]
-            E[iid] = h_uk.mul(conv[iid]).mean(2).sum(1)# 1/k sum u sum k huk(Iuk)
+            E[iid] = h_uk.mul(conv[iid]).sum(2).sum(1) # 10/k sum u sum k huk(Iuk)
 
         if E.shape[0] > 1:
             return E.sum(0)
@@ -442,8 +443,7 @@ class CRBM(LightningModule):
             config_minus = torch.maximum(-con, zero)
 
             E[iid] = ((config_plus.square() * a_plus) / 2 + (config_minus.square() * a_minus) / 2 + (config_plus * theta_plus) + (config_minus * theta_minus)).sum((2, 1))
-            E[iid] /= self.convolution_topology[i]["convolution_dims"][2] # Normalize across different convolution sizes
-
+            # E[iid] *= (10/self.convolution_topology[i]["convolution_dims"][2]) # Normalize across different convolution sizes
         if E.shape[0] > 1:
             E = E.sum(0)
 
@@ -515,8 +515,8 @@ class CRBM(LightningModule):
                 a_minus = (beta * self.params[f'{i}_gamma-'] + (1 - beta) * self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
             y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                     1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
-            marginal[iid] = y.sum(1)
-            marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
+            marginal[iid] = y.sum(1)  # 10 added so hidden layer has stronger effect on free energy, also in energy_h
+            # marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
         return marginal.sum(0)
 
     ## Marginal over visible units
@@ -533,7 +533,8 @@ class CRBM(LightningModule):
             convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv2d(X.unsqueeze(1).double(), self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
-                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3).div(convx))
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+            # outputs[-1] /= convx
         return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
@@ -541,15 +542,17 @@ class CRBM(LightningModule):
         outputs = []
         nonzero_masks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
+            convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
                                               stride=self.convolution_topology[i]["stride"],
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
             nonzero_masks.append((outputs[-1] != 0.).double())  # Used for calculating mean of outputs, don't want zeros to influence mean
+            # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
             # Returns mean output from all hidden layers
-            mean_denominator = torch.sum(torch.stack(nonzero_masks))
+            mean_denominator = torch.sum(torch.stack(nonzero_masks), 0)
             return torch.sum(torch.stack(outputs), 0) / mean_denominator
         else:
             return outputs[0]
@@ -902,6 +905,7 @@ class CRBM(LightningModule):
         avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
         field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
         weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
+        distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
         free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
         # psuedolikelihood = torch.stack([x['train_psuedolikelihood'] for x in outputs]).mean()
 
@@ -909,6 +913,7 @@ class CRBM(LightningModule):
                                                            "CD_Loss": avg_dF,
                                                            "Field Reg": field_reg,
                                                            "Weight Reg": weight_reg,
+                                                           "Distance Reg": distance_reg,
                                                            # "Train_Psuedolikelihood": psuedolikelihood,
                                                            "Train Free Energy": free_energy,
                                                            }, self.current_epoch)
@@ -998,17 +1003,22 @@ class CRBM(LightningModule):
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
 
-        tmp = torch.zeros((1), device=self.device)
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             # conv_shape = self.convolution_topology[i]["convolution_dims"]  # (batch, hidden u, hidden k, convy_num=1)
             # x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2)).square() / (conv_shape[2])
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square() / (W_shape[1]*W_shape[2]*W_shape[3])
-            tmp += x.sum(0)
-        # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
-        reg2 = self.l1_2 / 2 * tmp
+            x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square()
+            reg2 += x.sum(0) * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
 
-        loss = cd_loss + reg1 + reg2
+            # Size of Convolution Filters
+            # weight_size = (h_num, input_channels, kernel[0], kernel[1])
+            reg3 += self.ld / ((self.params[f"{i}_W"].abs() - self.params[f"{i}_W"].squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+        # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
+
+        loss = cd_loss + reg1 + reg2 + reg3
 
         logs = {"loss": loss,
                 # "train_psuedolikelihood": psuedolikelihood.detach(),
@@ -1016,6 +1026,7 @@ class CRBM(LightningModule):
                 "train_free_energy": free_energy,
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
                 }
 
         # self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -1459,16 +1470,18 @@ if __name__ == '__main__':
               "optimizer": "AdamW",
               "epochs": 150,
               "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 0.0005,
+              "l1_2": 100.0,
               "lf": 0.25,
               # "data_worker_num": 10  # Optionally Set these
               }
 
     config = configs.lattice_default_config
+    config["l1_2"] = 0.8
+    config["ld"] = 20.0
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 500
+    config["epochs"] = 100
     config["convolution_topology"] = {
         "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
         "hidden2": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -1512,26 +1525,26 @@ if __name__ == '__main__':
 
 
     # Training Code
-    # crbm = CRBM(config, debug=False)
-    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(crbm)
+    crbm = CRBM(config, debug=False)
+    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt.fit(crbm)
 
 
     # Debugging Code1
-    checkpoint = "./tb_logs/conv_lattice_trial/version_57/checkpoints/epoch=499-step=999.ckpt"
-    crbm_lat = CRBM.load_from_checkpoint(checkpoint)
-
-    crbm_lat.prepare_data()
-    crbm_lat.AIS()
-    seqs, likelis = crbm_lat.predict(crbm_lat.validation_data)
-    print("hi")
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_82/checkpoints/epoch=83-step=167.ckpt"
+    # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+    #
+    # crbm_lat.prepare_data()
+    # crbm_lat.AIS()
+    # seqs, likelis = crbm_lat.predict(crbm_lat.validation_data)
+    # print("hi")
     # h1_W = crbm_lat.get_param("hidden1_W")
 
-    # conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights", 4, 2, 11, 8, molecule="protein")
-    # conv_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights", 4, 2, 11, 8, molecule="protein")
-    # conv_weights(crbm_lat, "hidden3_W", "crbm_lattice_h3_weights", 4, 2, 11, 8, molecule="protein")
-    # conv_weights(crbm_lat, "hidden4_W", "crbm_lattice_h4_weights", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights_new", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights_new", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden3_W", "crbm_lattice_h3_weights_new", 4, 2, 11, 8, molecule="protein")
+    # conv_weights(crbm_lat, "hidden4_W", "crbm_lattice_h4_weights_new", 4, 2, 11, 8, molecule="protein")
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()
