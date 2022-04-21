@@ -1,10 +1,10 @@
-from rbm import RBM
+from conv_rbm_test import CRBM
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 import argparse
 from numpy.random import randint
 import os
-import configs
+import crbm_configs
 from rbm_torch.analysis.global_info import get_global_info
 # from glob import glob
 
@@ -33,15 +33,17 @@ if __name__ == '__main__':
         name += "_w"
         w_bool = True
 
+    model = "crbm"
+
     try:
-        info = get_global_info(args.datatype_str, cluster=clusternum, weights=w_bool)
+        info = get_global_info(args.datatype_str, cluster=clusternum, weights=w_bool, model=model)
     except KeyError:
         print(f"Key {args.datatype_str} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
 
     # Set Default config
     try:
-        config = configs.all_configs[info["configkey"]]
+        config = crbm_configs.all_configs[info["configkey"]]
     except KeyError:
         print(f"Configkey {info['configkey']} Not Supported.")
         print("Please add default config to configs.py under this key. Please add global info about to /analysis/analysis_methods.py")
@@ -53,7 +55,7 @@ if __name__ == '__main__':
     config["epochs"] = args.epochs
 
     # Training Code
-    rbm = RBM(config, debug=False)
-    logger = TensorBoardLogger('../' + info["server_rbm_dir"] + "/trained_rbms", name=name)
+    crbm = CRBM(config, debug=False)
+    logger = TensorBoardLogger('../' + info["server_model_dir"] + f"/trained_{model}s", name=name)
     plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
-    plt.fit(rbm)
+    plt.fit(crbm)

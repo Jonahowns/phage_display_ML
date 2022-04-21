@@ -86,7 +86,7 @@ def pbt_rbm(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus
 
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
-        assert key not in ["sequence_weights", "seed", "q", "v_num", "raytune", "fasta_file", "molecule"] # these you can't really change for now
+        assert key not in ["sequence_weights", "seed", "q", "v_num", "fasta_file", "molecule"] # these you can't really change for now
         # This dictionary contains type of hyperparameter it is and the parameters associated with each type
         for subkey, subval in value.items():
             if subkey == "uniform":
