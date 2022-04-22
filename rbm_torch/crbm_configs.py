@@ -22,6 +22,7 @@ pig_c1_2_default_config = {"fasta_file": "",
           "l1_2": 0.25,
           "lf": 0.002,
           "ld": 20,
+          "data_worker_num": 4
           }
 
 pig_c2_2_default_config = {"fasta_file": "",
@@ -43,7 +44,8 @@ pig_c2_2_default_config = {"fasta_file": "",
           "weight_decay": 0.001,  # l2 norm on all parameters
           "l1_2": 0.9,
           "lf": 0.002,
-          "ld": 20.0
+          "ld": 20.0,
+          "data_worker_num": 4
           }
 
 pig_c1_4_default_config = {"fasta_file": "",
@@ -65,7 +67,8 @@ pig_c1_4_default_config = {"fasta_file": "",
           "weight_decay": 0.001,  # l2 norm on all parameters
           "l1_2": 0.9,
           "lf": 0.002,
-          "ld": 20.0
+          "ld": 20.0,
+          "data_worker_num": 4
           }
 
 pig_c2_4_default_config = {"fasta_file": "",
@@ -87,7 +90,8 @@ pig_c2_4_default_config = {"fasta_file": "",
           "weight_decay": 0.001,  # l2 norm on all parameters
           "l1_2": 0.9,
           "lf": 0.002,
-          "ld": 20.0
+          "ld": 20.0,
+          "data_worker_num": 4
           }
 
 pig_c3_4_default_config = {"fasta_file": "",
@@ -109,7 +113,8 @@ pig_c3_4_default_config = {"fasta_file": "",
           "weight_decay": 0.001,  # l2 norm on all parameters
           "l1_2": 0.38,
           "lf": 0.002,
-          "ld": 20.0
+          "ld": 20.0,
+          "data_worker_num": 4
           }
 
 pig_c4_4_default_config = {"fasta_file": "",
@@ -133,6 +138,7 @@ pig_c4_4_default_config = {"fasta_file": "",
           "l1_2": 0.9,
           "lf": 0.002,
           "ld": 20.0,
+          "data_worker_num": 4
           }
 
 pig_c1_2_default_config["convolution_topology"] = {"hidden1": {"number": 5, "kernel": (11, pig_c1_2_default_config["q"]), "stride": (11, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -194,6 +200,7 @@ cov_default_config = {"fasta_file": "",
           "l1_2": 0.9,
           "lf": 0.004,
           "ld": 20.0,
+          "data_worker_num": 4
           }
 
 cov_default_config["convolution_topology"] = {"hidden1": {"number": 5, "kernel": (10, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -238,7 +245,8 @@ yu_aptamer_default_config = {"fasta_file": "",
           "weight_decay": 0.001,  # l2 norm on all parameters
           "l1_2": 0.9,
           "lf": 0.004,
-          "ld": 20.0
+          "ld": 20.0,
+          "data_worker_num": 4
           }
 
 yu_aptamer_default_config["convolution_topology"] = {"hidden1": {"number": 5, "kernel": (10, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -267,7 +275,7 @@ lattice_default_config = {"fasta_file": "",
               "l1_2": 0.185,
               "lf": 0.002,
               "ld": 0.8,
-              "data_worker_num": 6
+              "data_worker_num": 4
               }
 
 lattice_default_config["convolution_topology"] = {
