@@ -15,9 +15,40 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
 import multiprocessing  # Just to set the worker number
+from torch.autograd import Variable
 
 import configs
-from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read
+from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, Sequence_logo
+
+
+def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
+    v_num, q = input_shape
+
+    print(f"Finding Whole Convolutions for Input with {v_num} inputs:")
+    # kernel size
+    for i in range(1, v_num+1):
+        kernel = [i, q]
+        # padding
+        for p in range(padding_max+1):
+            padding = [p, 0]
+            # dilation
+            for d in range(1, dilation_max+1):
+                dilation = [d, 1]
+                # stride
+                for s in range(1, stride_max+1):
+                    stride = [s, 1]
+                    # Convolution Output size
+                    convx_num = int(math.floor((v_num + padding[0] * 2 - dilation[0] * (kernel[0] - 1) - 1) / stride[0] + 1))
+                    convy_num = int(math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1] - 1) - 1) / stride[1] + 1))
+                    # Reconstruction Size
+                    recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
+                    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel[1] - 1) + 1
+                    if recon_x == v_num:
+                        print(f"Whole Convolution Found: Kernel: {kernel[0]}, Stride: {stride[0]}, Dilation: {dilation[0]}, Padding: {padding[0]}")
+    return
+
+
+
 
 def conv2d_dim(input_shape, conv_topology):
     [batch_size, input_channels, v_num, q] = input_shape
@@ -1095,6 +1126,45 @@ class CRBM(LightningModule):
 
         return X.sequence.tolist(), likelihood
 
+    # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
+    # Returns the saliency map for all sequences in X
+    def saliency_map(self, X):
+        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        data_loader = torch.utils.data.DataLoader(
+            reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=False
+        )
+        saliency_maps = []
+        for i, batch in enumerate(data_loader):
+            seqs, V_pos, one_hot, seq_weights = batch
+            one_hot_v = Variable(one_hot.double(), requires_grad=True)
+            V_neg, h_neg, V_pos_out, h_pos = self(one_hot_v)
+            weights = seq_weights
+            F_v = (self.free_energy(one_hot_v) * weights).sum() / weights.sum()  # free energy of training data
+            F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+            cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+            # free_energy = F_v.detach()
+
+            # Regularization Terms
+            reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+            reg2 = torch.zeros((1,), device=self.device)
+            reg3 = torch.zeros((1,), device=self.device)
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+                x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square()
+                reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+                # Size of Convolution Filters weight_size = (h_num, input_channels, kernel[0], kernel[1])
+                reg3 += self.ld / ((self.params[f"{i}_W"].abs() - self.params[f"{i}_W"].squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+            loss = cd_loss + reg1 + reg2 + reg3
+            loss.backward()
+
+            saliency_maps.append(one_hot_v.grad.data.detach())
+
+        return torch.cat(saliency_maps, dim=0)
     # disabled until I figure out pseudo likelihood function
     # def predict_psuedo(self, X):
     #     reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
@@ -1477,16 +1547,17 @@ if __name__ == '__main__':
 
     config = configs.lattice_default_config
     config["l1_2"] = 0.8
-    config["ld"] = 20.0
+    config["ld"] = 40.0
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
     config["epochs"] = 100
     config["convolution_topology"] = {
         "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden2": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden3": {"number": 5, "kernel": (3, config["q"]), "stride": (2, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden4": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden3": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden4": {"number": 5, "kernel": (3, config["q"]), "stride": (2, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+        "hidden5": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     }
 
     # TODO List
@@ -1525,26 +1596,34 @@ if __name__ == '__main__':
 
 
     # Training Code
-    crbm = CRBM(config, debug=False)
-    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(crbm)
+    # crbm = CRBM(config, debug=False)
+    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(crbm)
 
 
     # Debugging Code1
-    # checkpoint = "./tb_logs/conv_lattice_trial/version_82/checkpoints/epoch=83-step=167.ckpt"
-    # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
-    #
-    # crbm_lat.prepare_data()
+    checkpoint = "./tb_logs/conv_lattice_trial/version_86/checkpoints/epoch=99-step=199.ckpt"
+    crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+
+    crbm_lat.prepare_data()
     # crbm_lat.AIS()
     # seqs, likelis = crbm_lat.predict(crbm_lat.validation_data)
     # print("hi")
     # h1_W = crbm_lat.get_param("hidden1_W")
 
-    # conv_weights(crbm_lat, "hidden1_W", "crbm_lattice_h1_weights_new", 4, 2, 11, 8, molecule="protein")
-    # conv_weights(crbm_lat, "hidden2_W", "crbm_lattice_h2_weights_new", 4, 2, 11, 8, molecule="protein")
-    # conv_weights(crbm_lat, "hidden3_W", "crbm_lattice_h3_weights_new", 4, 2, 11, 8, molecule="protein")
-    # conv_weights(crbm_lat, "hidden4_W", "crbm_lattice_h4_weights_new", 4, 2, 11, 8, molecule="protein")
+    # for key in crbm_lat.hidden_convolution_keys:
+    #     conv_weights(crbm_lat, f"{key}_W", f"crbm_lattice_{key}_W_new", 4, 2, 11, 8, molecule="protein")
+
+    # Saliency Map
+    # smaps = crbm_lat.saliency_map(crbm_lat.validation_data)
+    # print("hi")
+    # avg_smap = smaps.mean(0).numpy()
+    # Sequence_logo(avg_smap, None, data_type="weights")
+
+    suggest_conv_size((39, 20), padding_max=1, dilation_max=2, stride_max=18)
+
+
     # rbm_lat = CRBM(config, debug=True)
     # rbm_lat.prepare_data()
     # td = rbm_lat.train_dataloader()

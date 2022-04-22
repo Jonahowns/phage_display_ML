@@ -103,7 +103,7 @@ def extractor(seqs, cnum, lenindices, outdir, cpy_num, uniform_length=True, posi
 
 focus = 'cov'
 mfolder = '/mnt/D1/sars-cov-2-data/processed/'
-
+model = "crbm"
 # Fix this up (correct dirs)
 if focus == 'cov':
     # subdir = 'cov/fasta files/'
@@ -117,7 +117,7 @@ if focus == 'cov':
     datatype_dir = datatype["process"] + f"_{datatype['clusters']}_clusters"
     if not os.path.isdir(datatype_dir):
         os.mkdir(f"./{datatype_dir}")
-        os.mkdir(f"./{datatype_dir}/trained_rbms/")
+        os.mkdir(f"./{datatype_dir}/trained_{model}s/")
 
 
 
@@ -135,11 +135,11 @@ def extract_data(i, c_indices, datatypedict, uniform_length=True):
     extractor(seqs, cnum, c_indices, odir + f"r{i}", cpy_num, uniform_length=uniform_length, position_indx=datatypedict["gap_position_indices"])
 
 # Processing the Files
-for j in range(1, len(rounds)+1):
-    df = initial_report(j)
-    # dfs.append(df)
-    for i in range(datatype["clusters"]):
-        extract_data(j, datatype, uniform_length=True)
+# for j in range(1, len(rounds)+1):
+#     df = initial_report(j)
+#     # dfs.append(df)
+#     for i in range(datatype["clusters"]):
+#         extract_data(j, datatype, uniform_length=True)
 
 
 
@@ -168,14 +168,14 @@ if focus == "cov":
     # data type variable
     datatype_dir = datatype["process"]+f"_{datatype['clusters']}_clusters"
     # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/
-    dest_path = f"../cov/{datatype_dir}/trained_rbms/"
-    src_path = f"../cov/{datatype_dir}/"
+    dest_path = f"../cov/{datatype_dir}/trained_{model}s/"
+    src_path = f"../cov/"
 
     all_data_files = [x + '.fasta' for x in rounds]
 
-    all_rbm_names = rounds
+    all_model_names = rounds
 
-    script_names = ["cov"+str(i+1) for i in range(len(all_rbm_names))]
+    script_names = ["cov"+str(i+1) for i in range(len(all_model_names))]
 
     paths_to_data = [src_path + x for x in all_data_files]
 
@@ -186,23 +186,23 @@ if focus == "cov":
 #     dfs.append(df)
 #     extract_data(j, 1, [[40, 40]])
 
-def write_submission_scripts(rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
+def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
     # NAME DATA_PATH DESTINATION HIDDEN
-    for i in range(len(rbmnames)):
-        o = open('rbm_torch/submission_templates/rbm_train.sh', 'r')
+    for i in range(len(modelnames)):
+        o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
         filedata = o.read()
         o.close()
 
-        if "c"+str(1) in rbmnames[i]: # cluster 1 has 22 visible units
+        if "c"+str(1) in modelnames[i]: # cluster 1 has 22 visible units
             vis = 22
-        elif "c"+str(2) in rbmnames[i]:# cluster 2 has 22 visible units
+        elif "c"+str(2) in modelnames[i]:# cluster 2 has 22 visible units
             vis = 45
-        elif "r" in rbmnames[i]:
+        elif "r" in modelnames[i]:
             vis = 40 # Cov data is 40 Nucleotides
 
         
         # Replace the Strings we want
-        filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
+        filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
         filedata = filedata.replace("PARTITION", "sulcgpu2")
@@ -211,19 +211,19 @@ def write_submission_scripts(rbmnames, script_names, paths_to_data, destination,
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
 
-        with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
+        with open(f"./rbm_torch/agave_submit_{model}/" + script_names[i], 'w+') as file:
             file.write(filedata)
 
     if weights:
         focus += "_w"
-    with open("./rbm_torch/agave_submit/submit" + focus + ".sh", 'w+') as file:
+    with open(f"./rbm_torch/agave_submit_{model}/submit" + focus + ".sh", 'w+') as file:
         file.write("#!/bin/bash\n")
         for i in range(len(script_names)):
             file.write("sbatch " + script_names[i] + "\n")
 
 
-# write_submission_scripts(all_rbm_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False)
-# #
-# w_script_names = [x+"_w" for x in script_names]
-# #
-# write_submission_scripts(all_rbm_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False)
+write_submission_scripts(all_model_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False)
+#
+w_script_names = [x+"_w" for x in script_names]
+#
+write_submission_scripts(all_model_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False)

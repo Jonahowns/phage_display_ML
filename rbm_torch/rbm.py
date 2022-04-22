@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
 from torch.utils.data import Dataset, DataLoader
+from torch.autograd import Variable
 
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -991,6 +992,44 @@ class RBM(LightningModule):
                 likelihood += self.likelihood(V_pos).detach().tolist()
 
         return X.sequence.tolist(), likelihood
+
+    def saliency_map(self, X):
+        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        data_loader = torch.utils.data.DataLoader(
+            reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=False
+        )
+        saliency_maps = []
+        for i, batch in enumerate(data_loader):
+            seqs, V_pos, seq_weights = batch
+            variable_pos = Variable(V_pos, requires_grad=True)
+            V_neg, h_neg, v_pos_out, h_pos = self(variable_pos)
+            weights = seq_weights
+            F_v = (self.free_energy(variable_pos) * weights).sum() / weights.sum()  # free energy of training data
+            F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+            cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+            # free_energy = F_v.detach()
+
+            # Regularization Terms
+            reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+            reg2 = torch.zeros((1,), device=self.device)
+            reg3 = torch.zeros((1,), device=self.device)
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+                x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square()
+                reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+                # Size of Convolution Filters weight_size = (h_num, input_channels, kernel[0], kernel[1])
+                reg3 += self.ld / ((self.params[f"{i}_W"].abs() - self.params[f"{i}_W"].squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+            loss = cd_loss + reg1 + reg2 + reg3
+            loss.backward()
+
+            saliency_maps.append(variable_pos.grad.data.detach())
+
+        return torch.cat(saliency_maps, dim=0)
 
     # Don't use this
     def predict_psuedo(self, X):

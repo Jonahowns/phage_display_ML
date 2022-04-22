@@ -1,0 +1,21 @@
+#!/bin/bash
+sbatch pig_gm4_0_w
+sbatch pig_gm4_1_w
+sbatch pig_gm4_2_w
+sbatch pig_gm4_3_w
+sbatch pig_gm4_4_w
+sbatch pig_gm4_5_w
+sbatch pig_gm4_6_w
+sbatch pig_gm4_7_w
+sbatch pig_gm4_8_w
+sbatch pig_gm4_9_w
+sbatch pig_gm4_10_w
+sbatch pig_gm4_11_w
+sbatch pig_gm4_12_w
+sbatch pig_gm4_13_w
+sbatch pig_gm4_14_w
+sbatch pig_gm4_15_w
+sbatch pig_gm4_16_w
+sbatch pig_gm4_17_w
+sbatch pig_gm4_18_w
+sbatch pig_gm4_19_w

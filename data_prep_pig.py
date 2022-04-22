@@ -205,13 +205,14 @@ def extractor(seqs, cnum, lenindices, outdir, cpy_num, uniform_length=True, posi
 
 
 focus = 'pig'
+model = "crbm"
 mfolder = '/mnt/D1/phage_display_analysis/'
 ge2_datatype = {"id": "ge2", "process": "gaps_end", "clusters": 2, "gap_position_indices": [-1, -1], "cluster_indices": [[12, 22], [35, 45]]}
 gm2_datatype = {"id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
 ge4_datatype = {"id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
 gm4_datatype = {"id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
 
-datatype = gm4_datatype  # Change this to change the which dataset is generating files
+datatype = ge4_datatype  # Change this to change the which dataset is generating files
 
 
 # Fix this up (correct dirs)
@@ -223,7 +224,7 @@ if focus == 'pig':
     rounds = ['np1', 'np2', 'np3', 'n1', 'b3']
     if not os.path.isdir(odir):
         os.mkdir(f"./pig_tissue/{datatype_dir}")
-        os.mkdir(f"./pig_tissue/{datatype_dir}/trained_rbms/")
+        os.mkdir(f"./pig_tissue/{datatype_dir}/trained_{model}s/")
 
 
 elif focus == 'invivo':
@@ -292,23 +293,23 @@ def extract_data(i, cnum, c_indices, add_gaps=True):
 #### Prepare Submission Scripts
 
 if focus == "pig":
-    # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/
-    dest_path = f"../pig_tissue/{datatype_dir}/trained_rbms/"
+    # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/ or /pig_tissue/trained_crbms/
+    dest_path = f"../pig_tissue/{datatype_dir}/trained_{model}s/"
     src_path = f"../pig_tissue/{datatype_dir}/"
 
     all_data_files = []
-    all_rbm_names = []
+    all_model_names = []
     for i in range(datatype["clusters"]):
         all_data_files += [x + f'_c{i+1}.fasta' for x in rounds]
-        all_rbm_names += [x+f"_c{i+1}" for x in rounds]
+        all_model_names += [x+f"_c{i+1}" for x in rounds]
 
-    script_names = ["pig_" + datatype["id"] +"_"+str(i) for i in range(len(all_rbm_names))]
+    script_names = ["pig_" + datatype["id"] +"_"+str(i) for i in range(len(all_model_names))]
 
     paths_to_data = [src_path + x for x in all_data_files]
 
 elif focus == "invivo":
     # path is from ProteinMotifRBM/agave_sbumit/ to /pig_tissue/trained_rbms/
-    dest_path = "../invivo/trained_rbms/"
+    dest_path = f"../invivo/trained_{model}s/"
     src_path = "../invivo/"
 
     c1 = [x + '_c1.fasta' for x in rounds]
@@ -316,26 +317,26 @@ elif focus == "invivo":
 
     all_data_files = c1 + c2
 
-    rbm1 = [x + '_c1' for x in rounds]
-    rbm2 = [x + '_c2' for x in rounds]
+    model1 = [x + '_c1' for x in rounds]
+    model2 = [x + '_c2' for x in rounds]
 
-    all_rbm_names = rbm1 + rbm2
+    all_model_names = model1 + model2
 
-    script_names = ["invivo" + str(i) for i in range(len(all_rbm_names))]
+    script_names = ["invivo" + str(i) for i in range(len(all_model_names))]
 
     paths_to_data = [src_path + x for x in all_data_files]
 
 
-def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
+def write_submission_scripts(datatypedict, modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
     # NAME DATA_PATH DESTINATION HIDDEN
-    for i in range(len(rbmnames)):
-        o = open('rbm_torch/submission_templates/rbm_train.sh', 'r')
+    for i in range(len(modelnames)):
+        o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
         filedata = o.read()
         o.close()
 
         # python rbm_train.sh focus Data_Path Epochs Gpus Weights
         # Replace the Strings we want
-        filedata = filedata.replace("NAME", rbmnames[i]+script_names[i])
+        filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
         filedata = filedata.replace("PARTITION", "sulcgpu2")
@@ -344,19 +345,19 @@ def write_submission_scripts(datatypedict, rbmnames, script_names, paths_to_data
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
 
-        with open("./rbm_torch/agave_submit/" + script_names[i], 'w+') as file:
+        with open(f"./rbm_torch/agave_submit_{model}/" + script_names[i], 'w+') as file:
             file.write(filedata)
 
     if weights:
         focus += f"_w"
-    with open("./rbm_torch/agave_submit/submit" + focus + ".sh", 'w+') as file:
+    with open(f"./rbm_torch/agave_submit_{model}/submit" + focus + ".sh", 'w+') as file:
         file.write("#!/bin/bash\n")
         for i in range(len(script_names)):
             file.write("sbatch " + script_names[i] + "\n")
 
 
-# write_submission_scripts(datatype, all_rbm_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
+write_submission_scripts(datatype, all_model_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
 #
 w_script_names = [x+"_w" for x in script_names]
-
-write_submission_scripts(datatype, all_rbm_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
+#
+write_submission_scripts(datatype, all_model_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
