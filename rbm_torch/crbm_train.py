@@ -1,12 +1,13 @@
+from conv_rbm_test import CRBM
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 import argparse
+from numpy.random import randint
 import os
-import sys
-from conv_rbm_test import CRBM
 import crbm_configs
-sys.path.insert(1, './analysis/')
-from global_info import get_global_info
+from rbm_torch.analysis.global_info import get_global_info
+# from glob import glob
+
 
 if __name__ == '__main__':
     # Example Usage
