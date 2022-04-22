@@ -2,8 +2,9 @@ import sys
 sys.path.append("../")
 from rbm import fasta_read, RBM, get_beta_and_W
 import rbm_utils
-import crbm_test as cr
+import conv_rbm_test as cr
 
+import math
 import pandas as pd
 from glob import glob
 import seaborn as sns
@@ -201,11 +202,6 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
         ix = order[hu_num]  # get weight index
         # Make Sequence Logo
         rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
-        # Make CGF Plot
-        # x = lims[ix]
-        # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
-        # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
-
 
         t_x = np.asarray(fullranges[:, ix])
         t_y = np.asarray(pre_cgf[:, ix])
@@ -223,80 +219,189 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
         axd[f"cgf{hid}"].yaxis.set_label_position("right")
     plt.show()
 
-def cgf_with_weights_plot_cgf(crbm, dataframe, hidden_unit_numbers):
-    # Convert Sequences to Integer Format and Compute Hidden Unit Input
-    v_num = crbm.v_num
-    h_nums = [crbm.convolution_topology[x]["number"] for x in crbm.hidden_convolution_keys]
-    base_to_id = int_to_letter_dicts[crbm.molecule]
-    data_tensor, weights = dataframe_to_input(dataframe, base_to_id, v_num, weights=True)
+def plot_input_mean(RBM,I, hidden_unit_numbers, I_range=None,weights = None, xlabels = None, figsize = (3,3), show= True):
+    if type(hidden_unit_numbers) in [int]:
+        hidden_unit_numbers = [hidden_unit_numbers]
 
-    input_hiddens = crbm.compute_output_v(data_tensor)
-    input_hiddens = [x.detach().numpy() for x in input_hiddens]
+    nfeatures = len(hidden_unit_numbers)
+    nrows = int(np.ceil(nfeatures/float(2)))
 
-    # Get Beta and sort hidden Units by Frobenius Norms
-    beta, W = get_beta_and_W(crbm)
-    order = np.argsort(beta)[::-1]
+    if I_range is None:
+        I_min = I.min()
+        I_max = I.max()
+        I_range = (I_max-I_min) * np.arange(0,1+0.01,0.01) + I_min
 
-    gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
-    grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
-    fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+    mean = RBM.mean_h(np.repeat(I_range.unsqueeze(1), RBM.h_num, axis=1))
 
-    npoints = 1000  # Number of points for graphing CGF curve
-    lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]  # Get limits for each hidden unit
+    gs_kw = dict(width_ratios=[1, 1], height_ratios=[1 for x in range(nrows)])
+    grid_names = [[f"{i}_l", f"{i}_r"] for i in range(nrows)]
+    fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(nrows * figsize[0], 2 * figsize[1]), constrained_layout=True)
 
-    Ws = [cr.get_beta_and_W(x+"_W")[1] for x in crbm.hidden_convolution_keys]
-    lims = []
-    # W shape h_num, kernel[0], kernel[1]
-    for W in Ws:
-        Wshrunk = W.squeeze(2)
-        lim_min = np.min(W, axis=1)
-        lim_max = np.max(W, axis=1)
-        lims.append([lim_min, lim_max])
+    if xlabels is None:
+        xlabels = [r'Input $I_{%s}$'%(i+1) for i in range(nfeatures)]
 
+    row_dict = {0: "_l", 1: "_r"}
+    for i in range(nrows): # row number
+        for j in range(2): # Column Number
+            if not i*2+j < len(hidden_unit_numbers) - 1:
 
-    fullranges = []
-    for hid, hn in enumerate(h_nums):
-        [mini, maxi] = lims[hid]
-        W = Ws[hid].squeeze(2)
-        for i in hn:  # for each hidden unit
-            W[i, :]
-        fullranges.append(torch)
-        fullranges.append([lims[]])
+            ax = axd[f"{i}{row_dict[j]}"]
+            ax2 = ax.twinx()
+            ax2.hist(I[:, hidden_unit_numbers[i*2+j]], normed=True, weights=weights, bins=100)
+            ax.plot(I_range, mean[:, hidden_unit_numbers[i*2+j]], c='black', linewidth=2)
+            xmin = I[:, hidden_unit_numbers[i*2+j]].min()
+            xmax = I[:, hidden_unit_numbers[i*2+j]].max()
+            ymin = mean[:, hidden_unit_numbers[i*2+j]].min()
+            ymax = mean[:, hidden_unit_numbers[i*2+j]].max()
 
-
-    fullranges = torch.zeros((npoints, h_num))
-    for i in range(h_num):
-        x = lims[i]
-        fullranges[:, i] = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
-
-    pre_cgf = rbm.cgf_from_inputs_h(fullranges)
-    # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
-    # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
-    for hid, hu_num in enumerate(hidden_unit_numbers):
-        ix = order[hu_num]  # get weight index
-        # Make Sequence Logo
-        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
-        # Make CGF Plot
-        # x = lims[ix]
-        # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
-        # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
+            ax.set_xlim([xmin, xmax])
+            step = int((xmax - xmin) / 4.0) + 1
+            xticks = np.arange(int(xmin), int(xmax) + 1, step)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xticks, fontsize=12)
+            ax.set_ylim([ymin, ymax])
+            step = int((ymax - ymin) / 4.0) + 1
+            yticks = np.arange(int(ymin), int(ymax) + 1, step)
+            ax.set_yticks(yticks)
+            ax.set_yticklabels(yticks, fontsize=12)
+            ax2.set_yticks([])
+            for tl in ax.get_yticklabels():
+                tl.set_fontsize(14)
+            ax.set_zorder(ax2.get_zorder() + 1)
+            ax.patch.set_visible(False)
+            ax.set_xlabel(xlabels[i*2+j], fontsize=14)
 
 
-        t_x = np.asarray(fullranges[:, ix])
-        t_y = np.asarray(pre_cgf[:, ix])
-        deltay = np.min(t_y)
-        counts, bins = np.histogram(input_hiddens[:, ix], bins=30, weights=weights)
-        factor = np.max(t_y) / np.max(counts)
-        # WEIGHTS SHOULD HAVE SAME SIZE AS BINS
-        axd[f"cgf{hid}"].hist(bins[:-1], bins, color='grey', label='All sequences', weights=counts*factor,
-                   histtype='step', lw=3, fill=True, alpha=0.7, edgecolor='black', linewidth=1)
-        axd[f"cgf{hid}"].plot(t_x, t_y - deltay, lw=3, color='C1')
-        axd[f"cgf{hid}"].set_ylabel('CGF', fontsize=18)
-        axd[f"cgf{hid}"].tick_params(axis='both', direction='in', length=6, width=2, colors='k')
-        axd[f"cgf{hid}"].tick_params(axis='both', labelsize=16)
-        axd[f"cgf{hid}"].yaxis.tick_right()
-        axd[f"cgf{hid}"].yaxis.set_label_position("right")
-    plt.show()
+
+        for i in range(nfeatures, ncols * nrows):
+            ax_ = get_ax(ax, i, nrows, ncols)
+            clean_ax(ax_)
+
+        if return_fig:
+            plt.tight_layout()
+            if show:
+                plt.show()
+            return fig
+
+
+
+    for i in range(nfeatures):
+        # ax_ = get_ax(ax,i,nrows,ncols)
+        # ax2_ = ax_.twinx()
+        # ax2_.hist(I[:,subset[i]],normed=True,weights=weights,bins=100)
+        # ax_.plot(I_range,mean[:,subset[i]],c='black',linewidth=2)
+        #
+        # xmin = I[:,subset[i]].min()
+        # xmax = I[:,subset[i]].max()
+        # ymin = mean[:,subset[i]].min()
+        # ymax = mean[:,subset[i]].max(
+
+
+
+        ax_.set_xlim([xmin,xmax])
+        step = int( (xmax-xmin )/4.0) +1
+        xticks = np.arange(int(xmin), int(xmax)+1, step)
+        ax_.set_xticks(xticks)
+        ax_.set_xticklabels(xticks,fontsize=12)
+        ax_.set_ylim([ymin,ymax])
+        step = int( (ymax-ymin )/4.0)+1
+        yticks = np.arange(int(ymin), int(ymax)+1, step)
+        ax_.set_yticks(yticks)
+        ax_.set_yticklabels(yticks,fontsize=12)
+        ax2_.set_yticks([])
+        for tl in ax_.get_yticklabels():
+            tl.set_fontsize(14)
+        ax_.set_zorder(ax2_.get_zorder()+1)
+        ax_.patch.set_visible(False)
+
+        ax_.set_xlabel(xlabels[i],fontsize=14)
+
+    for i in range(nfeatures,ncols*nrows):
+        ax_ = get_ax(ax,i,nrows,ncols)
+        clean_ax(ax_)
+
+    if return_fig:
+        plt.tight_layout()
+        if show:
+            plt.show()
+        return fig
+
+
+
+# def cgf_with_weights_plot_crbm(crbm, dataframe, hidden_unit_numbers):
+#     # Convert Sequences to Integer Format and Compute Hidden Unit Input
+#     v_num = crbm.v_num
+#     h_nums = [crbm.convolution_topology[x]["number"] for x in crbm.hidden_convolution_keys]
+#     base_to_id = int_to_letter_dicts[crbm.molecule]
+#     data_tensor, weights = dataframe_to_input(dataframe, base_to_id, v_num, weights=True)
+#
+#     input_hiddens = crbm.compute_output_v(data_tensor)
+#     input_hiddens = [x.detach().numpy() for x in input_hiddens]
+#
+#     # Get Beta and sort hidden Units by Frobenius Norms
+#     beta, W = get_beta_and_W(crbm)
+#     order = np.argsort(beta)[::-1]
+#
+#     gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
+#     grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
+#     fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+#
+#     npoints = 1000  # Number of points for graphing CGF curve
+#     lims = [(np.sum(np.min(w, axis=1)), np.sum(np.max(w, axis=1))) for w in W]  # Get limits for each hidden unit
+#
+#     Ws = [cr.get_beta_and_W(x+"_W")[1] for x in crbm.hidden_convolution_keys]
+#     lims = []
+#     # W shape h_num, kernel[0], kernel[1]
+#     for W in Ws:
+#         Wshrunk = W.squeeze(2)
+#         lim_min = np.min(W, axis=1)
+#         lim_max = np.max(W, axis=1)
+#         lims.append([lim_min, lim_max])
+#
+#
+#     fullranges = []
+#     for hid, hn in enumerate(h_nums):
+#         [mini, maxi] = lims[hid]
+#         W = Ws[hid].squeeze(2)
+#         for i in hn:  # for each hidden unit
+#             W[i, :]
+#         fullranges.append(torch)
+#         fullranges.append([lims[]])
+#
+#
+#     fullranges = torch.zeros((npoints, h_num))
+#     for i in range(h_num):
+#         x = lims[i]
+#         fullranges[:, i] = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+#
+#     pre_cgf = rbm.cgf_from_inputs_h(fullranges)
+#     # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+#     # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
+#     for hid, hu_num in enumerate(hidden_unit_numbers):
+#         ix = order[hu_num]  # get weight index
+#         # Make Sequence Logo
+#         rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
+#         # Make CGF Plot
+#         # x = lims[ix]
+#         # fullrange = torch.tensor(np.arange(x[0], x[1], (x[1] - x[0] + 1 / npoints) / npoints).transpose())
+#         # fullranges = np.array([np.arange(x[0], x[1], (x[1]-x[0]+1/npoints)/npoints) for x in lims], dtype=object)
+#
+#
+#         t_x = np.asarray(fullranges[:, ix])
+#         t_y = np.asarray(pre_cgf[:, ix])
+#         deltay = np.min(t_y)
+#         counts, bins = np.histogram(input_hiddens[:, ix], bins=30, weights=weights)
+#         factor = np.max(t_y) / np.max(counts)
+#         # WEIGHTS SHOULD HAVE SAME SIZE AS BINS
+#         axd[f"cgf{hid}"].hist(bins[:-1], bins, color='grey', label='All sequences', weights=counts*factor,
+#                    histtype='step', lw=3, fill=True, alpha=0.7, edgecolor='black', linewidth=1)
+#         axd[f"cgf{hid}"].plot(t_x, t_y - deltay, lw=3, color='C1')
+#         axd[f"cgf{hid}"].set_ylabel('CGF', fontsize=18)
+#         axd[f"cgf{hid}"].tick_params(axis='both', direction='in', length=6, width=2, colors='k')
+#         axd[f"cgf{hid}"].tick_params(axis='both', labelsize=16)
+#         axd[f"cgf{hid}"].yaxis.tick_right()
+#         axd[f"cgf{hid}"].yaxis.set_label_position("right")
+#     plt.show()
 
 # Other notebook types "default_pig", "default_cov"
 def write_notebook(nbname, datatype_str, notebook="default_pig", cluster=None, weights=False):

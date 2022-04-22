@@ -426,6 +426,42 @@ class RBM(LightningModule):
         else:
             return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
 
+    ## Mean of hidden
+    def mean_h(self, psi, beta=1):
+        if beta == 1:
+            a_plus = (self.params['gamma+']).unsqueeze(0)
+            a_minus = (self.params['gamma-']).unsqueeze(0)
+            theta_plus = (self.params['theta+']).unsqueeze(0)
+            theta_minus = (self.params['theta-']).unsqueeze(0)
+        else:
+            theta_plus = (beta * self.params['theta+'] + (1 - beta) * self.params['0theta+']).unsqueeze(0)
+            theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
+            a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
+            a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
+            psi *= beta
+
+        psi_plus = (-psi + theta_plus) / torch.sqrt(a_plus)
+        psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)
+
+        etg_plus = self.erf_times_gauss(psi_plus)
+        etg_minus = self.erf_times_gauss(psi_minus)
+
+        p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+        nans = torch.isnan(p_plus)
+        p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+        p_minus = 1 - p_plus
+
+        mean_pos = (-psi_plus + 1 / etg_plus) / np.sqrt(a_plus)
+        mean_neg = (psi_minus - 1 / etg_minus) / np.sqrt(a_minus)
+        return mean_pos * p_plus + mean_neg * p_minus
+
+    ## Mean of visible
+    def mean_v(self, psi, beta=1):
+        if beta == 1:
+            return nn.Softmax(psi + self.params["fields"].unsqueeze(0))
+        else:
+            return nn.Softmax(beta * psi + self.params["fields0"].unsqueeze(0) + beta * (self.params["fields"].unsqueeze(0) - self.params["fields0"].unsqueeze(0)))
+
     ## Compute Input for Hidden Layer from Visible Potts
     def compute_output_v(self, visible_data):
         # compute_output of visible potts layer
