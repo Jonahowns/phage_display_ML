@@ -32,8 +32,10 @@ if __name__ == '__main__':
         name += "_w"
         w_bool = True
 
+    model = "rbm"
+
     try:
-        info = get_global_info(args.datatype_str, cluster=clusternum, weights=w_bool)
+        info = get_global_info(args.datatype_str, cluster=clusternum, weights=w_bool, model=model)
     except KeyError:
         print(f"Key {args.datatype_str} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
@@ -53,6 +55,6 @@ if __name__ == '__main__':
 
     # Training Code
     rbm = RBM(config, debug=False)
-    logger = TensorBoardLogger('../' + info["server_rbm_dir"] + "/trained_rbms", name=name)
+    logger = TensorBoardLogger('../' + info["server_rbm_dir"] + f"/trained_{model}s", name=name)
     plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
     plt.fit(rbm)

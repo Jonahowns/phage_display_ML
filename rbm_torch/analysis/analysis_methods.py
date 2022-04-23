@@ -243,88 +243,45 @@ def plot_input_mean(RBM,I, hidden_unit_numbers, I_range=None,weights = None, xla
     row_dict = {0: "_l", 1: "_r"}
     for i in range(nrows): # row number
         for j in range(2): # Column Number
-            if not i*2+j < len(hidden_unit_numbers) - 1:
+            if not i*2+j < len(hidden_unit_numbers):
+                ax = axd[f"{i}{row_dict[j]}"]
+                ax.spines['right'].set_visible(False)
+                ax.spines['left'].set_visible(False)
+                ax.spines['top'].set_visible(False)
+                ax.spines['bottom'].set_visible(False)
+                ax.set_xticks([])
+                ax.set_yticks([])
+            else:
+                ax = axd[f"{i}{row_dict[j]}"]
+                ax2 = ax.twinx()
+                ax2.hist(I[:, hidden_unit_numbers[i*2+j]], normed=True, weights=weights, bins=100)
+                ax.plot(I_range, mean[:, hidden_unit_numbers[i*2+j]], c='black', linewidth=2)
+                xmin = I[:, hidden_unit_numbers[i*2+j]].min()
+                xmax = I[:, hidden_unit_numbers[i*2+j]].max()
+                ymin = mean[:, hidden_unit_numbers[i*2+j]].min()
+                ymax = mean[:, hidden_unit_numbers[i*2+j]].max()
 
-            ax = axd[f"{i}{row_dict[j]}"]
-            ax2 = ax.twinx()
-            ax2.hist(I[:, hidden_unit_numbers[i*2+j]], normed=True, weights=weights, bins=100)
-            ax.plot(I_range, mean[:, hidden_unit_numbers[i*2+j]], c='black', linewidth=2)
-            xmin = I[:, hidden_unit_numbers[i*2+j]].min()
-            xmax = I[:, hidden_unit_numbers[i*2+j]].max()
-            ymin = mean[:, hidden_unit_numbers[i*2+j]].min()
-            ymax = mean[:, hidden_unit_numbers[i*2+j]].max()
+                ax.set_xlim([xmin, xmax])
+                step = int((xmax - xmin) / 4.0) + 1
+                xticks = np.arange(int(xmin), int(xmax) + 1, step)
+                ax.set_xticks(xticks)
+                ax.set_xticklabels(xticks, fontsize=12)
+                ax.set_ylim([ymin, ymax])
+                step = int((ymax - ymin) / 4.0) + 1
+                yticks = np.arange(int(ymin), int(ymax) + 1, step)
+                ax.set_yticks(yticks)
+                ax.set_yticklabels(yticks, fontsize=12)
+                ax2.set_yticks([])
+                for tl in ax.get_yticklabels():
+                    tl.set_fontsize(14)
+                ax.set_zorder(ax2.get_zorder() + 1)
+                ax.patch.set_visible(False)
+                ax.set_xlabel(xlabels[i*2+j], fontsize=14)
 
-            ax.set_xlim([xmin, xmax])
-            step = int((xmax - xmin) / 4.0) + 1
-            xticks = np.arange(int(xmin), int(xmax) + 1, step)
-            ax.set_xticks(xticks)
-            ax.set_xticklabels(xticks, fontsize=12)
-            ax.set_ylim([ymin, ymax])
-            step = int((ymax - ymin) / 4.0) + 1
-            yticks = np.arange(int(ymin), int(ymax) + 1, step)
-            ax.set_yticks(yticks)
-            ax.set_yticklabels(yticks, fontsize=12)
-            ax2.set_yticks([])
-            for tl in ax.get_yticklabels():
-                tl.set_fontsize(14)
-            ax.set_zorder(ax2.get_zorder() + 1)
-            ax.patch.set_visible(False)
-            ax.set_xlabel(xlabels[i*2+j], fontsize=14)
-
-
-
-        for i in range(nfeatures, ncols * nrows):
-            ax_ = get_ax(ax, i, nrows, ncols)
-            clean_ax(ax_)
-
-        if return_fig:
-            plt.tight_layout()
-            if show:
-                plt.show()
-            return fig
-
-
-
-    for i in range(nfeatures):
-        # ax_ = get_ax(ax,i,nrows,ncols)
-        # ax2_ = ax_.twinx()
-        # ax2_.hist(I[:,subset[i]],normed=True,weights=weights,bins=100)
-        # ax_.plot(I_range,mean[:,subset[i]],c='black',linewidth=2)
-        #
-        # xmin = I[:,subset[i]].min()
-        # xmax = I[:,subset[i]].max()
-        # ymin = mean[:,subset[i]].min()
-        # ymax = mean[:,subset[i]].max(
-
-
-
-        ax_.set_xlim([xmin,xmax])
-        step = int( (xmax-xmin )/4.0) +1
-        xticks = np.arange(int(xmin), int(xmax)+1, step)
-        ax_.set_xticks(xticks)
-        ax_.set_xticklabels(xticks,fontsize=12)
-        ax_.set_ylim([ymin,ymax])
-        step = int( (ymax-ymin )/4.0)+1
-        yticks = np.arange(int(ymin), int(ymax)+1, step)
-        ax_.set_yticks(yticks)
-        ax_.set_yticklabels(yticks,fontsize=12)
-        ax2_.set_yticks([])
-        for tl in ax_.get_yticklabels():
-            tl.set_fontsize(14)
-        ax_.set_zorder(ax2_.get_zorder()+1)
-        ax_.patch.set_visible(False)
-
-        ax_.set_xlabel(xlabels[i],fontsize=14)
-
-    for i in range(nfeatures,ncols*nrows):
-        ax_ = get_ax(ax,i,nrows,ncols)
-        clean_ax(ax_)
-
-    if return_fig:
-        plt.tight_layout()
-        if show:
-            plt.show()
-        return fig
+    plt.tight_layout()
+    if show:
+        plt.show()
+    return fig
 
 
 

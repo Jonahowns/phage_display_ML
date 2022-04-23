@@ -20,7 +20,9 @@ from torch.autograd import Variable
 import configs
 from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, Sequence_logo
 
-
+# input_shape = (v_num, q)
+# Lists all possible convolutions that reproduce exactly the input shape
+# Useful for building a convolution topology
 def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
     v_num, q = input_shape
 
@@ -46,9 +48,6 @@ def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
                     if recon_x == v_num:
                         print(f"Whole Convolution Found: Kernel: {kernel[0]}, Stride: {stride[0]}, Dilation: {dilation[0]}, Padding: {padding[0]}")
     return
-
-
-
 
 def conv2d_dim(input_shape, conv_topology):
     [batch_size, input_channels, v_num, q] = input_shape
@@ -78,7 +77,7 @@ def conv2d_dim(input_shape, conv_topology):
     return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
 
 
-
+# Example convolution topology
  # config["convolution_topology"] = {
  #        "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
  #        "hidden2": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -405,14 +404,11 @@ class CRBM(LightningModule):
     def energy(self, v, h, remove_init=False, hidden_sub_index=-1):
         return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, sub_index=hidden_sub_index, remove_init=remove_init) - self.bidirectional_weight_term(v, h, hidden_sub_index=hidden_sub_index)
 
-        ## Total Energy of a given visible and hidden configuration
-
     def energy_PT(self, v, h, remove_init=False):
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
             E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h, sub_index=i, remove_init=remove_init) - self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
         return E
-
 
     def bidirectional_weight_term(self, v, h, hidden_sub_index=-1):
         conv = self.compute_output_v(v)
