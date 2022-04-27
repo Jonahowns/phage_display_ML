@@ -361,13 +361,16 @@ def build_scores2_break(matrix, selected):
     return all_scores, maxi_size
 
 # Needed to generate Sequence Logos
-dna = ['A', 'C', 'G', 'T', '$\\boxminus$']
-rna = ['A', 'C', 'G', 'U', '$\\boxminus$']
+
 fp = FontProperties(family="Arial", weight="bold")
 globscale = 1.35
-list_aa = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', '$\\boxminus$']
 aa_to_dna = {'A': 'A', 'C': 'C', 'D': 'G', 'E': 'T', 'F': '$\\boxminus$'}
 aa_to_rna = {'A': 'A', 'C': 'C', 'D': 'G', 'E': 'U', 'F': '$\\boxminus$'}
+
+dna = ['A', 'C', 'G', 'T', '$\\boxminus$']
+rna = ['A', 'C', 'G', 'U', '$\\boxminus$']
+list_aa = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', '$\\boxminus$']
+
 LETTERS = dict([(letter, TextPath((-0.30, 0), letter, size=1, prop=fp)) for letter in list_aa])
 LETTERSdna = dict([(letter, TextPath((-0.30, 0), letter, size=1, prop=fp)) for letter in dna])
 LETTERSrna = dict([(letter, TextPath((-0.30, 0), letter, size=1, prop=fp)) for letter in rna])

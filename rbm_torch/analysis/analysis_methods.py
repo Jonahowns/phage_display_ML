@@ -219,7 +219,7 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
         axd[f"cgf{hid}"].yaxis.set_label_position("right")
     plt.show()
 
-def plot_input_mean(RBM,I, hidden_unit_numbers, I_range=None,weights = None, xlabels = None, figsize = (3,3), show= True):
+def plot_input_mean(RBM,I, hidden_unit_numbers, I_range=None,weights = None, xlabels = None, figsize = (3,3)):
     if type(hidden_unit_numbers) in [int]:
         hidden_unit_numbers = [hidden_unit_numbers]
 
@@ -279,9 +279,7 @@ def plot_input_mean(RBM,I, hidden_unit_numbers, I_range=None,weights = None, xla
                 ax.set_xlabel(xlabels[i*2+j], fontsize=14)
 
     plt.tight_layout()
-    if show:
-        plt.show()
-    return fig
+    plt.show()
 
 
 

@@ -451,8 +451,8 @@ class RBM(LightningModule):
         p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
         p_minus = 1 - p_plus
 
-        mean_pos = (-psi_plus + 1 / etg_plus) / np.sqrt(a_plus)
-        mean_neg = (psi_minus - 1 / etg_minus) / np.sqrt(a_minus)
+        mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+        mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
         return mean_pos * p_plus + mean_neg * p_minus
 
     ## Mean of visible
