@@ -49,7 +49,11 @@ def find_version(round, source_dir, endpoint_dir=None):
     path = source_dir+round
     subdirs = glob(path+"/*/", recursive=True)  # list of all versions of the RBM
     versions = [int(x[:-1].rsplit("_")[-1]) for x in subdirs]  # extracted version numbers
-    maxv = max(versions)  # get highest version number
+    try:
+        maxv = max(versions)  # get highest version number
+    except ValueError:
+        print(f"No Model found in {path}")
+        exit(-1)
     indexofinterest = versions.index(maxv)  # Get index of the highest version
     targetdir = subdirs[indexofinterest]  # Access directory path of the highest version
 
