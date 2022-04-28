@@ -55,6 +55,6 @@ if __name__ == '__main__':
 
     # Training Code
     crbm = CRBM(config, debug=False)
-    logger = TensorBoardLogger('../' + info["server_model_dir"] + f"/trained_{model}s", name=name)
+    logger = TensorBoardLogger('../' + info["server_model_dir"], name=name)
     plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
     plt.fit(crbm)
