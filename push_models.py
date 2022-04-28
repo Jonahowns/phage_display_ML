@@ -61,7 +61,7 @@ def find_version(round, source_dir, endpoint_dir=None):
         return targetdir
 
 # Create Transfer Task and Submit
-def rbm_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
+def model_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
     # create a Transfer task consisting of one or more items
     task_data = globus_sdk.TransferData(
         transfer_client, source_endpoint_id, dest_endpoint_id
@@ -70,7 +70,7 @@ def rbm_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
     for x in rounds:
         # Find the
         version_dir = find_version(x, source_dir, endpoint_dir=source_endpoint_dir)
-        # Destination of our Trained RBMS
+        # Destination of our Trained Models
         final_destination = dest_dir + x + "/" + version_dir.split("/")[-2] + "/"
 
         task_data.add_item(
@@ -87,29 +87,30 @@ def rbm_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
+    parser.add_argument('ml_model', type=str, help="Which model? rbm or crbm?")
     parser.add_argument('datatype_str', type=str, help="Which dataset to transfer")
     parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
-    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=False)
-    info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True)
+    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=False, model=args.ml_model)
+    info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True, model=args.ml_model)
 
-    destination_dir = info["local_rbm_dir"]
+    destination_dir = info["local_model_dir"]
 
-    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_dir']}"
+    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir']}"
 
-    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_rbm_dir']}"
+    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir']}"
 
     # The RBMS string specifiers
     if "pig" in args.datatype_str:
-        c_rounds = info["rbm_names"]
-        c_w_rounds = info_w["rbm_names"]
+        c_rounds = info["model_names"]
+        c_w_rounds = info_w["model_names"]
 
         flat_c_rounds = [item for sublist in c_rounds for item in sublist]
         flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]
         all_rounds = flat_c_rounds + flat_c_w_rounds
 
-        individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
+        individual = []  # individual round specifiers are added here for one call to model_transfer at the end
         for specifier in args.model_string:  # specifier is the rbm name, ususally something like n1_c2_w etc.
             if specifier.startswith("c"):  # Tranfer a Cluster
                 cluster = int(specifier[1])
@@ -129,11 +130,11 @@ if __name__=='__main__':
 
     elif "cov" in args.datatype_str:
         # The RBMS string specifiers
-        rounds = info["rbm_names"]
-        rounds_w = info_w["rbm_names"]
+        rounds = info["model_names"]
+        rounds_w = info_w["model_names"]
         all_rounds = rounds + rounds_w
 
-        individual = []  # individual round specifiers are added here for one call to rbm_transfer at the end
+        individual = []  # individual round specifiers are added here for one call to model_transfer at the end
         for specifier in args.model_string:
             if specifier == "r": # all rounds
                 individual += rounds
@@ -147,5 +148,5 @@ if __name__=='__main__':
                 print(f"Specifier String {specifier} not supported!")
                 exit(-1)
 
-    rbm_transfer(individual, source_dir, source_endpoint_dir, destination_dir)
+    model_transfer(individual, source_dir, source_endpoint_dir, destination_dir)
 

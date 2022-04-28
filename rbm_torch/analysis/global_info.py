@@ -1,3 +1,5 @@
+supported_ml_models = ["rbm", "crbm"]
+
 def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
     pig_ge2_datatype = {"focus": "pig", "molecule": "protein", "id": "ge2", "process": "gaps_end", "clusters": 2, "gap_position_indices": [-1, -1], "cluster_indices": [[12, 22], [35, 45]]}
     pig_gm2_datatype = {"focus": "pig", "molecule": "protein", "id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
@@ -6,6 +8,9 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
 
     cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 
+    if model not in supported_ml_models:
+        print(f"Model {model} not supported. Please edit /rbm_torch/analysis/global_info.py to properly enable support for other ml models.")
+
     try:
         datatype = {"pig_ge2": pig_ge2_datatype,
                     "pig_gm2": pig_gm2_datatype,
@@ -13,7 +18,8 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
                     "pig_gm4": pig_gm4_datatype,
                     "cov": cov_datatype}[datatype_str]
     except KeyError:
-        raise KeyError
+        print(f"Datatype {datatype_str} not found. Please add required data to get_global_info function in /rbm_torch/analysis/global_info.py")
+        exit(-1)
 
 
     local_model_location = {"pig_gm2": f"/mnt/D1/globus/pig_trained_{model}s/gm2/",
