@@ -18,7 +18,7 @@ from sklearn.model_selection import train_test_split
 
 # import rbm_utils
 from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read
-import configs
+import rbm_configs
 
 
 class RBMCaterogical(Dataset):
@@ -1460,7 +1460,7 @@ if __name__ == '__main__':
     # b3_c1 = "../pig_tissue/b3_c1.fasta"
     # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
-    config = configs.lattice_default_config
+    config = rbm_configs.lattice_default_config
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None

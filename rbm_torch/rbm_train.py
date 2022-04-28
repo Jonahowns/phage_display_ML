@@ -4,7 +4,7 @@ import argparse
 import os
 import sys
 from rbm import RBM
-import configs
+import rbm_configs
 sys.path.insert(1, './analysis/')
 from global_info import get_global_info
 
@@ -42,7 +42,7 @@ if __name__ == '__main__':
 
     # Set Default config
     try:
-        config = configs.all_configs[info["configkey"]]
+        config = rbm_configs.all_configs[info["configkey"]]
     except KeyError:
         print(f"Configkey {info['configkey']} Not Supported.")
         print("Please add default config to configs.py under this key. Please add global info about to /analysis/analysis_methods.py")

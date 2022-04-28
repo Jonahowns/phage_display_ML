@@ -17,7 +17,7 @@ from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
 import multiprocessing  # Just to set the worker number
 from torch.autograd import Variable
 
-import configs
+import crbm_configs
 from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, Sequence_logo
 
 # input_shape = (v_num, q)
@@ -1541,7 +1541,7 @@ if __name__ == '__main__':
               # "data_worker_num": 10  # Optionally Set these
               }
 
-    config = configs.lattice_default_config
+    config = crbm_configs.lattice_default_config
     config["l1_2"] = 0.8
     config["ld"] = 40.0
     # Edit config for dataset specific hyperparameters

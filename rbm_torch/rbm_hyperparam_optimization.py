@@ -9,7 +9,7 @@ import argparse
 
 # local files
 from rbm import RBM
-import configs
+import rbm_configs
 import hyper_configs
 
 
@@ -203,11 +203,11 @@ if __name__ == '__main__':
     # set default config
     if args.focus == "pig":
         if "c1" in name:
-            config = configs.pig_c1_default_config
+            config = rbm_configs.pig_c1_default_config
         elif "c2" in name:
-            config = configs.pig_c2_default_config
+            config = rbm_configs.pig_c2_default_config
     elif args.focus == "cov":
-        config = configs.cov_default_config
+        config = rbm_configs.cov_default_config
     else:
         print("Focus Not Supported. Please Add focus to this script and add default config to configs.py")
         exit(-1)
