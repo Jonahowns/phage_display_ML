@@ -3,7 +3,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import argparse
 import os
 import sys
-from conv_rbm_test import CRBM
+from crbm import CRBM
 import crbm_configs
 sys.path.insert(1, './analysis/')
 from global_info import get_global_info
