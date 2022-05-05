@@ -203,11 +203,18 @@ cov_default_config = {"fasta_file": "",
           "data_worker_num": 4
           }
 
-cov_default_config["convolution_topology"] = {"hidden1": {"number": 5, "kernel": (10, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-                                            "hidden2": {"number": 5, "kernel": (7, cov_default_config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-                                            "hidden3": {"number": 5, "kernel": (5, cov_default_config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (3, 1), "output_padding": (0, 0)},
-                                            "hidden4": {"number": 5, "kernel": (cov_default_config["v_num"], cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-                                           }
+# cov_default_config["convolution_topology"] = {"hidden1": {"number": 5, "kernel": (10, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+#                                             "hidden2": {"number": 5, "kernel": (7, cov_default_config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+#                                             "hidden3": {"number": 5, "kernel": (5, cov_default_config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (3, 1), "output_padding": (0, 0)},
+#                                             "hidden4": {"number": 5, "kernel": (cov_default_config["v_num"], cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+#                                            }
+
+cov_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (10, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+                                            "hidden2": {"number": 20, "kernel": (7, cov_default_config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+                                            "hidden3": {"number": 10, "kernel": (5, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+                                             }
+
+
 
 all_configs = {
    "pig_c1_ge2": pig_c1_2_default_config,

@@ -228,7 +228,7 @@ class CRBM(LightningModule):
             'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False)
         })
 
-        self.hidden_convolution_keys = self.convolution_topology.keys()
+        self.hidden_convolution_keys = list(self.convolution_topology.keys())
         self.h_layer_num = len(self.hidden_convolution_keys)
         for key in self.hidden_convolution_keys:
             # Set information about the convolutions that will be useful
@@ -553,7 +553,36 @@ class CRBM(LightningModule):
         else:
             return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
 
-    ## Compute Input for Hidden Layer from Visible Potts, Uses categorical not one hot vector
+    ## Mean of hidden layer specified by hidden_key
+    def mean_h(self, psi, hidden_key, beta=1):
+        if beta == 1:
+            a_plus = (self.params[f'{hidden_key}_gamma+']).unsqueeze(0)
+            a_minus = (self.params[f'{hidden_key}_gamma-']).unsqueeze(0)
+            theta_plus = (self.params[f'{hidden_key}_theta+']).unsqueeze(0)
+            theta_minus = (self.params[f'{hidden_key}_theta-']).unsqueeze(0)
+        else:
+            theta_plus = (beta * self.params[f'{hidden_key}_theta+'] + (1 - beta) * self.params[f'{hidden_key}_0theta+']).unsqueeze(0)
+            theta_minus = (beta * self.params[f'{hidden_key}_theta-'] + (1 - beta) * self.params[f'{hidden_key}_0theta-']).unsqueeze(0)
+            a_plus = (beta * self.params[f'{hidden_key}_gamma+'] + (1 - beta) * self.params[f'{hidden_key}_0gamma+']).unsqueeze(0)
+            a_minus = (beta * self.params[f'{hidden_key}_gamma-'] + (1 - beta) * self.params[f'{hidden_key}_0gamma-']).unsqueeze(0)
+            psi *= beta
+
+        psi_plus = (-psi + theta_plus) / torch.sqrt(a_plus)
+        psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)
+
+        etg_plus = self.erf_times_gauss(psi_plus)
+        etg_minus = self.erf_times_gauss(psi_minus)
+
+        p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+        nans = torch.isnan(p_plus)
+        p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+        p_minus = 1 - p_plus
+
+        mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+        mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+        return mean_pos * p_plus + mean_neg * p_minus
+
+    ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
     def compute_output_v(self, X): # X is the one hot vector
         outputs = []
         for i in self.hidden_convolution_keys:
@@ -1265,21 +1294,30 @@ class CRBM(LightningModule):
         return -self.free_energy(data) - self.log_Z_AIS
 
     # not yet functional, needs debugging
-    def cgf_from_inputs_h(self, I):
-        B = I.shape[0]
-        out = torch.zeros((self.h_layer_num, I.shape), device=self.device)
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            sqrt_gamma_plus = torch.sqrt(self.params[f"{i}_gamma+"]).expand(B, -1)
-            sqrt_gamma_minus = torch.sqrt(self.params[f"{i}_gamma-"]).expand(B, -1)
-            log_gamma_plus = torch.log(self.params[f"{i}_gamma+"]).expand(B, -1)
-            log_gamma_minus = torch.log(self.params[f"{i}_gamma-"]).expand(B, -1)
+    def cgf_from_inputs_h(self, I, hidden_key):
+        with torch.no_grad():
+            B = I.shape[0]
 
-            Z_plus = -self.log_erf_times_gauss((-I[iid] + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-            Z_minus = self.log_erf_times_gauss((I[iid] + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+            if hidden_key not in self.hidden_convolution_keys:
+                print(f"Hidden Convolution Key {hidden_key} not found!")
+                exit(-1)
+
+            Wdims = self.convolution_topology[hidden_key]["weight_dims"]
+
+            out = torch.zeros_like(I, device=self.device)
+
+            sqrt_gamma_plus = torch.sqrt(self.params[f"{hidden_key}_gamma+"]).expand(B, -1)
+            sqrt_gamma_minus = torch.sqrt(self.params[f"{hidden_key}_gamma-"]).expand(B, -1)
+            log_gamma_plus = torch.log(self.params[f"{hidden_key}_gamma+"]).expand(B, -1)
+            log_gamma_minus = torch.log(self.params[f"{hidden_key}_gamma-"]).expand(B, -1)
+
+            Z_plus = -self.log_erf_times_gauss((-I + self.params[f'{hidden_key}_theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+            Z_minus = self.log_erf_times_gauss((I + self.params[f'{hidden_key}_theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
             map = Z_plus > Z_minus
-            out[iid][map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
-            out[iid][~map] = Z_minus[map] + torch.log(1 + torch.exp(Z_plus[map] - Z_minus[map]))
-        return out
+            out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
+            out[~map] = Z_minus[~map] + torch.log(1 + torch.exp(Z_plus[~map] - Z_minus[~map]))
+
+            return out
 
     def gen_data(self, Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, config_init=[], beta=1, batches=None, reshape=True, record_replica=False, record_acceptance=None, update_betas=None, record_swaps=False):
         """
@@ -1503,12 +1541,12 @@ def get_checkpoint(version, dir=""):
             checkpoint_file = os.path.join(checkpoint_dir, file)
     return checkpoint_file
 
-def get_beta_and_W(crbm, Wname):
-    W = crbm.get_param(Wname).squeeze(1)
+def get_beta_and_W(crbm, hidden_key):
+    W = crbm.get_param(hidden_key + "_W").squeeze(1)
     return np.sqrt((W ** 2).sum(-1).sum(-1)), W
 
-def conv_weights(crbm, Wname, name, rows, columns, h, w):
-    beta, W = get_beta_and_W(crbm, Wname)
+def conv_weights(crbm, hidden_key, name, rows, columns, h, w):
+    beta, W = get_beta_and_W(crbm, hidden_key)
     order = np.argsort(beta)[::-1]
     fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=400, molecule=crbm.molecule)
 
@@ -1521,7 +1559,7 @@ def all_weights(crbm, base_name="crbm_"):
         else:
             ncols = 1
         nrows = math.ceil(wdim[0]/ncols)  # number of weights the weight matrix
-        conv_weights(crbm, key+"_W", base_name+"_"+key, nrows, ncols, 11, 9)
+        conv_weights(crbm, key, base_name+"_"+key, nrows, ncols, 11, 9)
 
 
 if __name__ == '__main__':
