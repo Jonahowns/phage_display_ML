@@ -189,7 +189,7 @@ if focus == "cov":
 def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(modelnames)):
-        o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
+        o = open(f'rbm_torch/submission_templates/{model}_train_htc.sh', 'r')
         filedata = o.read()
         o.close()
 

@@ -161,3 +161,22 @@ def data_with_weights_plot(crbm, dataframe, hidden_key, hidden_unit_numbers, kdi
                 if not even and j == convx - 1:  # Last Plot that contains nothing
                     clean_ax(axd[f"cgf{hid}_{j+1}"])
     plt.show()
+
+
+# Produces flat vector of Inputs of each hidden unit (reduced over the convolution dimension (k) by sum or mean)
+def flatten_and_reduce_input(Ih, reduction="sum"):
+     # Iuk (Batch, hidden number (u), conv number (k))
+    if reduction == "sum":
+        return torch.cat([Iuk.sum(2) for Iuk in Ih], 1)
+    elif reduction == "mean":
+        return torch.cat([Iuk.mean(2) for Iuk in Ih], 1)
+    else:
+        print(f"Reduction {reduction} not supported", file=sys.stderr)
+        exit(-1)
+
+
+def prepare_input_vector(crbm, dataframe):
+    base_to_id = am.int_to_letter_dicts[crbm.molecule]
+    data_tensor, weights = dataframe_to_input(dataframe, base_to_id, crbm.v_num, crbm.q, weights=True)
+    input_hiddens = crbm.compute_output_v(data_tensor) # List of Iuk matrices
+    return flatten_and_reduce_input(input_hiddens).detach().numpy()

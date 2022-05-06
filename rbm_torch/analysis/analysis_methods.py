@@ -310,6 +310,55 @@ def color_subplot(ax, color):
         spine.set_edgecolor(color)
 
 
+def cluster_inputs(I, hidden_unit_2d_combo, padding=0.05, size_to=None, hue_to=None, size_label=None, hue_label=None):
+
+    # mean = RBM.mean_h(torch.repeat_interleave(I_range.unsqueeze(1), RBM.h_num, dim=1))
+
+    [hidden1, hidden2] = hidden_unit_2d_combo
+
+    # mean = mean.detach().numpy()
+    # I_range = I_range.detach().numpy()
+    I = I.detach().numpy()
+
+    xlab = r'Input $I_{%s}$'%hidden1
+    ylab = r'Input $I_{%s}$'%hidden2
+
+    Ih1 = I[:, hidden1]
+    Ih2 = I[:, hidden2]
+
+    sns.color_palette("mako", as_cmap=True)
+    marker_size = 10
+    if size_to is not None and hue_to is None:
+        dataset = pd.DataFrame({"input1": Ih1, "input2": Ih2, size_label: size_to})
+        g = sns.scatterplot(data=dataset, x="input1", y="input2", size=size_label, alpha=0.7, s=marker_size, palette="mako")
+    elif size_to is None and hue_to is not None:
+        dataset = pd.DataFrame({"input1": Ih1, "input2": Ih2, hue_label: hue_to})
+        g = sns.scatterplot(data=dataset, x="input1", y="input2", hue=hue_label, alpha=0.7, s=marker_size, palette="mako")
+    elif size_to is not None and hue_to is not None:
+        dataset = pd.DataFrame({"input1": Ih1, "input2": Ih2, size_label: size_to, hue_label: hue_to})
+        g = sns.scatterplot(data=dataset, x="input1", y="input2", size=size_label, hue=hue_label, alpha=0.7, s=marker_size, palette="mako")
+    else:
+        dataset = pd.DataFrame({"input1": Ih1, "input2": Ih2})
+        g = sns.scatterplot(data=dataset, x="input1", y="input2", alpha=0.7, s=marker_size, palette="mako")
+
+    # sns.histplot(data_w_counts, ax=axs[1], x="round", hue="assignment", multiple="stack", palette="rocket", stat="count")
+    g.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    g.set_xlim([Ih1.min()-padding, Ih1.max()+padding])
+    g.set_ylim([Ih2.min()-padding, Ih2.max()+padding])
+    g.set_xlabel(xlab)
+    g.set_ylabel(ylab)
+
+    # How to make Legend if needed
+    # leg = g.axes.flat[0].get_legend()
+    # new_title = 'Inputs'
+    # leg.set_title(new_title)
+    # new_labels = ['label 1', 'label 2']
+    # for t, l in zip(leg.texts, new_labels):
+    #     t.set_text(l)
+
+    plt.show()
+
+
 def seqlogo_subplot(ax, path, type="info"):
     img = mpimg.imread(f"{path}.{type}.png")
     ax.imshow(img, interpolation="nearest")

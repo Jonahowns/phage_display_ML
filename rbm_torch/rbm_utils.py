@@ -201,12 +201,7 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
 
 
 def clean_ax(ax):
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
+    ax.axis("off")
 
 
 def get_ax(ax, i, nrows, ncols):
