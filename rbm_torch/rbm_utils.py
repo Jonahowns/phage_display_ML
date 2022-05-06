@@ -198,6 +198,17 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
 ## Implementation inspired from https://stackoverflow.com/questions/42615527/sequence-logos-in-matplotlib-aligning-xticks
 ## Color choice inspired from: http://weblogo.threeplusone.com/manual.html
 
+
+
+def clean_ax(ax):
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
 def get_ax(ax, i, nrows, ncols):
     if (ncols > 1) & (nrows > 1):
         col = int(i % ncols)
