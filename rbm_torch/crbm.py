@@ -567,6 +567,12 @@ class CRBM(LightningModule):
             a_minus = (beta * self.params[f'{hidden_key}_gamma-'] + (1 - beta) * self.params[f'{hidden_key}_0gamma-']).unsqueeze(0)
             psi *= beta
 
+        if psi.dim() == 3:
+            a_plus = a_plus.unsqueeze(2)
+            a_minus = a_minus.unsqueeze(2)
+            theta_plus = theta_plus.unsqueeze(2)
+            theta_minus = theta_minus.unsqueeze(2)
+
         psi_plus = (-psi + theta_plus) / torch.sqrt(a_plus)
         psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)
 
@@ -1293,7 +1299,6 @@ class CRBM(LightningModule):
             self.AIS()
         return -self.free_energy(data) - self.log_Z_AIS
 
-    # not yet functional, needs debugging
     def cgf_from_inputs_h(self, I, hidden_key):
         with torch.no_grad():
             B = I.shape[0]
@@ -1541,9 +1546,13 @@ def get_checkpoint(version, dir=""):
             checkpoint_file = os.path.join(checkpoint_dir, file)
     return checkpoint_file
 
-def get_beta_and_W(crbm, hidden_key):
+def get_beta_and_W(crbm, hidden_key, include_gaps=False):
     W = crbm.get_param(hidden_key + "_W").squeeze(1)
-    return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+    if include_gaps:
+        return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+    else:
+        return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
+
 
 def conv_weights(crbm, hidden_key, name, rows, columns, h, w):
     beta, W = get_beta_and_W(crbm, hidden_key)
