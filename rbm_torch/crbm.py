@@ -1110,9 +1110,9 @@ class CRBM(LightningModule):
             # pytorch lightning handles the device
             fantasy_v = V_pos_ohe.clone()
             h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
-            # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
-            for _ in range(self.mc_moves-1):
-                fantasy_v, fantasy_h = self.markov_step(fantasy_v)
+            with torch.no_grad(): # only use last sample for gradient calculation, Enabled to minimize memory usage, hopefully won't have much effect on performance
+                for _ in range(self.mc_moves-1):
+                    fantasy_v, fantasy_h = self.markov_step(fantasy_v)
 
             V_neg, fantasy_h = self.markov_step(fantasy_v)
             h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
@@ -1128,9 +1128,13 @@ class CRBM(LightningModule):
             fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
             fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
 
-            for _ in range(self.mc_moves):
-                fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
-                self.update_betas()
+            with torch.no_grad():
+                for _ in range(self.mc_moves-1):
+                    fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
+                    self.update_betas()
+
+            fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
+            self.update_betas()
 
             V_neg = fantasy_v[0]
             h_neg = fantasy_h[0]
@@ -1149,6 +1153,7 @@ class CRBM(LightningModule):
             pin_memory=self.pin_mem,
             shuffle=False
         )
+        self.eval()
         with torch.no_grad():
             likelihood = []
             for i, batch in enumerate(data_loader):
@@ -1169,6 +1174,7 @@ class CRBM(LightningModule):
             shuffle=False
         )
         saliency_maps = []
+        self.eval()
         for i, batch in enumerate(data_loader):
             seqs, V_pos, one_hot, seq_weights = batch
             one_hot_v = Variable(one_hot.double(), requires_grad=True)
