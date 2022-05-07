@@ -2,8 +2,8 @@
  
 #SBATCH -A jprocyk
 #SBATCH -n 1
-#SBATCH -c 4
-#SBATCH -t 7-00:00               # wall time (D-HH:MM)
+#SBATCH -c 6
+#SBATCH -t 0-04:00               # wall time (D-HH:MM)
 #SBATCH -p sulcgpu2
 #SBATCH -q sulcgpu1
 #SBATCH --gres=gpu:1
