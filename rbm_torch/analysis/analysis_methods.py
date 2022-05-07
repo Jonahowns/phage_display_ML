@@ -60,11 +60,11 @@ def get_checkpoint_path(round, version=None, rbmdir=""):
 
 
 # Returns dictionary of arrays of likelihoods
-def generate_likelihoods(rounds, RBM, all_data, identifier, dir="./generated/"):
+def generate_likelihoods(rounds, RBM, all_data, identifier, key="round", dir="./generated/"):
     likelihoods = {}
     sequences = {}
     for x in rounds:
-        seqs, likeli = RBM.predict(all_data[all_data["round"] == x])
+        seqs, likeli = RBM.predict(all_data[all_data[key] == x])
         likelihoods[x] = likeli
         sequences[x] = seqs
     data = {'likelihoods': likelihoods, "sequences": sequences}
