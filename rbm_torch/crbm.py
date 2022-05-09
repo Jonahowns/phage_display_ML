@@ -300,10 +300,10 @@ class CRBM(LightningModule):
         self.update_betas_lr_decay = 1
 
     ############################################################# RBM Functions
-    ## Compute Psudeo likelihood of given visible config
+    ## Compute Psuedo likelihood of given visible config
     # TODO: Figure this out
     # Currently gives wrong values
-    # def psuedolikelihood(self, v):
+    # def pseudo_likelihood(self, v):
     #     with torch.no_grad():
     #         categorical = v.argmax(2)
     #         ind_x = torch.arange(categorical.shape[0], dtype=torch.long, device=self.device)
@@ -426,6 +426,22 @@ class CRBM(LightningModule):
             return E
 
     ############################################################# Individual Layer Functions
+    def transform_v(self, I):
+        return torch.argmax(I + self.params["fields"].unsqueeze(0), dim=-1)
+
+    def transform_h(self, I):
+        output = []
+        for key in self.hidden_convolution_keys:
+            a_plus = (self.params[f'{key}_gamma+']).unsqueeze(0)
+            a_minus = (self.params[f'{key}_gamma-']).unsqueeze(0)
+            theta_plus = (self.params[f'{key}_theta+']).unsqueeze(0)
+            theta_minus = (self.params[f'{key}_theta-']).unsqueeze(0)
+            output.append(((I + theta_minus) * (I <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
+                    theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
+                    a_minus + ((I - theta_plus) * (I >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
+                    theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt( a_minus))))) / a_plus)
+        return output
+
     ## Computes g(si) term of potential
     def energy_v(self, config, remove_init=False):
         # config is a one hot vector
@@ -524,7 +540,6 @@ class CRBM(LightningModule):
     # def assign_h(self, h, index, assignment):
     #     for i in h:
 
-
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
         # Input is list of matrices I_uk
@@ -592,7 +607,7 @@ class CRBM(LightningModule):
     def compute_output_v(self, X): # X is the one hot vector
         outputs = []
         for i in self.hidden_convolution_keys:
-            convx = self.convolution_topology[i]["convolution_dims"][2]
+            # convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv2d(X.unsqueeze(1).double(), self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
@@ -604,7 +619,7 @@ class CRBM(LightningModule):
         outputs = []
         nonzero_masks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            convx = self.convolution_topology[i]["convolution_dims"][2]
+            # convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
                                               stride=self.convolution_topology[i]["stride"],
                                               padding=self.convolution_topology[i]["padding"],
@@ -613,7 +628,7 @@ class CRBM(LightningModule):
             nonzero_masks.append((outputs[-1] != 0.).double())  # Used for calculating mean of outputs, don't want zeros to influence mean
             # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
-            # Returns mean output from all hidden layers
+            # Returns mean output from all hidden layers, zeros are ignored
             mean_denominator = torch.sum(torch.stack(nonzero_masks), 0)
             return torch.sum(torch.stack(outputs), 0) / mean_denominator
         else:
@@ -937,26 +952,26 @@ class CRBM(LightningModule):
                 exit(1)
 
     def validation_step(self, batch, batch_idx):
-        # Needed for PsuedoLikelihood calculation
+        # Needed for pseudo_likelihood calculation
 
         seqs, V_pos, one_hot, seq_weights = batch
 
-        # psuedolikelihood = (self.psuedolikelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
+        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy_avg = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()
 
         batch_out = {
-             # "val_psuedolikelihood": psuedolikelihood.detach()
+             # "val_pseudo_likelihood": pseudo_likelihood.detach()
              "val_free_energy": free_energy_avg.detach()
         }
 
-        # self.log("ptl/val_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/val_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/val_free_energy", free_energy_avg, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return batch_out
 
     def validation_epoch_end(self, outputs):
-        # avg_pl = torch.stack([x['val_psuedolikelihood'] for x in outputs]).mean()
-        # self.logger.experiment.add_scalar("Validation Psuedolikelihood", avg_pl, self.current_epoch)
+        # avg_pl = torch.stack([x['val_pseudo_likelihood'] for x in outputs]).mean()
+        # self.logger.experiment.add_scalar("Validation pseudo_likelihood", avg_pl, self.current_epoch)
         avg_pl = torch.stack([x['val_free_energy'] for x in outputs]).mean()
         self.logger.experiment.add_scalar("Validation Free Energy", avg_pl, self.current_epoch)
 
@@ -969,14 +984,14 @@ class CRBM(LightningModule):
         weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
         distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
         free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
-        # psuedolikelihood = torch.stack([x['train_psuedolikelihood'] for x in outputs]).mean()
+        # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
                                                            "CD_Loss": avg_dF,
                                                            "Field Reg": field_reg,
                                                            "Weight Reg": weight_reg,
                                                            "Distance Reg": distance_reg,
-                                                           # "Train_Psuedolikelihood": psuedolikelihood,
+                                                           # "Train_pseudo_likelihood": pseudo_likelihood,
                                                            "Train Free Energy": free_energy,
                                                            }, self.current_epoch)
 
@@ -995,7 +1010,7 @@ class CRBM(LightningModule):
 
         cd_loss = energy_pos - energy_neg
 
-        # psuedolikelihood = (self.psuedolikelihood(one_hot) * weights).sum() / weights.sum()
+        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * weights).sum() / weights.sum()
 
         reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
@@ -1004,13 +1019,13 @@ class CRBM(LightningModule):
         loss = cd_loss + reg1 + reg2
 
         logs = {"loss": loss.detach(),
-                # "train_psuedolikelihood": psuedolikelihood.detach(),
+                # "train_pseudo_likelihood": pseudo_likelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach()
                 }
 
-        # self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
@@ -1027,7 +1042,7 @@ class CRBM(LightningModule):
         F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit act
 
-        psuedolikelihood = (self.psuedolikelihood(one_hot).clone().detach() * weights).sum() / weights.sum()
+        pseudo_likelihood = (self.pseudo_likelihood(one_hot).clone().detach() * weights).sum() / weights.sum()
 
         reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
@@ -1036,13 +1051,13 @@ class CRBM(LightningModule):
         loss = cd_loss + reg1 + reg2
 
         logs = {"loss": loss.detach(),
-                "train_psuedolikelihood": psuedolikelihood.detach(),
+                "train_pseudo_likelihood": pseudo_likelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach()
                 }
 
-        self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
@@ -1060,7 +1075,7 @@ class CRBM(LightningModule):
 
         free_energy = F_v.detach()
 
-        # psuedolikelihood = (self.psuedolikelihood(V_pos_oh) * weights).sum() / weights.sum()
+        # pseudo_likelihood = (self.pseudo_likelihood(V_pos_oh) * weights).sum() / weights.sum()
 
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
@@ -1083,7 +1098,7 @@ class CRBM(LightningModule):
         loss = cd_loss + reg1 + reg2 + reg3
 
         logs = {"loss": loss,
-                # "train_psuedolikelihood": psuedolikelihood.detach(),
+                # "train_pseudo_likelihood": pseudo_likelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
                 "train_free_energy": free_energy,
                 "field_reg": reg1.detach(),
@@ -1091,7 +1106,7 @@ class CRBM(LightningModule):
                 "distance_reg": reg3.detach()
                 }
 
-        # self.log("ptl/train_psuedolikelihood", psuedolikelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_free_energy", free_energy, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
@@ -1216,7 +1231,7 @@ class CRBM(LightningModule):
     #         likelihood = []
     #         for i, batch in enumerate(data_loader):
     #             seqs, V_pos, one_hot, seq_weights = batch
-    #             likelihood += self.psuedolikelihood(one_hot).detach().tolist()
+    #             likelihood += self.pseudo_likelihood(one_hot).detach().tolist()
     #
     #     return X.sequence.tolist(), likelihood
 
@@ -1698,7 +1713,7 @@ if __name__ == '__main__':
     # #     # h_out = rbm_lat.compute_output_h(h)
     # #     # nv = rbm_lat.sample_from_inputs_v(h_out)
     # #     # fe = rbm_lat.free_energy(nv)
-    #     pl = rbm_lat.psuedolikelihood(ohe)
+    #     pl = rbm_lat.pseudo_likelihood(ohe)
     #     print(pl.mean())
 
 

@@ -56,5 +56,9 @@ if __name__ == '__main__':
     # Training Code
     rbm = RBM(config, debug=False)
     logger = TensorBoardLogger('../' + info["server_model_dir"], name=name)
-    plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
+    if args.gpus > 1:
+        # data parallel, multi-gpus on single machine
+        plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="dp")  # data-parallel
+    else:
+        plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
     plt.fit(rbm)

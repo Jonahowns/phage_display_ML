@@ -72,15 +72,17 @@ def generate_likelihoods(rounds, RBM, all_data, identifier, key="round", dir="./
     json.dump(data, out)
     out.close()
 
+
 def get_likelihoods(likelihoodfile):
     with open(likelihoodfile) as f:
         data = json.load(f)
     return data
 
+
 # Plot Likelihoods as kde curves with each round in a new row
 def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False):
     colors = supported_colors
-    plot_num = len(likeli.keys())
+    plot_num = len(order)
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
     for xid, x in enumerate(order):
         if xlim is not None:
@@ -92,11 +94,11 @@ def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelih
     if title:
         fig.suptitle(title)
     else:
-        fig.suptitle("Log-Likelihood Gaussian KDE Curve of Dataset Likelihoods by Dataset")
+        fig.suptitle("Log-Likelihood Gaussian KDE Curve of Likelihoods by Dataset")
     plt.show()
 
 
-## Distribution of Counts inside each experimental dataset
+# Distribution of Counts inside each experimental dataset
 def count_dist(data_w_counts, title):
     fig, axs = plt.subplots(2, 1)
     sns.histplot(data_w_counts, ax=axs[0], x="round", hue="assignment", multiple="stack", palette="rocket", stat="percent")

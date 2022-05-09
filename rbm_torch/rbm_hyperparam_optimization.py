@@ -40,7 +40,7 @@ def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs
 
     reporter = tune.CLIReporter(
         parameter_columns=list(hyper_param_mut.keys()),
-        metric_columns=["train_loss", "train_psuedolikelihood", "val_psuedolikelihood", "training_iteration"])
+        metric_columns=["train_loss", "train_pseudo_likelihood", "val_pseudo_likelihood", "training_iteration"])
 
     # bayesopt = BayesOptSearch(metric="mean_loss", mode="min")
     analysis = tune.run(
@@ -52,7 +52,7 @@ def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs
             "cpu": cpus_per_trial,
             "gpu": gpus_per_trial
         },
-        metric="val_psuedolikelihood",
+        metric="val_pseudo_likelihood",
         mode="max",
         local_dir="../ray_results/",
         config=config,
@@ -61,7 +61,7 @@ def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs
         scheduler=scheduler,
         progress_reporter=reporter,
         name="tune_rbm_asha",
-        checkpoint_score_attr="val_psuedolikelihood",
+        checkpoint_score_attr="val_pseudo_likelihood",
         keep_checkpoints_num=1)
 
     print("Best hyperparameters found were: ", analysis.best_config)
@@ -110,7 +110,7 @@ def pbt_rbm(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus
 
     reporter = tune.CLIReporter(
         parameter_columns=list(hyper_param_mut.keys()),
-        metric_columns=["train_loss", "train_psuedolikelihood", "val_psuedolikelihood", "training_iteration"])
+        metric_columns=["train_loss", "train_pseudo_likelihood", "val_pseudo_likelihood", "training_iteration"])
 
     stopper = tune.stopper.MaximumIterationStopper(num_epochs)
 
@@ -123,7 +123,7 @@ def pbt_rbm(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus
             "cpu": cpus_per_trial,
             "gpu": gpus_per_trial
         },
-        metric="val_psuedolikelihood",
+        metric="val_pseudo_likelihood",
         mode="max",
         local_dir="../ray_results/",
         config=config,
@@ -134,10 +134,10 @@ def pbt_rbm(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus
         verbose=1,
         stop=stopper,
         # export_formats=[ExportFormat.MODEL],
-        checkpoint_score_attr="val_psuedolikelihood",
+        checkpoint_score_attr="val_pseudo_likelihood",
         keep_checkpoints_num=1)
 
-    print("Best hyperparameters found were: ", analysis.get_best_config(metric="val_psuedolikelihood", mode="max"))
+    print("Best hyperparameters found were: ", analysis.get_best_config(metric="val_pseudo_likelihood", mode="max"))
 
 def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
     trainer = Trainer(
@@ -152,8 +152,8 @@ def train_rbm(config, checkpoint_dir=None, num_epochs=10, num_gpus=0):
             TuneReportCheckpointCallback(
                 metrics={
                     "train_loss": "ptl/train_loss",
-                    "val_psuedolikelihood": "ptl/val_psuedolikelihood",
-                    "train_psuedolikelihood": "ptl/train_psuedolikelihood"
+                    "val_pseudo_likelihood": "ptl/val_pseudo_likelihood",
+                    "train_pseudo_likelihood": "ptl/train_pseudo_likelihood"
                 },
                 filename="checkpoint",
                 on="validation_end")

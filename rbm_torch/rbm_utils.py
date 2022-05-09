@@ -20,6 +20,7 @@
 
 import os
 import matplotlib as mpl
+import torch
 from matplotlib.text import TextPath
 from matplotlib.patches import PathPatch
 from matplotlib.font_manager import FontProperties
@@ -32,6 +33,7 @@ import math
 import time
 from multiprocessing import Pool
 import pandas as pd
+import types
 
 
 # Globals used for Converting Sequence Strings to Integers
@@ -75,7 +77,7 @@ aadict['.'] = -1
 
 
 
-
+######### Data Reading Methods #########
 
 # returns list of strings containing sequences
 # optionally returns the affinities in the file found
@@ -193,6 +195,63 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
         return seqs, titles
     else:
         return seqs
+
+
+######### Data Generation Methods #########
+
+def gen_data_lowT(RBM, beta=1, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
+    tmp_RBM = copy.deepcopy(RBM)
+    if which == 'joint':
+        tmp_RBM.params["fields"]*= beta
+        tmp_RBM.params["W_raw"]*= beta
+        tmp_RBM.params["gamma+"]*= beta
+        tmp_RBM.params["gamma-"]*= beta
+        tmp_RBM.params["theta+"]*= beta
+        tmp_RBM.params["theta-"]*= beta
+    elif which == 'marginal':
+        if type(beta) == int:
+            tmp_RBM.params["fields"] *= beta
+            tmp_RBM.params["W_raw"] = torch.repeat_interleave(RBM.params["W_raw"], beta, dim=0)
+            tmp_RBM.params["gamma+"] = torch.repeat_interleave(RBM.params["gamma+"], beta, dim=0)
+            tmp_RBM.params["gamma-"] = torch.repeat_interleave(RBM.params["gamma-"], beta, dim=0)
+            tmp_RBM.params["theta+"] = torch.repeat_interleave(RBM.params["theta+"], beta, dim=0)
+            tmp_RBM.params["theta-"] = torch.repeat_interleave(RBM.params["theta-"], beta, dim=0)
+            tmp_RBM.params["0gamma+"] = torch.repeat_interleave(RBM.params["0gamma+"], beta, dim=0)
+            tmp_RBM.params["0gamma-"] = torch.repeat_interleave(RBM.params["0gamma-"], beta, dim=0)
+            tmp_RBM.params["0theta+"] = torch.repeat_interleave(RBM.params["0theta+"], beta, dim=0)
+            tmp_RBM.params["0theta-"] = torch.repeat_interleave(RBM.params["0theta-"], beta, dim=0)
+    tmp_RBM.prep_W()
+    return tmp_RBM.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
+
+
+def gen_data_zeroT(RBM, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
+    tmp_RBM = copy.deepcopy(RBM)
+    if which == 'joint':
+        tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_joint, tmp_RBM)
+    elif which == 'marginal':
+        tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_marginal, tmp_RBM)
+    return tmp_RBM.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
+
+
+def markov_step_zeroT_joint(self, v, beta=1):
+    I = self.compute_output_v(v)
+    h = self.transform_h(I)
+    I = self.compute_output_h(h)
+    nv = self.transform_v(I)
+    return nv, h
+
+
+def markov_step_zeroT_marginal(self, v,beta=1):
+    I = self.compute_output_v(v)
+    h = self.mean_h(I)
+    I = self.compute_output_h(h)
+    nv = self.transform_v(I)
+    return nv, h
+
+
+
+
+
 
 
 ## Implementation inspired from https://stackoverflow.com/questions/42615527/sequence-logos-in-matplotlib-aligning-xticks
