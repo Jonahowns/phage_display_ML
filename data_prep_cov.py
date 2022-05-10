@@ -186,10 +186,14 @@ if focus == "cov":
 #     dfs.append(df)
 #     extract_data(j, 1, [[40, 40]])
 
-def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
+def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True, gpus=1, partition="htc"):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(modelnames)):
-        o = open(f'rbm_torch/submission_templates/{model}_train_htc.sh', 'r')
+        if partition == "htc":
+            # Special Subset as it has max wall time strictly at 4 hours
+            o = open(f'rbm_torch/submission_templates/{model}_train_htc.sh', 'r')
+        else:
+            o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
         filedata = o.read()
         o.close()
 
@@ -205,9 +209,16 @@ def write_submission_scripts(modelnames, script_names, paths_to_data, destinatio
         filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        filedata = filedata.replace("PARTITION", "sulcgpu2")
-        filedata = filedata.replace("QUEUE", "sulcgpu1")
-        filedata = filedata.replace("GPU_NUM", str(1))
+        if partition == "sulcgpu2":
+            filedata = filedata.replace("PARTITION", "sulcgpu2")
+            filedata = filedata.replace("QUEUE", "sulcgpu1")
+        elif partition == "sulcgpu1":
+            filedata = filedata.replace("PARTITION", "sulcgpu1")
+            filedata = filedata.replace("QUEUE", "sulcgpu1")
+        elif partition == "htc":
+            filedata = filedata.replace("PARTITION", "htcgpu")
+            filedata = filedata.replace("QUEUE", "normal")
+        filedata = filedata.replace("GPU_NUM", str(gpus))
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))
 
@@ -222,8 +233,8 @@ def write_submission_scripts(modelnames, script_names, paths_to_data, destinatio
             file.write("sbatch " + script_names[i] + "\n")
 
 
-write_submission_scripts(all_model_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False)
+write_submission_scripts(all_model_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False, gpus=2, partition="sulcgpu2")
 #
 w_script_names = [x+"_w" for x in script_names]
 #
-write_submission_scripts(all_model_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False)
+write_submission_scripts(all_model_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False, gpus=2, partition="sulcgpu2")

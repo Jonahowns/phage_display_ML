@@ -2,11 +2,11 @@
  
 #SBATCH -A jprocyk
 #SBATCH -n 1
-#SBATCH -c 6
-#SBATCH -t 0-04:00               # wall time (D-HH:MM)
+#SBATCH -c 4
+#SBATCH -t 7-00:00               # wall time (D-HH:MM)
 #SBATCH -p sulcgpu2
 #SBATCH -q sulcgpu1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:2
 #SBATCH -o slurm_r6cov6.%j.out          # STDOUT (%j = JobId)
 #SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
@@ -15,7 +15,7 @@
 
 source activate exmachina3
 
-python crbm_train.py cov ../cov/r6.fasta 200 1 False
+python crbm_train.py cov ../cov/r6.fasta 200 2 False
 
 #python crbm_train.sh focus Data_Path Epochs Gpus Weights
 

@@ -23,7 +23,7 @@ from notebook_generation_methods import generate_notebook
 int_to_letter_dicts = {"protein": rbm_utils.aadict, "dna": rbm_utils.dnadict, "rna": rbm_utils.rnadict}
 
 # Colors Used for Likelihood Plots, can always add / change order
-supported_colors = ["b", "r", "g", "y", "m", "c", "w", "bl", "k", "c", "DarkKhaki", "DarkOrchid"]
+supported_colors = ["b", "r", "g", "y", "m", "c", "bl", "k", "c", "DarkKhaki", "DarkOrchid"]
 
 # Helper Functions for loading data and loading RBMs not in our current directory
 # assignment function assigns label based off the count (ex. returns "low" for count < 10 )
