@@ -186,7 +186,7 @@ if focus == "cov":
 #     dfs.append(df)
 #     extract_data(j, 1, [[40, 40]])
 
-def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True, gpus=1, partition="htc"):
+def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True, gpus=1, partition="htc", pnum=1):
     # NAME DATA_PATH DESTINATION HIDDEN
     for i in range(len(modelnames)):
         if partition == "htc":
@@ -209,15 +209,16 @@ def write_submission_scripts(modelnames, script_names, paths_to_data, destinatio
         filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
         filedata = filedata.replace("FOCUS", focus)
         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        if partition == "sulcgpu2":
-            filedata = filedata.replace("PARTITION", "sulcgpu2")
+
+        if partition == "sulcgpu":
+            filedata = filedata.replace("PARTITION", f"sulcgpu{pnum}")
             filedata = filedata.replace("QUEUE", "sulcgpu1")
-        elif partition == "sulcgpu1":
-            filedata = filedata.replace("PARTITION", "sulcgpu1")
-            filedata = filedata.replace("QUEUE", "sulcgpu1")
-        elif partition == "htc":
+        elif partition in ["htc", "htcgpu"] :
             filedata = filedata.replace("PARTITION", "htcgpu")
             filedata = filedata.replace("QUEUE", "normal")
+        else:
+            filedata = filedata.replace("PARTITION", f"{partition}{pnum}")
+            filedata = filedata.replace("QUEUE", "wildfire")
         filedata = filedata.replace("GPU_NUM", str(gpus))
         filedata = filedata.replace("EPOCHS", str(epochs))
         filedata = filedata.replace("WEIGHTS", str(weights))

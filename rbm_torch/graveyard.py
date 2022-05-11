@@ -365,3 +365,24 @@ class Clamp(torch.autograd.Function): # clamp parameter values
     #     if i == 0:
     #         # rbm.testing()
     #         rbm.training_step(batch, i)
+
+
+# FROM CRBM
+# class hidden:
+#     def __init__(self, convolution_topology, hidden_keys, datalengths, q):
+#         conv_top = {}
+#         data = {}
+#         for iid, i in enumerate(hidden_keys):
+#             conv_top[iid] = convolution_topology[i]
+#
+#             conv_top[iid]["weight_dims"] = {}
+#             conv_top[iid]["conv_dims"] = {}
+#             for dl in datalengths:
+#                 example_input = (50, 1, dl, q)
+#                 dims = conv2d_dim(example_input, conv_top[iid])
+#                 conv_top[iid]["weight_dims"][dl] = dims["weight_shape"]
+#                 conv_top[iid]["conv_shape"][dl] = dims["conv_shape"]
+#                 conv_top[iid]["output_padding"][dl] = dims["output_padding"]
+#
+#         self.hidden_params = conv_top
+#

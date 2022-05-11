@@ -86,34 +86,6 @@ def conv2d_dim(input_shape, conv_topology):
  #    }
 
 
-
-class hidden:
-    def __init__(self, convolution_topology, hidden_keys, datalengths, q):
-        conv_top = {}
-        data = {}
-        for iid, i in enumerate(hidden_keys):
-            conv_top[iid] = convolution_topology[i]
-
-            conv_top[iid]["weight_dims"] = {}
-            conv_top[iid]["conv_dims"] = {}
-            for dl in datalengths:
-                example_input = (50, 1, dl, q)
-                dims = conv2d_dim(example_input, conv_top[iid])
-                conv_top[iid]["weight_dims"][dl] = dims["weight_shape"]
-                conv_top[iid]["conv_shape"][dl] = dims["conv_shape"]
-                conv_top[iid]["output_padding"][dl] = dims["output_padding"]
-
-        self.hidden_params = conv_top
-
-
-
-
-
-
-
-
-
-
 class CRBM(LightningModule):
     def __init__(self, config, debug=False):
         super().__init__()
@@ -222,11 +194,11 @@ class CRBM(LightningModule):
         self.convolution_topology = config["convolution_topology"]
 
         # Parameters that shouldn't change
-        self.params = nn.ParameterDict({
+        self.params = {
             # visible layer parameters
             'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
             'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False)
-        })
+        }
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
         self.h_layer_num = len(self.hidden_convolution_keys)
@@ -1621,19 +1593,19 @@ if __name__ == '__main__':
               }
 
     config = crbm_configs.lattice_default_config
-    config["l1_2"] = 0.8
-    config["ld"] = 40.0
+    # config["l1_2"] = 0.8
+    # config["ld"] = 40.0
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 100
-    config["convolution_topology"] = {
-        "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden3": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden4": {"number": 5, "kernel": (3, config["q"]), "stride": (2, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-        "hidden5": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
-    }
+    config["epochs"] = 5
+    # config["convolution_topology"] = {
+    #     "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+    #     "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+    #     "hidden3": {"number": 5, "kernel": (7, config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+    #     "hidden4": {"number": 5, "kernel": (3, config["q"]), "stride": (2, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+    #     "hidden5": {"number": 5, "kernel": (config["v_num"], config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
+    # }
 
     # TODO List
     # 1: Add support for non perfect convolutions (involving mismatch of input, stride, and kernel)
@@ -1671,18 +1643,18 @@ if __name__ == '__main__':
 
 
     # Training Code
-    # crbm = CRBM(config, debug=False)
-    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(crbm)
+    crbm = CRBM(config, debug=False)
+    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    plt.fit(crbm)
 
 
     # Debugging Code1
-    checkpoint = "./tb_logs/conv_lattice_trial/version_86/checkpoints/epoch=99-step=199.ckpt"
-    crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_86/checkpoints/epoch=99-step=199.ckpt"
+    # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
 
     # crbm_lat.prepare_data()
-    all_weights(crbm_lat, "crbm_lattice")
+    # all_weights(crbm_lat, "crbm_lattice")
     # crbm_lat.AIS()
     # seqs, likelis = crbm_lat.predict(crbm_lat.validation_data)
     # print("hi")
@@ -1697,7 +1669,7 @@ if __name__ == '__main__':
     # avg_smap = smaps.mean(0).numpy()
     # Sequence_logo(avg_smap, None, data_type="weights")
 
-    suggest_conv_size((39, 20), padding_max=1, dilation_max=2, stride_max=18)
+    # suggest_conv_size((39, 20), padding_max=1, dilation_max=2, stride_max=18)
 
 
     # rbm_lat = CRBM(config, debug=True)
