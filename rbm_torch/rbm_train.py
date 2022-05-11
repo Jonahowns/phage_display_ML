@@ -58,7 +58,7 @@ if __name__ == '__main__':
     logger = TensorBoardLogger('../' + info["server_model_dir"], name=name)
     if args.gpus > 1:
         # data parallel, multi-gpus on single machine
-        plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="dp")  # data-parallel
+        plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="ddp")  # distributed data-parallel
     else:
         plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
     plt.fit(rbm)
