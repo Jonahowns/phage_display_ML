@@ -194,11 +194,13 @@ class CRBM(LightningModule):
         self.convolution_topology = config["convolution_topology"]
 
         # Parameters that shouldn't change
-        self.params = {
-            # visible layer parameters
-            'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
-            'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False)
-        }
+        # self.params = {
+        #     # visible layer parameters
+        #     'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
+        #     'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False)
+        # }
+        self.register_parameter("fields", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
+        self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
         self.h_layer_num = len(self.hidden_convolution_keys)
@@ -209,18 +211,28 @@ class CRBM(LightningModule):
             self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
             self.convolution_topology[key]["output_padding"] = dims["output_padding"]
             # Convolution Weights
-            self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
+            self.register_parameter(f"{key}_W", nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device)))
+            # self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
             # hidden layer parameters
-            self.params[f'{key}_theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            self.params[f'{key}_theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            self.params[f'{key}_gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
-            self.params[f'{key}_gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
+            # self.params[f'{key}_theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            # self.params[f'{key}_theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            # self.params[f'{key}_gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            # self.params[f'{key}_gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
             # Used in PT Sampling / AIS
-            self.params[f'{key}_0theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            self.params[f'{key}_0theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            self.params[f'{key}_0gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
-            self.params[f'{key}_0gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            self.register_parameter(f"{key}_0theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{key}_0theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            # self.params[f'{key}_0theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            # self.params[f'{key}_0theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
+            # self.params[f'{key}_0gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
+            # self.params[f'{key}_0gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
 
+        # self.params = self.state_dict()
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i. e. Simplifies loading a model that has already been run
@@ -234,7 +246,7 @@ class CRBM(LightningModule):
         self.a3 = torch.tensor(0.7478556, device=self.device, requires_grad=False)
         self.invsqrt2 = torch.tensor(0.7071067812, device=self.device, requires_grad=False)
         self.sqrt2 = torch.tensor(1.4142135624, device=self.device, requires_grad=False)
-
+    
         # Initialize PT members, might b
         self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
 
@@ -281,7 +293,7 @@ class CRBM(LightningModule):
     #         ind_x = torch.arange(categorical.shape[0], dtype=torch.long, device=self.device)
     #         ind_y = torch.randint(self.v_num, (categorical.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
     #
-    #         E_vlayer_ref = self.energy_v(v) + self.params['fields'][ind_y, categorical[ind_x, ind_y]]
+    #         E_vlayer_ref = self.energy_v(v) + getattr(self, "fields")[ind_y, categorical[ind_x, ind_y]]
     #
     #         v_output = self.compute_output_v(v)
     #
@@ -310,7 +322,7 @@ class CRBM(LightningModule):
     #             output_ref.append(v_output[iid] - v_shuffle_output[iid])
     #
     #         for c in range(self.q):
-    #             E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
+    #             E_vlayer = E_vlayer_ref - getattr(self, "fields")[ind_y, c]
     #
     #             rc_state = zero_state.clone()
     #             rc_state[:, :, c] = 1
@@ -350,7 +362,7 @@ class CRBM(LightningModule):
     #         #     random_config_state[:, :, c] = 1
     #         #     random_config_state_output = self.compute_output_v(random_config_state)
     #         #
-    #         #     E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
+    #         #     E_vlayer = E_vlayer_ref - getattr(self, "fields")[ind_y, c]
     #         #
     #         #     output = []
     #         #     for iid, i in enumerate(self.hidden_convolution_keys):
@@ -399,15 +411,15 @@ class CRBM(LightningModule):
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
-        return torch.argmax(I + self.params["fields"].unsqueeze(0), dim=-1)
+        return torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1)
 
     def transform_h(self, I):
         output = []
         for key in self.hidden_convolution_keys:
-            a_plus = (self.params[f'{key}_gamma+']).unsqueeze(0)
-            a_minus = (self.params[f'{key}_gamma-']).unsqueeze(0)
-            theta_plus = (self.params[f'{key}_theta+']).unsqueeze(0)
-            theta_minus = (self.params[f'{key}_theta-']).unsqueeze(0)
+            a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
+            a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
+            theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
+            theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
             output.append(((I + theta_minus) * (I <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
                     theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
                     a_minus + ((I - theta_plus) * (I >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
@@ -421,9 +433,9 @@ class CRBM(LightningModule):
         E = torch.zeros(config.shape[0], device=self.device)
         for i in range(self.q):
             if remove_init:
-                E -= v[:, :, i].dot(self.params['fields'][:, i] - self.params['fields0'][:, i])
+                E -= v[:, :, i].dot(getattr(self, "fields")[:, i] - getattr(self, "fields0")[:, i])
             else:
-                E -= v[:, :, i].matmul(self.params['fields'][:, i])
+                E -= v[:, :, i].matmul(getattr(self, "fields")[:, i])
 
         return E
 
@@ -437,15 +449,15 @@ class CRBM(LightningModule):
 
         for iid, i in enumerate(self.hidden_convolution_keys):
             if remove_init:
-                a_plus = self.params[f'{i}_gamma+'].sub(self.params[f'{i}_0gamma+']).unsqueeze(0).unsqueeze(2)
-                a_minus = self.params[f'{i}_gamma-'].sub(self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
-                theta_plus = self.params[f'{i}_theta+'].sub(self.params[f'{i}_0theta+']).unsqueeze(0).unsqueeze(2)
-                theta_minus = self.params[f'{i}_theta-'].sub(self.params[f'{i}_0theta-']).unsqueeze(0).unsqueeze(2)
+                a_plus = getattr(self, f'{i}_gamma+').sub(getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2)
+                a_minus = getattr(self, f'{i}_gamma-').sub(getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2)
+                theta_plus = getattr(self, f'{i}_theta+').sub(getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2)
+                theta_minus = getattr(self, f'{i}_theta-').sub(getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2)
             else:
-                a_plus = self.params[f'{i}_gamma+'].unsqueeze(0).unsqueeze(2)
-                a_minus = self.params[f'{i}_gamma-'].unsqueeze(0).unsqueeze(2)
-                theta_plus = self.params[f'{i}_theta+'].unsqueeze(0).unsqueeze(2)
-                theta_minus = self.params[f'{i}_theta-'].unsqueeze(0).unsqueeze(2)
+                a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0).unsqueeze(2)
+                a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0).unsqueeze(2)
+                theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0).unsqueeze(2)
+                theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0).unsqueeze(2)
 
             if sub_index != -1:
                 con = config[iid][sub_index]
@@ -518,15 +530,15 @@ class CRBM(LightningModule):
         marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             if beta == 1:
-                a_plus = (self.params[f'{i}_gamma+']).unsqueeze(0).unsqueeze(2)
-                a_minus = (self.params[f'{i}_gamma-']).unsqueeze(0).unsqueeze(2)
-                theta_plus = (self.params[f'{i}_theta+']).unsqueeze(0).unsqueeze(2)
-                theta_minus = (self.params[f'{i}_theta-']).unsqueeze(0).unsqueeze(2)
+                a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0).unsqueeze(2)
+                a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0).unsqueeze(2)
+                theta_plus = (getattr(self, f'{i}_theta+')).unsqueeze(0).unsqueeze(2)
+                theta_minus = (getattr(self, f'{i}_theta-')).unsqueeze(0).unsqueeze(2)
             else:
-                theta_plus = (beta * self.params[f'{i}_theta+'] + (1 - beta) * self.params[f'{i}_0theta+']).unsqueeze(0).unsqueeze(2)
-                theta_minus = (beta * self.params[f'{i}_theta-'] + (1 - beta) * self.params[f'{i}_0theta-']).unsqueeze(0).unsqueeze(2)
-                a_plus = (beta * self.params[f'{i}_gamma+'] + (1 - beta) * self.params[f'{i}_0gamma+']).unsqueeze(0).unsqueeze(2)
-                a_minus = (beta * self.params[f'{i}_gamma-'] + (1 - beta) * self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
+                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2)
+                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2)
+                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2)
+                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2)
             y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                     1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
             marginal[iid] = y.sum(1)  # 10 added so hidden layer has stronger effect on free energy, also in energy_h
@@ -536,22 +548,22 @@ class CRBM(LightningModule):
     ## Marginal over visible units
     def logpartition_v(self, inputs, beta=1):
         if beta == 1:
-            return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
+            return torch.logsumexp(getattr(self, "fields")[None, :, :] + inputs, 2).sum(1)
         else:
-            return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
+            return torch.logsumexp((beta * getattr(self, "fields") + (1 - beta) * getattr(self, "fields0"))[None, :] + beta * inputs, 2).sum(1)
 
     ## Mean of hidden layer specified by hidden_key
     def mean_h(self, psi, hidden_key, beta=1):
         if beta == 1:
-            a_plus = (self.params[f'{hidden_key}_gamma+']).unsqueeze(0)
-            a_minus = (self.params[f'{hidden_key}_gamma-']).unsqueeze(0)
-            theta_plus = (self.params[f'{hidden_key}_theta+']).unsqueeze(0)
-            theta_minus = (self.params[f'{hidden_key}_theta-']).unsqueeze(0)
+            a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
+            a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
+            theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
+            theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
         else:
-            theta_plus = (beta * self.params[f'{hidden_key}_theta+'] + (1 - beta) * self.params[f'{hidden_key}_0theta+']).unsqueeze(0)
-            theta_minus = (beta * self.params[f'{hidden_key}_theta-'] + (1 - beta) * self.params[f'{hidden_key}_0theta-']).unsqueeze(0)
-            a_plus = (beta * self.params[f'{hidden_key}_gamma+'] + (1 - beta) * self.params[f'{hidden_key}_0gamma+']).unsqueeze(0)
-            a_minus = (beta * self.params[f'{hidden_key}_gamma-'] + (1 - beta) * self.params[f'{hidden_key}_0gamma-']).unsqueeze(0)
+            theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
+            theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
+            a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
+            a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
             psi *= beta
 
         if psi.dim() == 3:
@@ -580,7 +592,7 @@ class CRBM(LightningModule):
         outputs = []
         for i in self.hidden_convolution_keys:
             # convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv2d(X.unsqueeze(1).double(), self.params[f"{i}_W"], stride=self.convolution_topology[i]["stride"],
+            outputs.append(F.conv2d(X.unsqueeze(1).double(), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
             # outputs[-1] /= convx
@@ -592,7 +604,7 @@ class CRBM(LightningModule):
         nonzero_masks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
             # convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), self.params[f"{i}_W"],
+            outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), getattr(self, f"{i}_W"),
                                               stride=self.convolution_topology[i]["stride"],
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
@@ -611,9 +623,9 @@ class CRBM(LightningModule):
         datasize = psi.shape[0]
 
         if beta == 1:
-            cum_probas = psi + self.params['fields'].unsqueeze(0)
+            cum_probas = psi + getattr(self, "fields").unsqueeze(0)
         else:
-            cum_probas = beta * psi + beta * self.params['fields'].unsqueeze(0) + (1 - beta) * self.params['fields0'].unsqueeze(0)
+            cum_probas = beta * psi + beta * getattr(self, "fields").unsqueeze(0) + (1 - beta) * getattr(self, "fields0").unsqueeze(0)
 
         cum_probas = self.cumulative_probabilities(cum_probas)
 
@@ -644,15 +656,15 @@ class CRBM(LightningModule):
         h_uks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
             if beta == 1:
-                a_plus = self.params[f'{i}_gamma+'].unsqueeze(0).unsqueeze(2)
-                a_minus = self.params[f'{i}_gamma-'].unsqueeze(0).unsqueeze(2)
-                theta_plus = self.params[f'{i}_theta+'].unsqueeze(0).unsqueeze(2)
-                theta_minus = self.params[f'{i}_theta-'].unsqueeze(0).unsqueeze(2)
+                a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0).unsqueeze(2)
+                a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0).unsqueeze(2)
+                theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0).unsqueeze(2)
+                theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0).unsqueeze(2)
             else:
-                theta_plus = (beta * self.params[f'{i}_theta+'] + (1 - beta) * self.params[f'{i}_0theta+']).unsqueeze(0).unsqueeze(2)
-                theta_minus = (beta * self.params[f'{i}_theta-'] + (1 - beta) * self.params[f'{i}_0theta-']).unsqueeze(0).unsqueeze(2)
-                a_plus = (beta * self.params[f'{i}_gamma+'] + (1 - beta) * self.params[f'{i}_0gamma+']).unsqueeze(0).unsqueeze(2)
-                a_minus = (beta * self.params[f'{i}_gamma-'] + (1 - beta) * self.params[f'{i}_0gamma-']).unsqueeze(0).unsqueeze(2)
+                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2)
+                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2)
+                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2)
+                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2)
                 psi[iid] *= beta
 
             if nancheck:
@@ -880,8 +892,8 @@ class CRBM(LightningModule):
         if init_fields:
             with torch.no_grad():
                 initial_fields = train_reader.field_init()
-                self.params['fields'] += initial_fields
-                self.params['fields0'] += initial_fields
+                self.fields += initial_fields
+                self.fields0 += initial_fields
 
         return torch.utils.data.DataLoader(
             train_reader,
@@ -967,7 +979,7 @@ class CRBM(LightningModule):
                                                            "Train Free Energy": free_energy,
                                                            }, self.current_epoch)
 
-        for name, p in self.params.items():
+        for name, p in self.named_parameters():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
 
     ## Not yet rewritten for crbm
@@ -984,7 +996,7 @@ class CRBM(LightningModule):
 
         # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * weights).sum() / weights.sum()
 
-        reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
 
@@ -1016,7 +1028,7 @@ class CRBM(LightningModule):
 
         pseudo_likelihood = (self.pseudo_likelihood(one_hot).clone().detach() * weights).sum() / weights.sum()
 
-        reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
 
@@ -1050,7 +1062,7 @@ class CRBM(LightningModule):
         # pseudo_likelihood = (self.pseudo_likelihood(V_pos_oh) * weights).sum() / weights.sum()
 
         # Regularization Terms
-        reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf/2 * getattr(self, "fields").square().sum((0, 1))
 
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
@@ -1058,12 +1070,12 @@ class CRBM(LightningModule):
             # conv_shape = self.convolution_topology[i]["convolution_dims"]  # (batch, hidden u, hidden k, convy_num=1)
             # x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2)).square() / (conv_shape[2])
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square()
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
             reg2 += x.sum(0) * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
 
             # Size of Convolution Filters
             # weight_size = (h_num, input_channels, kernel[0], kernel[1])
-            reg3 += self.ld / ((self.params[f"{i}_W"].abs() - self.params[f"{i}_W"].squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
         # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
 
@@ -1091,7 +1103,6 @@ class CRBM(LightningModule):
 
     def forward(self, V_pos_ohe):
         # Enforces Zero Sum Gauge on Weights
-        # self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
@@ -1173,15 +1184,15 @@ class CRBM(LightningModule):
             # free_energy = F_v.detach()
 
             # Regularization Terms
-            reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+            reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
             reg2 = torch.zeros((1,), device=self.device)
             reg3 = torch.zeros((1,), device=self.device)
             for iid, i in enumerate(self.hidden_convolution_keys):
                 W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-                x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square()
+                x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
                 reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
                 # Size of Convolution Filters weight_size = (h_num, input_channels, kernel[0], kernel[1])
-                reg3 += self.ld / ((self.params[f"{i}_W"].abs() - self.params[f"{i}_W"].squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+                reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
             loss = cd_loss + reg1 + reg2 + reg3
             loss.backward()
@@ -1210,7 +1221,7 @@ class CRBM(LightningModule):
     # Return param as a numpy array
     def get_param(self, param_name):
         try:
-            tensor = self.params[param_name].clone()
+            tensor = getattr(self, param_name).clone()
             return tensor.detach().numpy()
         except KeyError:
             print(f"Key {param_name} not found")
@@ -1304,13 +1315,13 @@ class CRBM(LightningModule):
 
             out = torch.zeros_like(I, device=self.device)
 
-            sqrt_gamma_plus = torch.sqrt(self.params[f"{hidden_key}_gamma+"]).expand(B, -1)
-            sqrt_gamma_minus = torch.sqrt(self.params[f"{hidden_key}_gamma-"]).expand(B, -1)
-            log_gamma_plus = torch.log(self.params[f"{hidden_key}_gamma+"]).expand(B, -1)
-            log_gamma_minus = torch.log(self.params[f"{hidden_key}_gamma-"]).expand(B, -1)
+            sqrt_gamma_plus = torch.sqrt(getattr(self, f"{hidden_key}_gamma+")).expand(B, -1)
+            sqrt_gamma_minus = torch.sqrt(getattr(self, f"{hidden_key}_gamma-")).expand(B, -1)
+            log_gamma_plus = torch.log(getattr(self, f"{hidden_key}_gamma+")).expand(B, -1)
+            log_gamma_minus = torch.log(getattr(self, f"{hidden_key}_gamma-")).expand(B, -1)
 
-            Z_plus = -self.log_erf_times_gauss((-I + self.params[f'{hidden_key}_theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-            Z_minus = self.log_erf_times_gauss((I + self.params[f'{hidden_key}_theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+            Z_plus = -self.log_erf_times_gauss((-I + getattr(self, f'{hidden_key}_theta+').expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+            Z_minus = self.log_erf_times_gauss((I + getattr(self, f'{hidden_key}_theta-').expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
             map = Z_plus > Z_minus
             out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
             out[~map] = Z_minus[~map] + torch.log(1 + torch.exp(Z_plus[~map] - Z_minus[~map]))
@@ -1645,7 +1656,8 @@ if __name__ == '__main__':
     # Training Code
     crbm = CRBM(config, debug=False)
     logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
     plt.fit(crbm)
 
 
