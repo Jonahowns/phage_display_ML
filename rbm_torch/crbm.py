@@ -150,6 +150,9 @@ class CRBM(LightningModule):
             print("Provided Weights Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
             exit(1)
 
+        # Load data
+        self.training_data, self.validation_data = self.load_data(self.fasta_file)
+
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
         # sample types control whether gibbs sampling from the data points or parallel tempering from random configs are used
@@ -838,7 +841,8 @@ class CRBM(LightningModule):
 
     ######################################################### Pytorch Lightning Functions
     ## Loads Data to be trained from provided fasta file
-    def prepare_data(self):
+    # def prepare_data(self):
+    def load_data(self, file):
         try:
             if self.worker_num == 0:
                 threads = 1
@@ -864,8 +868,7 @@ class CRBM(LightningModule):
             data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
 
         train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
-        self.validation_data = validate
-        self.training_data = train
+        return train, validate
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
@@ -1659,6 +1662,9 @@ if __name__ == '__main__':
     # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
     plt.fit(crbm)
+
+    ### JUST NEED TO FIGURE OUT DATALOADER BULLSHIT
+
 
 
     # Debugging Code1
