@@ -52,13 +52,13 @@ except KeyError:
 paths = []
 outs = []
 if "all" in args.round:
-    paths = [info["data_dir"] + x for x in info["data_files"]]
+    paths = [info["data_dir"][3:] + x for x in info["data_files"]]
     outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"]]
 else:
     data_index = info['data_files'].index(args.round+".fasta")
     if data_index == -1:
         print(f"Dataset {args.round+'.fasta'} Not Found. Please Ensure everything is listed correctly in global_info")
-    paths.append(info["data_dir"] + info["data_files"][data_index])
+    paths.append(info["data_dir"][3:] + info["data_files"][data_index])
     outs.append(f"{args.datatype}_{args.model}_{output}" + output)
 
 for pid, p in enumerate(paths):
