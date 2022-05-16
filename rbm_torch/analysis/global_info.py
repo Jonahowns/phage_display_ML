@@ -5,11 +5,11 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
     pig_gm2_datatype = {"focus": "pig", "molecule": "protein", "id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
     pig_ge4_datatype = {"focus": "pig", "molecule": "protein", "id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
     pig_gm4_datatype = {"focus": "pig", "molecule": "protein", "id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
-
     cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 
     if model not in supported_ml_models:
         print(f"Model {model} not supported. Please edit /rbm_torch/analysis/global_info.py to properly enable support for other ml models.")
+        exit(-1)
 
     try:
         datatype = {"pig_ge2": pig_ge2_datatype,
@@ -21,7 +21,11 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
         print(f"Datatype {datatype_str} not found. Please add required data to get_global_info function in /rbm_torch/analysis/global_info.py")
         exit(-1)
 
+    if cluster > datatype["clusters"]:
+        print(f"Cluster {cluster} does not exist for datatype {datatype_str}")
+        exit(-1)
 
+    # Which directory are trained models stored in locally (This is for my globus transfer script to function properly)
     local_model_location = {"pig_gm2": f"/mnt/D1/globus/pig_trained_{model}s/gm2/",
                    "pig_ge2": f"/mnt/D1/globus/pig_trained_{model}s/ge2/",
                    "pig_gm4": f"/mnt/D1/globus/pig_trained_{model}s/gm4/",
@@ -37,7 +41,7 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
                 "rod": "../../rod/",
                 "cov": "../../cov/"}[datatype_str]
 
-    # Server model location provides relative path from phage_display_ML directory to the co
+    # Server model location provides relative path from phage_display_ML directory to the server-side trained model directory
     server_model_location = data_location[6:] + f"trained_{model}s/"
 
     assert datatype["focus"] in ["pig", "cov"]

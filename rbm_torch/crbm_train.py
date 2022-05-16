@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
     weights, w_bool = None, False
     if args.weights in ["True", "true", "TRUE", "yes"]:
-        weights = "fasta"  # All weights are already in the processed files
+        weights = "fasta"  # All weights are already in the processed fasta files
         name += "_w"
         w_bool = True
 

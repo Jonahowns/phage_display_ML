@@ -196,12 +196,6 @@ class CRBM(LightningModule):
 
         self.convolution_topology = config["convolution_topology"]
 
-        # Parameters that shouldn't change
-        # self.params = {
-        #     # visible layer parameters
-        #     'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
-        #     'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False)
-        # }
         self.register_parameter("fields", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
         self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
 
@@ -215,27 +209,16 @@ class CRBM(LightningModule):
             self.convolution_topology[key]["output_padding"] = dims["output_padding"]
             # Convolution Weights
             self.register_parameter(f"{key}_W", nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device)))
-            # self.params[f"{key}_W"] = nn.Parameter(self.weight_intial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device))
             # hidden layer parameters
             self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
             self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
             self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
             self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
-            # self.params[f'{key}_theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            # self.params[f'{key}_theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            # self.params[f'{key}_gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
-            # self.params[f'{key}_gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
             # Used in PT Sampling / AIS
             self.register_parameter(f"{key}_0theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
             self.register_parameter(f"{key}_0theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
             self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
             self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            # self.params[f'{key}_0theta+'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            # self.params[f'{key}_0theta-'] = nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device))
-            # self.params[f'{key}_0gamma+'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
-            # self.params[f'{key}_0gamma-'] = nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device))
-
-        # self.params = self.state_dict()
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i. e. Simplifies loading a model that has already been run
@@ -378,7 +361,6 @@ class CRBM(LightningModule):
     #
     #     return - fe_estimate - torch.logsumexp(- fe, 1)
 
-
     ## Used in our Loss Function
     def free_energy(self, v):
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
@@ -405,7 +387,7 @@ class CRBM(LightningModule):
                 h_uk = h[iid][hidden_sub_index]
             else:
                 h_uk = h[iid]
-            E[iid] = h_uk.mul(conv[iid]).sum(2).sum(1) # 10/k sum u sum k huk(Iuk)
+            E[iid] = h_uk.mul(conv[iid]).sum(2).sum(1)
 
         if E.shape[0] > 1:
             return E.sum(0)

@@ -4,8 +4,8 @@
 #SBATCH -n 1
 #SBATCH -c 4
 #SBATCH -t 7-00:00               # wall time (D-HH:MM)
-#SBATCH -p sulcgpu2
-#SBATCH -q sulcgpu1
+#SBATCH -p sulcgpu21
+#SBATCH -q wildfire
 #SBATCH --gres=gpu:2
 #SBATCH -o slurm_r12cov12_w.%j.out          # STDOUT (%j = JobId)
 #SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
