@@ -100,6 +100,6 @@ if len(paths) > 1:
     with open(f"./submission/submit_{args.datatype}_{tmp}.sh", 'w+') as file:
         file.write("#!/bin/bash\n")
         for out in outs:
-            file.write(f"sbatch {out} \n")
+            file.write(f"sbatch {out}.sh \n")
 
 # sp.check_call(f"sbatch ./submission/{output}.sh", shell=True)

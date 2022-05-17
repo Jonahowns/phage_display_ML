@@ -1,13 +1,13 @@
 #!/bin/bash
-sbatch cov_crbm_r1 
-sbatch cov_crbm_r2 
-sbatch cov_crbm_r3 
-sbatch cov_crbm_r4 
-sbatch cov_crbm_r5 
-sbatch cov_crbm_r6 
-sbatch cov_crbm_r7 
-sbatch cov_crbm_r8 
-sbatch cov_crbm_r9 
-sbatch cov_crbm_r10 
-sbatch cov_crbm_r11 
-sbatch cov_crbm_r12 
+sbatch cov_crbm_r1.sh 
+sbatch cov_crbm_r2.sh 
+sbatch cov_crbm_r3.sh 
+sbatch cov_crbm_r4.sh 
+sbatch cov_crbm_r5.sh 
+sbatch cov_crbm_r6.sh 
+sbatch cov_crbm_r7.sh 
+sbatch cov_crbm_r8.sh 
+sbatch cov_crbm_r9.sh 
+sbatch cov_crbm_r10.sh 
+sbatch cov_crbm_r11.sh 
+sbatch cov_crbm_r12.sh 
