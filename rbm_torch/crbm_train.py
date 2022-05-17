@@ -27,9 +27,9 @@ if __name__ == '__main__':
     name = file.split(".")[0]   # short specifier of round etc.
 
     clusternum = name[-1]  # cluster the data belongs to ()
-    if clusternum.isalpha():
+    if clusternum.isalpha() or clusternum.isdigit() and name[-2] != "c":
         clusternum = 0
-    elif clusternum.isdigit(): # Cluster specified
+    elif clusternum.isdigit() and name[-2] == "c": # Cluster specified
         clusternum = int(clusternum)
     else:  # Character is neither a letter nor number
         print(f"Cluster Designation {clusternum} is not supported.")

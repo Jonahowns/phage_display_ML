@@ -3,7 +3,7 @@
 #SBATCH -A jprocyk
 #SBATCH -n 1
 #SBATCH -c 6
-#SBATCH -t 7-00:00
+#SBATCH -t 4-00:00
 #SBATCH -p wzhengpu1
 #SBATCH -q wildfire
 #SBATCH --gres=gpu:2
