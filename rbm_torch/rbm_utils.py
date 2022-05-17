@@ -13,8 +13,10 @@
      appropriate citations to:
 
      Modifications-> Bug fixes in Sequence_logo_all
+                  -> Sequence Logos use molecule keyword argument to produce the correct plot
                   -> Rewrote fasta reader and put here
-                  -> Mutlithreaded fasta reader added
+                  -> Multi threaded fasta reader added
+                  -> Updated sampling methods for CRBM and RBM
 
 """
 
@@ -199,39 +201,55 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
 
 ######### Data Generation Methods #########
 
-def gen_data_lowT(RBM, beta=1, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
-    tmp_RBM = copy.deepcopy(RBM)
-    if which == 'joint':
-        tmp_RBM.params["fields"]*= beta
-        tmp_RBM.params["W_raw"]*= beta
-        tmp_RBM.params["gamma+"]*= beta
-        tmp_RBM.params["gamma-"]*= beta
-        tmp_RBM.params["theta+"]*= beta
-        tmp_RBM.params["theta-"]*= beta
-    elif which == 'marginal':
-        if type(beta) == int:
-            tmp_RBM.params["fields"] *= beta
-            tmp_RBM.params["W_raw"] = torch.repeat_interleave(RBM.params["W_raw"], beta, dim=0)
-            tmp_RBM.params["gamma+"] = torch.repeat_interleave(RBM.params["gamma+"], beta, dim=0)
-            tmp_RBM.params["gamma-"] = torch.repeat_interleave(RBM.params["gamma-"], beta, dim=0)
-            tmp_RBM.params["theta+"] = torch.repeat_interleave(RBM.params["theta+"], beta, dim=0)
-            tmp_RBM.params["theta-"] = torch.repeat_interleave(RBM.params["theta-"], beta, dim=0)
-            tmp_RBM.params["0gamma+"] = torch.repeat_interleave(RBM.params["0gamma+"], beta, dim=0)
-            tmp_RBM.params["0gamma-"] = torch.repeat_interleave(RBM.params["0gamma-"], beta, dim=0)
-            tmp_RBM.params["0theta+"] = torch.repeat_interleave(RBM.params["0theta+"], beta, dim=0)
-            tmp_RBM.params["0theta-"] = torch.repeat_interleave(RBM.params["0theta-"], beta, dim=0)
-    tmp_RBM.prep_W()
-    return tmp_RBM.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
+def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, reshape=True, update_betas=False, config_init=[]):
+    tmp_model = copy.deepcopy(model)
+    if tmp_model._get_name() == "RBM":
+        with torch.no_grad():
+            if which == 'joint':
+                tmp_model.params["fields"] *= beta
+                tmp_model.params["W_raw"] *= beta
+                tmp_model.params["gamma+"] *= beta
+                tmp_model.params["gamma-"] *= beta
+                tmp_model.params["theta+"] *= beta
+                tmp_model.params["theta-"] *= beta
+            elif which == 'marginal':
+                if type(beta) == int:
+                    tmp_model.params["fields"] *= beta
+                    tmp_model.params["W_raw"] = torch.nn.Parameter(torch.repeat_interleave(model.params["W_raw"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["gamma+"] = torch.nn.Parameter(torch.repeat_interleave(model.params["gamma+"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["gamma-"] = torch.nn.Parameter(torch.repeat_interleave(model.params["gamma-"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["theta+"] = torch.nn.Parameter(torch.repeat_interleave(model.params["theta+"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["theta-"] = torch.nn.Parameter(torch.repeat_interleave(model.params["theta-"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["0gamma+"] = torch.nn.Parameter(torch.repeat_interleave(model.params["0gamma+"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["0gamma-"] = torch.nn.Parameter(torch.repeat_interleave(model.params["0gamma-"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["0theta+"] = torch.nn.Parameter(torch.repeat_interleave(model.params["0theta+"], beta, dim=0), requires_grad=False)
+                    tmp_model.params["0theta-"] = torch.nn.Parameter(torch.repeat_interleave(model.params["0theta-"], beta, dim=0), requires_grad=False)
+            tmp_model.prep_W()
 
+    elif tmp_model._get_name() == "CRBM":
+        setattr(tmp_model, "fields", torch.nn.Parameter(getattr(tmp_model, "fields") * beta, requires_grad=False))
+
+        if which == 'joint':
+            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
+            for key in tmp_model.hidden_convolution_keys:
+                for pkey in param_keys:
+                    setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}")*beta, requires_grad=False))
+        elif which == "marginal":
+            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            for key in tmp_model.hidden_convolution_keys:
+                for pkey in param_keys:
+                    setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(torch.repeat_interleave(getattr(tmp_model, f"{key}_{pkey}"), beta, dim=0), requires_grad=False))
+
+    return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 
 def gen_data_zeroT(RBM, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
     tmp_RBM = copy.deepcopy(RBM)
-    if which == 'joint':
-        tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_joint, tmp_RBM)
-    elif which == 'marginal':
-        tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_marginal, tmp_RBM)
-    return tmp_RBM.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
-
+    with torch.no_grad():
+        if which == 'joint':
+            tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_joint, tmp_RBM)
+        elif which == 'marginal':
+            tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_marginal, tmp_RBM)
+        return tmp_RBM.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 
 def markov_step_zeroT_joint(self, v, beta=1):
     I = self.compute_output_v(v)
@@ -239,7 +257,6 @@ def markov_step_zeroT_joint(self, v, beta=1):
     I = self.compute_output_h(h)
     nv = self.transform_v(I)
     return nv, h
-
 
 def markov_step_zeroT_marginal(self, v,beta=1):
     I = self.compute_output_v(v)

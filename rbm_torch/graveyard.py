@@ -386,3 +386,24 @@ class Clamp(torch.autograd.Function): # clamp parameter values
 #
 #         self.hidden_params = conv_top
 #
+# rbm_lat = CRBM(config, debug=True)
+    # rbm_lat.prepare_data()
+    # td = rbm_lat.train_dataloader()
+    # for iid, i in enumerate(td):
+    #     if iid > 0:
+    #         break
+    #     seq, cat, ohe, seq_weights = i
+    #     rbm_lat(ohe)
+    # #     v_out = rbm_lat.compute_output_v(ohe)
+    # #     # h = rbm_lat.sample_from_inputs_h(v_out)
+    # #     # h_out = rbm_lat.compute_output_h(h)
+    # #     # nv = rbm_lat.sample_from_inputs_v(h_out)
+    # #     # fe = rbm_lat.free_energy(nv)
+    #     pl = rbm_lat.pseudo_likelihood(ohe)
+    #     print(pl.mean())
+
+# plt = Trainer(gpus=1, max_epochs=10)
+# plt = Trainer(gpus=1, profiler='advanced', max_epochs=10)
+# plt = Trainer(profiler='advanced', max_epochs=10)
+# plt = Trainer(max_epochs=1)
+# plt.fit(rbm)

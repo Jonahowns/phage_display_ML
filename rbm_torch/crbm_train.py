@@ -1,8 +1,9 @@
-import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning import Trainer
 import argparse
 import os
 import sys
+# Local imports
 from crbm import CRBM
 import crbm_configs
 sys.path.insert(1, './analysis/')
@@ -24,7 +25,15 @@ if __name__ == '__main__':
 
     file = os.path.basename(args.dataset)
     name = file.split(".")[0]   # short specifier of round etc.
-    clusternum = int(name[-1])  # cluster the data belongs to ()
+
+    clusternum = name[-1]  # cluster the data belongs to ()
+    if clusternum.isalpha():
+        clusternum = 0
+    elif clusternum.isdigit(): # Cluster specified
+        clusternum = int(clusternum)
+    else:  # Character is neither a letter nor number
+        print(f"Cluster Designation {clusternum} is not supported.")
+        exit(-1)
 
     weights, w_bool = None, False
     if args.weights in ["True", "true", "TRUE", "yes"]:
@@ -57,8 +66,8 @@ if __name__ == '__main__':
     crbm = CRBM(config, debug=False)
     logger = TensorBoardLogger('../' + info["server_model_dir"], name=name)
     if args.gpus > 1:
-        # data parallel, multi-gpus on single machine
-        plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="ddp")  # distributed data-parallel
+        # distributed data parallel, multi-gpus on single machine or across multiple machines
+        plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="ddp")  # distributed data-parallel
     else:
-        plt = pl.Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
+        plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus)  # gpus=1,
     plt.fit(crbm)

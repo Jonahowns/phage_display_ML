@@ -18,7 +18,7 @@ import multiprocessing  # Just to set the worker number
 from torch.autograd import Variable
 
 import crbm_configs
-from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, Sequence_logo
+from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT
 
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
@@ -396,19 +396,20 @@ class CRBM(LightningModule):
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
-        return torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1)
+        return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
 
     def transform_h(self, I):
         output = []
-        for key in self.hidden_convolution_keys:
-            a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
-            a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
-            theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
-            theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
-            output.append(((I + theta_minus) * (I <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
+        for kid, key in enumerate(self.hidden_convolution_keys):
+            a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0).unsqueeze(2)
+            a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0).unsqueeze(2)
+            theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0).unsqueeze(2)
+            theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0).unsqueeze(2)
+            tmp = ((I[kid] + theta_minus) * (I[kid] <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
                     theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
-                    a_minus + ((I - theta_plus) * (I >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
-                    theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt( a_minus))))) / a_plus)
+                    a_minus + ((I[kid] - theta_plus) * (I[kid] >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
+                    theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt( a_minus))))) / a_plus
+            output.append(tmp)
         return output
 
     ## Computes g(si) term of potential
@@ -538,39 +539,76 @@ class CRBM(LightningModule):
             return torch.logsumexp((beta * getattr(self, "fields") + (1 - beta) * getattr(self, "fields0"))[None, :] + beta * inputs, 2).sum(1)
 
     ## Mean of hidden layer specified by hidden_key
-    def mean_h(self, psi, hidden_key, beta=1):
-        if beta == 1:
-            a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
-            a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
-            theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
-            theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
+    def mean_h(self, psi, hidden_key=None, beta=1):
+        if hidden_key is None:
+            means = []
+            for kid, key in enumerate(self.hidden_convolution_keys):
+                if beta == 1:
+                    a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
+                    a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
+                    theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
+                    theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
+                else:
+                    theta_plus = (beta * getattr(self, f'{key}_theta+') + (1 - beta) * getattr(self, f'{key}_0theta+')).unsqueeze(0)
+                    theta_minus = (beta * getattr(self, f'{key}_theta-') + (1 - beta) * getattr(self, f'{key}_0theta-')).unsqueeze(0)
+                    a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
+                    a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
+                    psi[kid] *= beta
+
+                if psi[kid].dim() == 3:
+                    a_plus = a_plus.unsqueeze(2)
+                    a_minus = a_minus.unsqueeze(2)
+                    theta_plus = theta_plus.unsqueeze(2)
+                    theta_minus = theta_minus.unsqueeze(2)
+
+                psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
+                psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
+
+                etg_plus = self.erf_times_gauss(psi_plus)
+                etg_minus = self.erf_times_gauss(psi_minus)
+
+                p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+                nans = torch.isnan(p_plus)
+                p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+                p_minus = 1 - p_plus
+
+                mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+                mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+                means.append(mean_pos * p_plus + mean_neg * p_minus)
+            return means
         else:
-            theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
-            theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
-            a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
-            a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
-            psi *= beta
+            if beta == 1:
+                a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
+                a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
+                theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
+                theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
+            else:
+                theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
+                theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
+                a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
+                a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
+                psi *= beta
 
-        if psi.dim() == 3:
-            a_plus = a_plus.unsqueeze(2)
-            a_minus = a_minus.unsqueeze(2)
-            theta_plus = theta_plus.unsqueeze(2)
-            theta_minus = theta_minus.unsqueeze(2)
+            if psi.dim() == 3:
+                a_plus = a_plus.unsqueeze(2)
+                a_minus = a_minus.unsqueeze(2)
+                theta_plus = theta_plus.unsqueeze(2)
+                theta_minus = theta_minus.unsqueeze(2)
 
-        psi_plus = (-psi + theta_plus) / torch.sqrt(a_plus)
-        psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)
+            psi_plus = (-psi + theta_plus) / torch.sqrt(a_plus)
+            psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)
 
-        etg_plus = self.erf_times_gauss(psi_plus)
-        etg_minus = self.erf_times_gauss(psi_minus)
+            etg_plus = self.erf_times_gauss(psi_plus)
+            etg_minus = self.erf_times_gauss(psi_minus)
 
-        p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-        nans = torch.isnan(p_plus)
-        p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-        p_minus = 1 - p_plus
+            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+            nans = torch.isnan(p_plus)
+            p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+            p_minus = 1 - p_plus
 
-        mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-        mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-        return mean_pos * p_plus + mean_neg * p_minus
+            mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+            mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+            return mean_pos * p_plus + mean_neg * p_minus
 
     ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
     def compute_output_v(self, X): # X is the one hot vector
@@ -1443,15 +1481,29 @@ class CRBM(LightningModule):
             if N_PT > 1:
                 if Ndata > 1:
                     if record_replica:
-                        data_gen_size = (Ndata-1, N_PT, batches)
-                    else:
-                        data_gen_size = (Ndata - 1, N_PT)
-            else:
-                data_gen_size = (Ndata - 1)
+                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT, batches), zeros=True)
+                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, N_PT, batches), zeros=True)
+                        data_gen_v[0] = config[0].clone()
 
-            if Ndata > 1 or N_PT == 1:
-                data_gen_v = self.random_init_config_v(custom_size=data_gen_size, zeros=True)
-                data_gen_h = self.random_init_config_h(custom_size=data_gen_size, zeros=True)
+                        clone = self.clone_h(config[1])
+                        for hid in range(self.h_layer_num):
+                            data_gen_h[hid][0] = clone[hid]
+                    else:
+                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT), zeros=True)
+                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, N_PT), zeros=True)
+                        data_gen_v[0] = config[0][0].clone()
+
+                        clone = self.clone_h(config[1], sub_index=0)
+                        for hid in range(self.h_layer_num):
+                            data_gen_h[hid][0] = clone[hid]
+            else:
+                data_gen_v = self.random_init_config_v(custom_size=(Ndata, batches), zeros=True)
+                data_gen_h = self.random_init_config_h(custom_size=(Ndata, batches), zeros=True)
+                data_gen_v[0] = config[0].clone()
+
+                clone = self.clone_h(config[1])
+                for hid in range(self.h_layer_num):
+                    data_gen_h[hid][0] = clone[hid]
 
             for n in range(Ndata - 1):
                 for _ in range(Nstep):
@@ -1469,21 +1521,21 @@ class CRBM(LightningModule):
 
                         clone = self.clone_h(config[1])
                         for hid in range(self.h_layer_num):
-                            data_gen_h[n][hid] = clone[hid]
+                            data_gen_h[hid][n] = clone[hid]
 
                     else:
                         data_gen_v[n] = config[0][0].clone()
 
                         clone = self.clone_h(config[1], sub_index=0)
                         for hid in range(self.h_layer_num):
-                            data_gen_h[n][hid] = clone[hid]
+                            data_gen_h[hid][n] = clone[hid]
 
                 else:
                     data_gen_v[n] = config[0].clone()
 
                     clone = self.clone_h(config[1])
                     for hid in range(self.h_layer_num):
-                        data_gen_h[n][hid] = clone[hid]
+                        data_gen_h[hid][n] = clone[hid]
 
             if Ndata > 1:
                 data = [data_gen_v, data_gen_h]
@@ -1566,35 +1618,13 @@ if __name__ == '__main__':
     large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
 
-    config = {"fasta_file": lattice_data,
-              "molecule": "protein",
-              "h_num": 10,  # number of hidden units, can be variable
-              "v_num": 27,
-              "q": 21,
-              "batch_size": 6000,
-              "mc_moves": 4,
-              "seed": 38,
-              "lr": 0.0065,
-              "lr_final": None,
-              "decay_after": 0.75,
-              "loss_type": "free_energy",
-              "sample_type": "gibbs",
-              "sequence_weights": None,
-              "optimizer": "AdamW",
-              "epochs": 150,
-              "weight_decay": 0.001,  # l2 norm on all parameters
-              "l1_2": 100.0,
-              "lf": 0.25,
-              # "data_worker_num": 10  # Optionally Set these
-              }
-
     config = crbm_configs.lattice_default_config
     # config["l1_2"] = 0.8
     # config["ld"] = 40.0
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 5
+    config["epochs"] = 50
     # config["convolution_topology"] = {
     #     "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     #     "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -1604,55 +1634,28 @@ if __name__ == '__main__':
     # }
 
     # TODO List
-    # 1: Add support for non perfect convolutions (involving mismatch of input, stride, and kernel)
-    #       X Non Perfect Convolutions are now supported
-    #       1.1 Add function that suggest kernel/stride sizes based off input size
-    # 2: Add support for sampling of conv_rbm. Be able to choose hidden units you sample from
-    #       2.1 Get Likelihood/AIS/PT/Gen_Data working for CRBM
-    #   X rewrote AIS/PT/Gen_data methods to work with crbm
-    #   X Choosing which to sample from will require making a new crbm out of only the selected hidden layers. From there sampling should be easy and supported
     # 3: Test this out on multiple datasets
-    # 4: Extend Analysis Methods for crbm
-    #       4.1 Finish cgf viewing in analysis_methods
     # 5: Other stuff I'm sure
 
-    # (kernel[0] - 1) - 1) / stride[0]
-    # shapes1 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden1"])
-    # shapes2 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden2"])
-    # shapes3 = conv2d_dim((100, 1, 27, 20), config["convolution_topology"]["hidden3"])
-
-
-    # This works program this in!!!!
-    #   (27   -  1 * (kernel[0] -1 ) - 1) / stride[0]
-    # h1(26   - (kernel-1) )/stride       26-6 -> 18
-    # (input_sizex - dilation[0] * (kernel[0] - 1) - 1)
-    # def calc_output_transpose(convolution_definition, input_size):
-    #     Hout = (input_size[2] - 1) * convolution_definition["stride"][0] - 2* convolution_definition["padding"][0] + convolution_definition['dilation'][0] * (convolution_definition["kernel"][0] - 1) + convolution_definition["output_padding"][0] + 1
-    #     Wout = (input_size[3] - 1) * convolution_definition["stride"][1] - 2* convolution_definition["padding"][1] + convolution_definition['dilation'][1] * (convolution_definition["kernel"][1] - 1) + convolution_definition["output_padding"][1] + 1
-    #     print("size", Hout, Wout)
-
-    # input_size = (500, 5, convx_num)
-    # calc_output_transpose(config["convolution_topology"]["hidden1"], )
-    # calc_output_transpose(config["convolution_topology"]["hidden2"])
-    # calc_output_transpose(config["convolution_topology"]["hidden3"])
-
-
-
     # Training Code
-    crbm = CRBM(config, debug=False)
-    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
-    plt.fit(crbm)
-
-    ### JUST NEED TO FIGURE OUT DATALOADER BULLSHIT
-
-
+    # crbm = CRBM(config, debug=False)
+    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
+    # plt.fit(crbm)
 
     # Debugging Code1
-    # checkpoint = "./tb_logs/conv_lattice_trial/version_86/checkpoints/epoch=99-step=199.ckpt"
-    # crbm_lat = CRBM.load_from_checkpoint(checkpoint)
+    checkpoint = "./tb_logs/conv_lattice_trial/version_87/checkpoints/epoch=49-step=99.ckpt"
+    crbm = CRBM.load_from_checkpoint(checkpoint)
 
+
+    # results = gen_data_lowT(crbm, which="marginal")
+    # results = gen_data_zeroT(crbm, which="joint")
+    results = gen_data_lowT(crbm, which="joint")
+    visible, hiddens = results
+
+    E = crbm.energy(visible, hiddens)
+    print("E", E.shape)
     # crbm_lat.prepare_data()
     # all_weights(crbm_lat, "crbm_lattice")
     # crbm_lat.AIS()
@@ -1663,85 +1666,10 @@ if __name__ == '__main__':
     # for key in crbm_lat.hidden_convolution_keys:
     #     conv_weights(crbm_lat, f"{key}_W", f"crbm_lattice_{key}_W_new", 4, 2, 11, 8, molecule="protein")
 
+
     # Saliency Map
     # smaps = crbm_lat.saliency_map(crbm_lat.validation_data)
     # print("hi")
     # avg_smap = smaps.mean(0).numpy()
     # Sequence_logo(avg_smap, None, data_type="weights")
 
-    # suggest_conv_size((39, 20), padding_max=1, dilation_max=2, stride_max=18)
-
-
-    # rbm_lat = CRBM(config, debug=True)
-    # rbm_lat.prepare_data()
-    # td = rbm_lat.train_dataloader()
-    # for iid, i in enumerate(td):
-    #     if iid > 0:
-    #         break
-    #     seq, cat, ohe, seq_weights = i
-    #     rbm_lat(ohe)
-    # #     v_out = rbm_lat.compute_output_v(ohe)
-    # #     # h = rbm_lat.sample_from_inputs_h(v_out)
-    # #     # h_out = rbm_lat.compute_output_h(h)
-    # #     # nv = rbm_lat.sample_from_inputs_v(h_out)
-    # #     # fe = rbm_lat.free_energy(nv)
-    #     pl = rbm_lat.pseudo_likelihood(ohe)
-    #     print(pl.mean())
-
-
-
-
-    # # Training Code
-    # rbm_lat = RBM(config, debug=False)
-    # logger = TensorBoardLogger('tb_logs', name='lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(rbm_lat)
-
-
-    # check weights
-    # version = 0
-    # # checkpoint = get_checkpoint(version, dir="./tb_logs/lattice_trial/")
-    # checkpoint = "/mnt/D1/globus/rbm_hyperparam_results/train_rbm_ad5d7_00005_5_l1_2=0.3832,lf=0.00011058,lr=0.065775,weight_decay=0.086939_2022-01-18_11-02-53/checkpoints/epoch=99-step=499.ckpt"
-    # rbm = RBM.load_from_checkpoint(checkpoint)
-    # rbm.energy_per_state()
-    # conv_weights(rbm, "./lattice_proteins_verification" + "/allweights", 5, 1, 10, 2, molecule="protein")
-
-    # checkpoint = torch.load(checkpoint_file)
-    # model.prepare_data()
-    # model.criterion.weight = torch.tensor([0., 0.]) # need to add as this is saved by the checkpoint file
-    # model.load_state_dict(checkpoint['state_dict'])
-
-
-
-    ## Need to finish debugging AIS
-    # rbm = RBM(config)
-    # rbm.sampling_test()
-    # rbm.AIS()
-
-    # rbm.prepare_data()
-
-
-    # d = iter(rbm.train_dataloader())
-    # seqs, v_pos, weights = d.next()
-    # logger.experiment.add_graph(rbm, v_pos)
-
-    # profiler = torch.profiler.profile(profile_memory=True)
-    # profiler = pytorch_lightning.profiler.SimpleProfiler(profile_memory=True)
-    # profiler = pytorch_lightning.profiler.PyTorchProfiler(profile_memory=True)
-
-    # logger = TensorBoardLogger('tb_logs', name='bench_trial')
-    # # plt = Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler=profiler)  # gpus=1,
-    # plt = Trainer(max_epochs=epochs, logger=logger, gpus=0, profiler="advanced")  # gpus=1,
-    # # tic = time.perf_counter()
-    # plt.fit(rbm)
-    # toc = time.perf_counter()
-    # tim = toc-tic
-    #
-    # print("Trial took", tim, "seconds")
-
-
-    # plt = Trainer(gpus=1, max_epochs=10)
-    # plt = Trainer(gpus=1, profiler='advanced', max_epochs=10)
-    # plt = Trainer(profiler='advanced', max_epochs=10)
-    # plt = Trainer(max_epochs=1)
-    # plt.fit(rbm)

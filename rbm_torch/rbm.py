@@ -17,7 +17,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # import rbm_utils
-from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read
+from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT
 import rbm_configs
 
 
@@ -404,18 +404,28 @@ class RBM(LightningModule):
         return torch.matmul(config_plus.square(), a_plus) / 2 + torch.matmul(config_minus.square(), a_minus) / 2 + torch.matmul(config_plus, theta_plus) + torch.matmul(config_minus, theta_minus)
 
     ## Random Config of Visible Potts States
-    def random_init_config_v(self, batch_size=None):
-        if batch_size is not None:
-            return self.sample_from_inputs_v(torch.zeros((batch_size, self.v_num, self.q), device=self.device), beta=0)
+    def random_init_config_v(self, custom_size=False, zeros=False):
+        if custom_size:
+            size = (*custom_size, self.v_num, self.q)
         else:
-            return self.sample_from_inputs_v(torch.zeros((self.batch_size, self.v_num, self.q), device=self.device), beta=0)
+            size = (self.batch_size, self.v_num, self.q)
 
-    ## Random Config of Hidden dReLU States
-    def random_init_config_h(self, batch_size=None):
-        if batch_size is not None:
-            return torch.randn((batch_size, self.h_num), device=self.device)
+        if zeros:
+            return torch.zeros(size[:-1], device=self.device)
         else:
-            return torch.randn((self.batch_size, self.h_num), device=self.device)
+            return self.sample_from_inputs_v(torch.zeros(size, device=self.device).flatten(0, -3), beta=0).reshape(size[:-1])
+
+
+    def random_init_config_h(self, zeros=False, custom_size=False):
+        if custom_size:
+            size = (*custom_size, self.h_num)
+        else:
+            size = (self.batch_size, self.h_num)
+
+        if zeros:
+            return torch.zeros(size, device=self.device)
+        else:
+            return torch.randn(size, device=self.device)
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
@@ -1028,8 +1038,8 @@ class RBM(LightningModule):
             h_pos = self.sample_from_inputs_h(self.compute_output_v(V_pos))
 
             n_chains = V_pos.shape[0]
-            fantasy_v = self.random_init_config_v(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.v_num])
-            fantasy_h = self.random_init_config_h(batch_size=n_chains * self.N_PT).reshape([self.N_PT, n_chains, self.h_num])
+            fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
+            fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
             fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
 
             for _ in range(self.mc_moves):
@@ -1321,7 +1331,7 @@ class RBM(LightningModule):
             Ndata /= batches
             Ndata = int(Ndata)
             if N_PT > 1:
-                config = [self.random_init_config_v(batch_size=batches*N_PT).reshape((N_PT, batches, self.v_num)), self.random_init_config_h(batch_size=batches*N_PT).reshape((N_PT, batches, self.h_num))]
+                config = [self.random_init_config_v(custom_size=(N_PT, batches)), self.random_init_config_h(custom_size=(N_PT, batches))]
                 if config_init != []:
                     config[0] = config_init[0]
                     config[1] = config_init[1]
@@ -1330,7 +1340,7 @@ class RBM(LightningModule):
                 if config_init != []:
                     config = config_init
                 else:
-                    config = [self.random_init_config_v(batch_size=batches), self.random_init_config_h(batch_size=batches)]
+                    config = [self.random_init_config_v(custom_size=(batches,)), self.random_init_config_h(custom_size=(batches,))]
 
             for _ in range(Nthermalize):
                 if N_PT > 1:
@@ -1342,25 +1352,22 @@ class RBM(LightningModule):
                     config[0], config[1] = self.markov_step(config[0], beta=beta)
 
             if N_PT > 1:
-                if record_replica:
-                    data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
-                else:
-                    data = [config[0][0].clone().unsqueeze(0), config[1][0].clone().unsqueeze(0)]
-            else:
-                data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
-
-            if N_PT > 1:
                 if Ndata > 1:
                     if record_replica:
-                        data_gen_v = torch.zeros((Ndata-1, N_PT, batches, self.v_num))
-                        data_gen_h = torch.zeros((Ndata-1, N_PT, batches, self.h_num))
+                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT, batches), zeros=True)
+                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, N_PT, batches), zeros=True)
+                        data_gen_v[0] = config[0].clone().unsqueeze(0)
+                        data_gen_h[0] = config[1].clone().unsqueeze(0)
                     else:
-                        data_gen_v = torch.zeros((Ndata - 1, N_PT, self.v_num))
-                        data_gen_h = torch.zeros((Ndata - 1, N_PT, self.h_num))
+                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT), zeros=True)
+                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, N_PT), zeros=True)
+                        data_gen_v[0] = config[0][0].clone().unsqueeze(0)
+                        data_gen_h[0] = config[1][0].clone().unsqueeze(0)
             else:
-                data_gen_v = torch.zeros((Ndata - 1, self.v_num))
-                data_gen_h = torch.zeros((Ndata - 1, self.h_num))
-
+                data_gen_v = self.random_init_config_v(custom_size=(Ndata, batches), zeros=True)
+                data_gen_h = self.random_init_config_h(custom_size=(Ndata, batches), zeros=True)
+                data_gen_v[0] = config[0].clone().unsqueeze(0)
+                data_gen_h[0] = config[1].clone().unsqueeze(0)
 
             for n in range(Ndata - 1):
                 for _ in range(Nstep):
@@ -1374,20 +1381,14 @@ class RBM(LightningModule):
 
                 if N_PT > 1 and Ndata > 1:
                     if record_replica:
-                        data_gen_v[n] = config[0].clone()
-                        data_gen_h[n] = config[1].clone()
-                        # data[0].append(config[0].clone())
-                        # data[1].append(config[1].clone())
+                        data_gen_v[n+1] = config[0].clone()
+                        data_gen_h[n+1] = config[1].clone()
                     else:
-                        data_gen_v[n] = config[0][0].clone()
-                        data_gen_h[n] = config[1][0].clone()
-                        # data[0].append(config[0][0].clone())
-                        # data[1].append(config[1][0].clone())
+                        data_gen_v[n+1] = config[0][0].clone()
+                        data_gen_h[n+1] = config[1][0].clone()
                 else:
-                    data_gen_v[n] = config[0].clone()
-                    data_gen_h[n] = config[1].clone()
-                    # data[0].append(config[0].clone())
-                    # data[1].append(config[1].clone())
+                    data_gen_v[n+1] = config[0].clone()
+                    data_gen_h[n+1] = config[1].clone()
 
             if Ndata > 1:
                 data = [data_gen_v, data_gen_h]
@@ -1448,26 +1449,6 @@ def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
 
 
 if __name__ == '__main__':
-    # pytorch lightning loop
-
-    # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
-    # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
-    # lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
-    # b3_c1 = "../pig_tissue/b3_c1.fasta"
-    # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
-
-    # Fasta reading speed Test
-    # def fasta_thread_test(tnum, data_file):
-    #     start = time.time()
-    #     seqs, seq_read_counts, all_chars, q_data = fasta_read(data_file, drop_duplicates=True, threads=tnum)
-    #     end = time.time()
-    #     print(f"{tnum} threads time:", end - start)
-    #
-    # fasta_thread_test(2, lattice_data)
-    # fasta_thread_test(8, lattice_data)
-    # fasta_thread_test(1, lattice_data)
-
-
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
@@ -1478,31 +1459,20 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 2
+    config["epochs"] = 50
 
     # Training Code
-    rbm = RBM(config, debug=True)
-    logger = TensorBoardLogger('./lattice_proteins_verification/', name="lattice_rbm")
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(rbm)
+    # rbm = RBM(config, debug=True)
+    # logger = TensorBoardLogger('./lattice_proteins_verification/', name="lattice_rbm")
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(rbm)
 
+    checkp = "./lattice_proteins_verification/lattice_rbm/version_8/checkpoints/epoch=49-step=99.ckpt"
+    rbm = RBM.load_from_checkpoint(checkp)
 
+    # results = gen_data_lowT(rbm, which="marginal")
+    results = gen_data_zeroT(rbm, which="joint")
+    visible, hiddens = results
 
-
-    # config = {"fasta_file": bivalent_data,
-    #           "molecule": "dna",
-    #           "h_num": 20,  # number of hidden units, can be variable
-    #           "v_num": 40,
-    #           "q": 4,
-    #           "batch_size": 10000,
-    #           "mc_moves": 6,
-    #           "seed": 38,
-    #           "lr": 0.0065,
-    #           "lr_final": None,
-    #           "decay_after": 0.75,
-    #           "loss_type": "energy",
-    #           "sample_type": "gibbs",    # gibbs, pt, or pcd
-    #           "sequence_weights": None,
-    #           "optimizer": "AdamW",
-    #           "epochs": 200,
-
+    E = rbm.energy(visible, hiddens)
+    print("E", E.shape)

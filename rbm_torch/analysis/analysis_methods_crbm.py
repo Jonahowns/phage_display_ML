@@ -101,7 +101,7 @@ def data_with_weights_plot(crbm, dataframe, hidden_key, hidden_unit_numbers, kdi
         elif I.dim() == 2:
             data_range = (I_max-I_min) * torch.arange(0,1+0.01,0.01).unsqueeze(1) + I_min
 
-        mean = crbm.mean_h(data_range, hidden_key)
+        mean = crbm.mean_h(data_range, hidden_key=hidden_key)
         line_data = mean.detach().numpy()
         range_data = data_range.detach().numpy()
 
