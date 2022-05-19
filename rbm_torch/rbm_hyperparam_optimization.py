@@ -10,7 +10,7 @@ import argparse
 # local files
 from rbm import RBM
 import rbm_configs
-import hyper_configs
+import rbm_hyper_configs
 
 
 def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):
@@ -220,7 +220,7 @@ if __name__ == '__main__':
 
     # Set search Parameters
     search = "asha"
-    optimization = hyper_configs.hidden_opt  # From hyper_configs, Sets which hyperparameters are optimized
+    optimization = rbm_hyper_configs.hidden_opt  # From hyper_configs, Sets which hyperparameters are optimized
 
     # Launch Hyperparameter Optimization Task
     if search == "pbt":

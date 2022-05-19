@@ -16,119 +16,10 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
-# import rbm_utils
-from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT
+# Project Dependencies
+from utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT
 import rbm_configs
 
-
-class RBMCaterogical(Dataset):
-
-    # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
-    # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu', one_hot=False, neighbor_threshold=None):
-
-        # Drop Duplicates/ Reset Index from most likely shuffled sequences
-        # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
-        self.dataset = dataset.reset_index(drop=True)
-
-        self.shuffle = shuffle
-        self.on_epoch_end()
-
-        # dictionaries mapping One letter code to integer for all macro molecule types
-        if base_to_id == 'protein':
-            self.base_to_id = aadict
-        elif base_to_id == 'dna':
-            self.base_to_id = dnadict
-        elif base_to_id == 'rna':
-            self.base_to_id = rnadict
-        self.n_bases = q
-
-        self.device = device # Makes sure everything is on correct device
-
-        self.max_length = max_length # Number of Visible Nodes
-        self.oh = one_hot
-        # self.train_labels = self.dataset.binary.to_numpy()
-        self.total = len(self.dataset.index)
-        self.seq_data = self.dataset.sequence.to_numpy()
-        self.train_data = self.categorical(self.seq_data)
-        if self.oh:
-            self.train_oh = F.one_hot(self.train_data, q)
-
-        if neighbor_threshold is not None:
-            neighs = self.count_neighbours(self.train_data, threshold=neighbor_threshold)
-            self.train_weights = 1./neighs
-        elif weights is not None:
-            if len(self.train_data) != len(weights):
-                print("Provided Weights are not the correct length")
-                exit(1)
-            self.train_weights = np.asarray(weights)
-            self.train_weights /= self.train_weights.sum()
-        else:
-            # all equally weighted
-            self.train_weights = 1./np.asarray([1. for x in range(self.total)])
-
-
-    def __getitem__(self, index):
-
-        self.count += 1
-        if (self.count % self.dataset.shape[0] == 0):
-            self.on_epoch_end()
-
-        seq = self.seq_data[index]
-        cat_seq = self.train_data[index]
-        weight = self.train_weights[index]
-
-        if self.oh:
-            one_hot = self.train_oh[index]
-            return seq, cat_seq, one_hot, weight
-        else:
-            return seq, cat_seq, weight
-
-    def categorical(self, seq_dataset):
-        return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)
-
-    def one_hot(self, cat_dataset):
-        one_hot_vector = F.one_hot(cat_dataset, num_classes=self.n_bases)
-        return one_hot_vector
-
-    # verified to work exactly as done in tubiana's implementation
-    def field_init(self):
-        out = torch.zeros((self.max_length, self.n_bases), device=self.device)
-        position_index = torch.arange(0, self.max_length, 1, device=self.device)
-        for b in range(self.total):
-            out[position_index, self.train_data[b]] += self.train_weights[b]
-        out.div_(self.total)  # in place
-
-        # invert softmax
-        eps = 1e-6
-        fields = torch.log((1 - eps) * out + eps / self.n_bases)
-        fields -= fields.sum(1).unsqueeze(1) / self.n_bases
-        return fields
-
-    def distance(MSA):
-        B = MSA.shape[0]
-        N = MSA.shape[1]
-        distance = np.zeros([B, B])
-        for b in range(B):
-            distance[b] = ((MSA[b] != MSA).mean(1))
-            distance[b, b] = 2.
-        return distance
-
-    def count_neighbours(MSA, threshold=0.1):  # Compute reweighting
-        B = MSA.shape[0]
-        N = MSA.shape[1]
-        num_neighbours = np.zeros(B)
-        for b in range(B):
-            num_neighbours[b] = ((MSA[b] != MSA).mean(1) < threshold).sum()
-        return num_neighbours
-
-    def __len__(self):
-        return self.train_data.shape[0]
-
-    def on_epoch_end(self):
-        self.count = 0
-        if self.shuffle:
-            self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
 
 
 class RBM(LightningModule):
@@ -757,7 +648,7 @@ class RBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = RBMCaterogical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
+        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
                                     shuffle=False, base_to_id=self.molecule, device=self.device)
 
         # initialize fields from data
@@ -788,7 +679,7 @@ class RBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = RBMCaterogical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
+        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
                                     shuffle=False, base_to_id=self.molecule, device=self.device)
 
         return DataLoader(
@@ -1057,7 +948,7 @@ class RBM(LightningModule):
         # X must be a pandas dataframe
         # Needs to be set
         self.prep_W()
-        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1074,7 +965,7 @@ class RBM(LightningModule):
         return X.sequence.tolist(), likelihood
 
     def saliency_map(self, X):
-        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1114,7 +1005,7 @@ class RBM(LightningModule):
     # Don't use this
     def predict_psuedo(self, X):
         self.prep_W()
-        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1426,7 +1317,6 @@ class RBM(LightningModule):
                 data[1] = data[1]
 
             return data
-
 
 
 # Get Model from checkpoint File with specified version and directory

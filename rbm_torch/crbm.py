@@ -1,13 +1,10 @@
 import time
 import pandas as pd
-from rbm import RBMCaterogical
 import math
 import numpy as np
-# import pytorch_lightning as pl
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
-# import matplotlib.pyplot as plt  # just for confusion matrix generation
 
 import os
 import torch
@@ -18,7 +15,7 @@ import multiprocessing  # Just to set the worker number
 from torch.autograd import Variable
 
 import crbm_configs
-from rbm_utils import aadict, dnadict, rnadict, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT
+from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT
 
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
@@ -909,7 +906,7 @@ class CRBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = RBMCaterogical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
 
         # initialize fields from data
         if init_fields:
@@ -933,7 +930,7 @@ class CRBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = RBMCaterogical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
 
         return torch.utils.data.DataLoader(
             val_reader,
@@ -1166,7 +1163,7 @@ class CRBM(LightningModule):
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
         # Read in data
-        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1186,7 +1183,7 @@ class CRBM(LightningModule):
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the saliency map for all sequences in X
     def saliency_map(self, X):
-        reader = RBMCaterogical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,

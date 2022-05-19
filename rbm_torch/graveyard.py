@@ -407,3 +407,171 @@ class Clamp(torch.autograd.Function): # clamp parameter values
 # plt = Trainer(profiler='advanced', max_epochs=10)
 # plt = Trainer(max_epochs=1)
 # plt.fit(rbm)
+
+
+##### DATA PREP STUFF
+
+# def initial_report(i):
+#     seqs = fasta_read(mfolder+rounds[i-1])
+#     seqs, cpy_num, df = data_prop(seqs, rounds[i-1], outfile=odir+rounds[i-1]+'seq_len_report.txt')
+#     return df
+#
+#
+# def extract_data(i, c_indices, datatypedict, uniform_length=True):
+#     seqs = fasta_read(mfolder+rounds[i-1])
+#     c_indices = datatypedict["cluster_indices"]
+#     cnum = datatypedict["clusters"]
+#     seqs, cpy_num, df = data_prop(seqs, f"r{i}", outfile=odir + rounds[i-1] + 'seq_len_report.txt')
+#     extractor(seqs, cnum, c_indices, odir + f"r{i}", cpy_num, uniform_length=uniform_length, position_indx=datatypedict["gap_position_indices"])
+
+# Processing the Files
+# for j in range(1, len(rounds)+1):
+#     df = initial_report(j)
+#     # dfs.append(df)
+#     for i in range(datatype["clusters"]):
+#         extract_data(j, datatype, uniform_length=True)
+
+
+# def initial_report(i):
+#     seqs = fasta_read(mfolder+rounds[i-1])
+#     seqs, cpy_num, df = data_prop(seqs, rounds[i-1], outfile=odir+rounds[i-1]+'seq_len_report.txt')
+#     return df
+#
+#
+# def extract_data(i, c_indices, datatypedict, uniform_length=True):
+#     seqs = fasta_read(mfolder+rounds[i-1])
+#     c_indices = datatypedict["cluster_indices"]
+#     cnum = datatypedict["clusters"]
+#     seqs, cpy_num, df = data_prop(seqs, f"r{i}", outfile=odir + rounds[i-1] + 'seq_len_report.txt')
+#     extractor(seqs, cnum, c_indices, odir + f"r{i}", cpy_num, uniform_length=uniform_length, position_indx=datatypedict["gap_position_indices"])
+
+# Processing the Files
+# for j in range(1, len(rounds)+1):
+#     df = initial_report(j)
+#     # dfs.append(df)
+#     for i in range(datatype["clusters"]):
+#         extract_data(j, datatype, uniform_length=True)
+
+
+
+
+
+
+# For switching b/t datasets that were processed differently
+
+
+
+#### Prepare Submission Scripts
+#
+# if focus == "pig":
+#     # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/ or /pig_tissue/trained_crbms/
+#     dest_path = f"../pig_tissue/{datatype_dir}/trained_{model}s/"
+#     src_path = f"../pig_tissue/{datatype_dir}/"
+#
+#     all_data_files = []
+#     all_model_names = []
+#     for i in range(datatype["clusters"]):
+#         all_data_files += [x + f'_c{i+1}.fasta' for x in rounds]
+#         all_model_names += [x+f"_c{i+1}" for x in rounds]
+#
+#     script_names = ["pig_" + datatype["id"] +"_"+str(i) for i in range(len(all_model_names))]
+#
+#     paths_to_data = [src_path + x for x in all_data_files]
+#
+# elif focus == "invivo":
+#     # path is from ProteinMotifRBM/agave_sbumit/ to /pig_tissue/trained_rbms/
+#     dest_path = f"../invivo/trained_{model}s/"
+#     src_path = "../invivo/"
+#
+#     c1 = [x + '_c1.fasta' for x in rounds]
+#     c2 = [x + '_c2.fasta' for x in rounds]
+#
+#     all_data_files = c1 + c2
+#
+#     model1 = [x + '_c1' for x in rounds]
+#     model2 = [x + '_c2' for x in rounds]
+#
+#     all_model_names = model1 + model2
+#
+#     script_names = ["invivo" + str(i) for i in range(len(all_model_names))]
+#
+#     paths_to_data = [src_path + x for x in all_data_files]
+#
+#
+#
+# if focus == "cov":
+#     # data type variable
+#     datatype_dir = datatype["process"]+f"_{datatype['clusters']}_clusters"
+#     # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/
+#     dest_path = f"../cov/{datatype_dir}/trained_{model}s/"
+#     src_path = f"../cov/"
+#
+#     all_data_files = [x + '.fasta' for x in rounds]
+#
+#     all_model_names = rounds
+#
+#     script_names = ["cov"+str(i+1) for i in range(len(all_model_names))]
+#
+#     paths_to_data = [src_path + x for x in all_data_files]
+
+
+# Processing the Files
+# for j in range(1, len(rounds)+1):
+    # df = initial_report(j)
+#     dfs.append(df)
+#     extract_data(j, 1, [[40, 40]])
+
+# def write_submission_scripts(modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True, gpus=1, partition="htc", pnum=1):
+#     # NAME DATA_PATH DESTINATION HIDDEN
+#     for i in range(len(modelnames)):
+#         if partition == "htc":
+#             # Special Subset as it has max wall time strictly at 4 hours
+#             o = open(f'rbm_torch/submission_templates/{model}_train_htc.sh', 'r')
+#         else:
+#             o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
+#         filedata = o.read()
+#         o.close()
+#
+#         if "c"+str(1) in modelnames[i]: # cluster 1 has 22 visible units
+#             vis = 22
+#         elif "c"+str(2) in modelnames[i]:# cluster 2 has 22 visible units
+#             vis = 45
+#         elif "r" in modelnames[i]:
+#             vis = 40 # Cov data is 40 Nucleotides
+#
+#
+#         # Replace the Strings we want
+#         filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
+#         filedata = filedata.replace("FOCUS", focus)
+#         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
+#
+#         if partition == "sulcgpu":
+#             filedata = filedata.replace("PARTITION", f"sulcgpu{pnum}")
+#             filedata = filedata.replace("QUEUE", "sulcgpu1")
+#         elif partition in ["htc", "htcgpu"] :
+#             filedata = filedata.replace("PARTITION", "htcgpu")
+#             filedata = filedata.replace("QUEUE", "normal")
+#         else:
+#             filedata = filedata.replace("PARTITION", f"{partition}{pnum}")
+#             filedata = filedata.replace("QUEUE", "wildfire")
+#         filedata = filedata.replace("GPU_NUM", str(gpus))
+#         filedata = filedata.replace("EPOCHS", str(epochs))
+#         filedata = filedata.replace("WEIGHTS", str(weights))
+#
+#         with open(f"./rbm_torch/agave_submit_{model}/" + script_names[i], 'w+') as file:
+#             file.write(filedata)
+#
+#     if weights:
+#         focus += "_w"
+#     with open(f"./rbm_torch/agave_submit_{model}/submit" + focus + ".sh", 'w+') as file:
+#         file.write("#!/bin/bash\n")
+#         for i in range(len(script_names)):
+#             file.write("sbatch " + script_names[i] + "\n")
+#
+#
+# write_submission_scripts(all_model_names, script_names, paths_to_data, dest_path, 20, focus, 200, weights=False, gaps=False, gpus=2, partition="sulcgpu2")
+# #
+# w_script_names = [x+"_w" for x in script_names]
+# #
+# write_submission_scripts(all_model_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False, gpus=2, partition="sulcgpu2")
+

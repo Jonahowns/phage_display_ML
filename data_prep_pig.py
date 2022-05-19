@@ -292,72 +292,40 @@ def extract_data(i, cnum, c_indices, add_gaps=True):
 
 #### Prepare Submission Scripts
 
-if focus == "pig":
-    # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/ or /pig_tissue/trained_crbms/
-    dest_path = f"../pig_tissue/{datatype_dir}/trained_{model}s/"
-    src_path = f"../pig_tissue/{datatype_dir}/"
-
-    all_data_files = []
-    all_model_names = []
-    for i in range(datatype["clusters"]):
-        all_data_files += [x + f'_c{i+1}.fasta' for x in rounds]
-        all_model_names += [x+f"_c{i+1}" for x in rounds]
-
-    script_names = ["pig_" + datatype["id"] +"_"+str(i) for i in range(len(all_model_names))]
-
-    paths_to_data = [src_path + x for x in all_data_files]
-
-elif focus == "invivo":
-    # path is from ProteinMotifRBM/agave_sbumit/ to /pig_tissue/trained_rbms/
-    dest_path = f"../invivo/trained_{model}s/"
-    src_path = "../invivo/"
-
-    c1 = [x + '_c1.fasta' for x in rounds]
-    c2 = [x + '_c2.fasta' for x in rounds]
-
-    all_data_files = c1 + c2
-
-    model1 = [x + '_c1' for x in rounds]
-    model2 = [x + '_c2' for x in rounds]
-
-    all_model_names = model1 + model2
-
-    script_names = ["invivo" + str(i) for i in range(len(all_model_names))]
-
-    paths_to_data = [src_path + x for x in all_data_files]
 
 
-def write_submission_scripts(datatypedict, modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
-    # NAME DATA_PATH DESTINATION HIDDEN
-    for i in range(len(modelnames)):
-        o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
-        filedata = o.read()
-        o.close()
 
-        # python rbm_train.sh focus Data_Path Epochs Gpus Weights
-        # Replace the Strings we want
-        filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
-        filedata = filedata.replace("FOCUS", focus)
-        filedata = filedata.replace("DATA_PATH", paths_to_data[i])
-        filedata = filedata.replace("PARTITION", "sulcgpu2")
-        filedata = filedata.replace("QUEUE", "sulcgpu1")
-        filedata = filedata.replace("GPU_NUM", str(1))
-        filedata = filedata.replace("EPOCHS", str(epochs))
-        filedata = filedata.replace("WEIGHTS", str(weights))
-
-        with open(f"./rbm_torch/agave_submit_{model}/" + script_names[i], 'w+') as file:
-            file.write(filedata)
-
-    if weights:
-        focus += f"_w"
-    with open(f"./rbm_torch/agave_submit_{model}/submit" + focus + ".sh", 'w+') as file:
-        file.write("#!/bin/bash\n")
-        for i in range(len(script_names)):
-            file.write("sbatch " + script_names[i] + "\n")
-
-
-write_submission_scripts(datatype, all_model_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
+# def write_submission_scripts(datatypedict, modelnames, script_names, paths_to_data, destination, hiddenunits, focus, epochs, weights=False, gaps=True):
+#     # NAME DATA_PATH DESTINATION HIDDEN
+#     for i in range(len(modelnames)):
+#         o = open(f'rbm_torch/submission_templates/{model}_train.sh', 'r')
+#         filedata = o.read()
+#         o.close()
 #
-w_script_names = [x+"_w" for x in script_names]
+#         # python rbm_train.sh focus Data_Path Epochs Gpus Weights
+#         # Replace the Strings we want
+#         filedata = filedata.replace("NAME", modelnames[i]+script_names[i])
+#         filedata = filedata.replace("FOCUS", focus)
+#         filedata = filedata.replace("DATA_PATH", paths_to_data[i])
+#         filedata = filedata.replace("PARTITION", "sulcgpu2")
+#         filedata = filedata.replace("QUEUE", "sulcgpu1")
+#         filedata = filedata.replace("GPU_NUM", str(1))
+#         filedata = filedata.replace("EPOCHS", str(epochs))
+#         filedata = filedata.replace("WEIGHTS", str(weights))
 #
-write_submission_scripts(datatype, all_model_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)
+#         with open(f"./rbm_torch/agave_submit_{model}/" + script_names[i], 'w+') as file:
+#             file.write(filedata)
+#
+#     if weights:
+#         focus += f"_w"
+#     with open(f"./rbm_torch/agave_submit_{model}/submit" + focus + ".sh", 'w+') as file:
+#         file.write("#!/bin/bash\n")
+#         for i in range(len(script_names)):
+#             file.write("sbatch " + script_names[i] + "\n")
+#
+#
+# write_submission_scripts(datatype, all_model_names, script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=False, gaps=True)
+# #
+# w_script_names = [x+"_w" for x in script_names]
+# #
+# write_submission_scripts(datatype, all_model_names, w_script_names, paths_to_data, dest_path, 20, f"pig_{datatype['id']}", 200, weights=True, gaps=True)

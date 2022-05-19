@@ -1,28 +1,44 @@
 supported_ml_models = ["rbm", "crbm"]
 
-def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
-    pig_ge2_datatype = {"focus": "pig", "molecule": "protein", "id": "ge2", "process": "gaps_end", "clusters": 2, "gap_position_indices": [-1, -1], "cluster_indices": [[12, 22], [35, 45]]}
-    pig_gm2_datatype = {"focus": "pig", "molecule": "protein", "id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
-    pig_ge4_datatype = {"focus": "pig", "molecule": "protein", "id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
-    pig_gm4_datatype = {"focus": "pig", "molecule": "protein", "id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
-    cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 
+# Datatype defines the basics of our data, Each datatype is specified for a group of related fasta files
+# Focus - > short string specifier that gives the overall dataset we are using
+# Molecule -> What kind of sequence data? currently protein, dna, and rna are supported
+# id -> short string specifier ONLY for datasets which have different clustering methods
+# process -> How were the gaps added to each dataset
+# clusters -> How many clusters are in each data file
+# cluster_indices -> Define the lengths of data put in each cluster, It is inclusive so [12, 16] includes length 12 and length 16. There must be cluster_indices for each cluster
+# gap_position_indices -> Index where gaps should be added to each sequence that is short of the maximum length.
+pig_ge2_datatype = {"focus": "pig", "molecule": "protein", "id": "ge2", "process": "gaps_end", "clusters": 2, "gap_position_indices": [-1, -1], "cluster_indices": [[12, 22], [35, 45]]}
+pig_gm2_datatype = {"focus": "pig", "molecule": "protein", "id": "gm2", "process": "gaps_middle", "clusters": 2, "gap_position_indices": [2, 16], "cluster_indices": [[12, 22], [35, 45]]}  # based solely off looking at the sequence logos
+pig_ge4_datatype = {"focus": "pig", "molecule": "protein", "id": "ge4", "process": "gaps_end", "clusters": 4, "gap_position_indices": [-1, -1, -1, -1], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
+pig_gm4_datatype = {"focus": "pig", "molecule": "protein", "id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
+cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
+
+supported_datatypes = {"pig_ge2": pig_ge2_datatype,
+                    "pig_gm2": pig_gm2_datatype,
+                    "pig_ge4": pig_ge4_datatype,
+                    "pig_gm4": pig_gm4_datatype,
+                    "cov": cov_datatype}
+
+
+def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
     if model not in supported_ml_models:
         print(f"Model {model} not supported. Please edit /rbm_torch/analysis/global_info.py to properly enable support for other ml models.")
         exit(-1)
 
     try:
-        datatype = {"pig_ge2": pig_ge2_datatype,
-                    "pig_gm2": pig_gm2_datatype,
-                    "pig_ge4": pig_ge4_datatype,
-                    "pig_gm4": pig_gm4_datatype,
-                    "cov": cov_datatype}[datatype_str]
+        datatype = supported_datatypes[datatype_str]
     except KeyError:
         print(f"Datatype {datatype_str} not found. Please add required data to get_global_info function in /rbm_torch/analysis/global_info.py")
         exit(-1)
 
-    if cluster > datatype["clusters"]:
+
+    if type(cluster) == int and cluster > datatype["clusters"]:
         print(f"Cluster {cluster} does not exist for datatype {datatype_str}")
+        exit(-1)
+    elif type(cluster) == str and cluster != "all":
+        print(f"Supported cluster options include the cluster number or 'all'. Received {cluster}")
         exit(-1)
 
     # Which directory are trained models stored in locally (This is for my globus transfer script to function properly)
@@ -43,8 +59,6 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
 
     # Server model location provides relative path from phage_display_ML directory to the server-side trained model directory
     server_model_location = data_location[6:] + f"trained_{model}s/"
-
-    assert datatype["focus"] in ["pig", "cov"]
 
     if datatype["focus"] == "pig":
         molecule = "protein"
@@ -95,5 +109,24 @@ def get_global_info(datatype_str, cluster=0, weights=False, model="rbm"):
                 "model_names": all_model_names, "local_model_dir": local_model_location,
                 "data_dir": data_location, "server_model_dir": server_model_location,
                 "molecule": molecule, "configkey": f"{datatype_str[:3]}"}
+
+    elif datatype["focus"] == "invivo":
+        molecule = "protein"
+        # dest_path = f"../invivo/trained_{model}s/"
+        # src_path = "../invivo/"
+        #
+        # c1 = [x + '_c1.fasta' for x in rounds]
+        # c2 = [x + '_c2.fasta' for x in rounds]
+        #
+        # all_data_files = c1 + c2
+        #
+        # model1 = [x + '_c1' for x in rounds]
+        # model2 = [x + '_c2' for x in rounds]
+        #
+        # all_model_names = model1 + model2
+        #
+        # script_names = ["invivo" + str(i) for i in range(len(all_model_names))]
+        #
+        # paths_to_data = [src_path + x for x in all_data_files]
 
     return info
