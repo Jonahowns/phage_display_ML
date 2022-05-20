@@ -108,9 +108,11 @@ class Categorical(Dataset):
         # self.train_labels = self.dataset.binary.to_numpy()
         self.total = len(self.dataset.index)
         self.seq_data = self.dataset.sequence.to_numpy()
-        self.train_data = self.categorical(self.seq_data)
+
         if self.oh:
-            self.train_oh = F.one_hot(self.train_data, q)
+            self.train_data = self.one_hot(self.train_data)
+        else:
+            self.train_data = self.categorical(self.seq_data)
 
         if neighbor_threshold is not None:
             neighs = self.count_neighbours(self.train_data, threshold=neighbor_threshold)
@@ -131,15 +133,12 @@ class Categorical(Dataset):
         if (self.count % self.dataset.shape[0] == 0):
             self.on_epoch_end()
 
-        seq = self.seq_data[index]
-        cat_seq = self.train_data[index]
+        seq = self.seq_data[index]  # str of sequence
+        model_input = self.train_data[index]  # either vector of integers for categorical or one hot vector
         weight = self.train_weights[index]
 
-        if self.oh:
-            one_hot = self.train_oh[index]
-            return seq, cat_seq, one_hot, weight
-        else:
-            return seq, cat_seq, weight
+        return seq, model_input, weight
+
 
     def categorical(self, seq_dataset):
         return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)

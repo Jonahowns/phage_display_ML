@@ -501,8 +501,6 @@ class CRBM(LightningModule):
             new_config.append(new_h)
         return new_config
 
-    # def assign_h(self, h, index, assignment):
-    #     for i in h:
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
@@ -519,7 +517,8 @@ class CRBM(LightningModule):
                 theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2)
                 a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2)
                 a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2)
-            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
+            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
+                                0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                     1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
             marginal[iid] = y.sum(1)  # 10 added so hidden layer has stronger effect on free energy, also in energy_h
             # marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
@@ -761,8 +760,7 @@ class CRBM(LightningModule):
     def markov_step(self, v, beta=1):
         # Gibbs Sampler
         h = self.sample_from_inputs_h(self.compute_output_v(v), beta=beta)
-        nv = self.sample_from_inputs_v(self.compute_output_h(h), beta=beta)
-        return nv, h
+        return self.sample_from_inputs_v(self.compute_output_h(h), beta=beta), h
 
     def markov_PT_and_exchange(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
@@ -855,7 +853,6 @@ class CRBM(LightningModule):
 
     ######################################################### Pytorch Lightning Functions
     ## Loads Data to be trained from provided fasta file
-    # def prepare_data(self):
     def load_data(self, file):
         try:
             if self.worker_num == 0:
@@ -953,9 +950,7 @@ class CRBM(LightningModule):
                 exit(1)
 
     def validation_step(self, batch, batch_idx):
-        # Needed for pseudo_likelihood calculation
-
-        seqs, V_pos, one_hot, seq_weights = batch
+        seqs, one_hot, seq_weights = batch
 
         # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy_avg = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()
@@ -973,8 +968,8 @@ class CRBM(LightningModule):
     def validation_epoch_end(self, outputs):
         # avg_pl = torch.stack([x['val_pseudo_likelihood'] for x in outputs]).mean()
         # self.logger.experiment.add_scalar("Validation pseudo_likelihood", avg_pl, self.current_epoch)
-        avg_pl = torch.stack([x['val_free_energy'] for x in outputs]).mean()
-        self.logger.experiment.add_scalar("Validation Free Energy", avg_pl, self.current_epoch)
+        avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
+        self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
 
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
     def training_epoch_end(self, outputs):
@@ -1001,121 +996,122 @@ class CRBM(LightningModule):
 
     ## Not yet rewritten for crbm
     def training_step_CD_energy(self, batch, batch_idx):
-        seqs, V_pos, one_hot, seq_weights = batch
-        weights = seq_weights.clone.detach()
-        V_pos = V_pos.clone().detach()
-        V_neg, h_neg, V_pos, h_pos = self(V_pos)
+        seqs, one_hot, seq_weights = batch
+        weights = seq_weights.clone()
+        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
-        energy_pos = (self.energy(V_pos, h_pos) * weights).sum() / weights.sum()# energy of training data
-        energy_neg = (self.energy(V_neg, h_neg) * weights).sum() / weights.sum() # energy of gibbs sampled visible states
+        # Calculate CD loss
+        E_p = (self.energy(V_pos_oh) * weights).sum() / weights.sum()  # energy of training data
+        E_n = (self.energy(V_neg_oh) * weights).sum() / weights.sum()  # energy of gibbs sampled visible states
+        cd_loss = E_p - E_n
 
-        cd_loss = energy_pos - energy_neg
-
-        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * weights).sum() / weights.sum()
-
+        # Regularization Terms
         reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
-        tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
-        reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
 
-        loss = cd_loss + reg1 + reg2
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum(
+                (1, 2, 3)).mean() + 1)
 
-        logs = {"loss": loss.detach(),
-                # "train_pseudo_likelihood": pseudo_likelihood.detach(),
+        # Calculate Loss
+        loss = cd_loss + reg1 + reg2 + reg3
+
+        logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
+                "train_free_energy": E_p.detach(),
                 "field_reg": reg1.detach(),
-                "weight_reg": reg2.detach()
+                "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
                 }
 
-        # self.log("ptl/train_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
 
     # Not yet rewritten for CRBM
     def training_step_PT_free_energy(self, batch, batch_idx):
-        seqs, V_pos, one_hot, seq_weights = batch
-        V_pos = V_pos.clone().detach()
-        V_neg, h_neg, V_pos, h_pos = self.forward(V_pos)
-        weights = seq_weights.clone().detach()
-
-        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
-        cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit act
-
-        pseudo_likelihood = (self.pseudo_likelihood(one_hot).clone().detach() * weights).sum() / weights.sum()
-
-        reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
-        tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
-        reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
-
-        loss = cd_loss + reg1 + reg2
-
-        logs = {"loss": loss.detach(),
-                "train_pseudo_likelihood": pseudo_likelihood.detach(),
-                "free_energy_diff": cd_loss.detach(),
-                "field_reg": reg1.detach(),
-                "weight_reg": reg2.detach()
-                }
-
-        self.log("ptl/train_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
-        return logs
-
-    def training_step_CD_free_energy(self, batch, batch_idx):
-        # seqs, V_pos, one_hot, seq_weights = batch
-        seqs, V_pos, one_hot, seq_weights = batch
+        seqs, one_hot, seq_weights = batch
         weights = seq_weights.clone()
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
-        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
+        # Calculate CD loss
         F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum()  # free energy of training data
         F_vp = (self.free_energy(V_neg_oh) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
-        cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
-
-        free_energy = F_v.detach()
-
-        # pseudo_likelihood = (self.pseudo_likelihood(V_pos_oh) * weights).sum() / weights.sum()
+        cd_loss = F_v - F_vp
 
         # Regularization Terms
-        reg1 = self.lf/2 * getattr(self, "fields").square().sum((0, 1))
-
+        reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
-            # conv_shape = self.convolution_topology[i]["convolution_dims"]  # (batch, hidden u, hidden k, convy_num=1)
-            # x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2)).square() / (conv_shape[2])
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-            reg2 += x.sum(0) * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
+            reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
 
-            # Size of Convolution Filters
-            # weight_size = (h_num, input_channels, kernel[0], kernel[1])
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum(
+                (1, 2, 3)).mean() + 1)
 
-        # tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
-
+        # Calc loss
         loss = cd_loss + reg1 + reg2 + reg3
 
         logs = {"loss": loss,
                 # "train_pseudo_likelihood": pseudo_likelihood.detach(),
                 "free_energy_diff": cd_loss.detach(),
-                "train_free_energy": free_energy,
+                "train_free_energy": F_v.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
                 "distance_reg": reg3.detach()
                 }
 
-        # self.log("ptl/train_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_free_energy", free_energy, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return logs
+
+    def training_step_CD_free_energy(self, batch, batch_idx):
+        seqs, one_hot, seq_weights = batch
+        weights = seq_weights.clone()
+        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
+
+        F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg_oh) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        cd_loss = F_v - F_vp
+
+        # Regularization Terms
+        reg1 = self.lf/2 * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.sum(0) * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
+
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+        # Calculate Loss
+        loss = cd_loss + reg1 + reg2 + reg3
+
+        logs = {"loss": loss,
+                "free_energy_diff": cd_loss.detach(),
+                "train_free_energy": F_v.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
+                }
+
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
 
     ## Gradient Clipping for poor behavior, have no need for it yet
     # def on_after_backward(self):
-    #     self.grad_norm_clip_value = 10
+    #     self.grad_norm_clip_value = 100
     #     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip_value)
 
     def forward(self, V_pos_ohe):
@@ -1123,27 +1119,25 @@ class CRBM(LightningModule):
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
-            fantasy_v = V_pos_ohe.clone()
-            h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
             with torch.no_grad(): # only use last sample for gradient calculation, Enabled to minimize memory usage, hopefully won't have much effect on performance
-                for _ in range(self.mc_moves-1):
+                fantasy_v, fantasy_h = self.markov_step(V_pos_ohe)
+                for _ in range(self.mc_moves-2):
                     fantasy_v, fantasy_h = self.markov_step(fantasy_v)
 
             V_neg, fantasy_h = self.markov_step(fantasy_v)
-            h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
 
-            return V_neg, h_neg, V_pos_ohe, h_pos
+            # V_neg, h_neg, V_pos, h_pos
+            return V_neg, self.sample_from_inputs_h(self.compute_output_v(V_neg)), V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
         elif self.sample_type == "pt":
             # Parallel Tempering
-            h_pos = self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
-
             n_chains = V_pos_ohe.shape[0]
-            fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
-            fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
-            fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
 
             with torch.no_grad():
+                fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
+                fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
+                fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
+
                 for _ in range(self.mc_moves-1):
                     fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
                     self.update_betas()
@@ -1151,10 +1145,8 @@ class CRBM(LightningModule):
             fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
             self.update_betas()
 
-            V_neg = fantasy_v[0]
-            h_neg = fantasy_h[0]
-
-            return V_neg, h_neg, V_pos_ohe, h_pos
+            # V_neg, h_neg, V_pos, h_pos
+            return fantasy_v[0], fantasy_h[0], V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
@@ -1172,7 +1164,7 @@ class CRBM(LightningModule):
         with torch.no_grad():
             likelihood = []
             for i, batch in enumerate(data_loader):
-                seqs, V_pos, one_hot, seq_weights = batch
+                seqs, one_hot, seq_weights = batch
                 likelihood += self.likelihood(one_hot).detach().tolist()
 
         return X.sequence.tolist(), likelihood
@@ -1191,14 +1183,13 @@ class CRBM(LightningModule):
         saliency_maps = []
         self.eval()
         for i, batch in enumerate(data_loader):
-            seqs, V_pos, one_hot, seq_weights = batch
+            seqs, one_hot, seq_weights = batch
             one_hot_v = Variable(one_hot.double(), requires_grad=True)
-            V_neg, h_neg, V_pos_out, h_pos = self(one_hot_v)
+            V_neg, h_neg, V_pos, h_pos = self(one_hot_v)
             weights = seq_weights
-            F_v = (self.free_energy(one_hot_v) * weights).sum() / weights.sum()  # free energy of training data
+            F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
             F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
             cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
-            # free_energy = F_v.detach()
 
             # Regularization Terms
             reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
@@ -1230,7 +1221,7 @@ class CRBM(LightningModule):
     #     with torch.no_grad():
     #         likelihood = []
     #         for i, batch in enumerate(data_loader):
-    #             seqs, V_pos, one_hot, seq_weights = batch
+    #             seqs, one_hot, seq_weights = batch
     #             likelihood += self.pseudo_likelihood(one_hot).detach().tolist()
     #
     #     return X.sequence.tolist(), likelihood
