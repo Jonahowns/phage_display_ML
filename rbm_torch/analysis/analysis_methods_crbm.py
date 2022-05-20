@@ -1,8 +1,8 @@
 import sys
 sys.path.append("../")
-from rbm import fasta_read
-import rbm_utils
-from crbm import CRBM, get_beta_and_W
+
+import utils
+from crbm import CRBM
 import numpy as np
 import analysis_methods as am
 
@@ -47,7 +47,7 @@ def data_with_weights_plot(crbm, dataframe, hidden_key, hidden_unit_numbers, kdi
 
     Wdims = crbm.convolution_topology[hidden_key]["weight_dims"]  # Get dimensions of W matrix
     h_num = Wdims[0]
-    beta, W = get_beta_and_W(crbm, hidden_key, include_gaps=False)   # Get Beta and sort hidden Units by Frobenius Norms
+    beta, W = utils.get_beta_and_W(crbm, hidden_key, include_gaps=False)   # Get Beta and sort hidden Units by Frobenius Norms
     order = np.argsort(beta)[::-1]
 
     ### Reduction of the k dimension, or alternatively view all
@@ -111,7 +111,7 @@ def data_with_weights_plot(crbm, dataframe, hidden_key, hidden_unit_numbers, kdi
     for hid, hu_num in enumerate(hidden_unit_numbers):
         ix = order[hu_num]  # get hidden units by frobenius norm order (look at get_beta_and_W)
         # Make Sequence Logo
-        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule=crbm.molecule)
+        utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule=crbm.molecule)
 
         if kdim != "full":
             t_x = np.asarray(range_data[:, ix])
@@ -159,7 +159,7 @@ def data_with_weights_plot(crbm, dataframe, hidden_key, hidden_unit_numbers, kdi
                 axd[f"cgf{hid}_{j}"].yaxis.tick_right()
 
                 if not even and j == convx - 1:  # Last Plot that contains nothing
-                    clean_ax(axd[f"cgf{hid}_{j+1}"])
+                    utils.clean_ax(axd[f"cgf{hid}_{j+1}"])
     plt.show()
 
 

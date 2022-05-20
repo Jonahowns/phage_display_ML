@@ -281,6 +281,7 @@ def process_lines(assigned_lines):
 
     return seqs, titles, all_chars
 
+
 def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, char_set=False, yield_q=False):
     o = open(fastafile)
     titles = []
@@ -307,7 +308,6 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
         return seqs, titles
     else:
         return seqs
-
 
 ######### Data Generation Methods #########
 
@@ -374,6 +374,63 @@ def markov_step_zeroT_marginal(self, v,beta=1):
     I = self.compute_output_h(h)
     nv = self.transform_v(I)
     return nv, h
+
+
+##### Other model utility functions
+
+# Get Model from checkpoint File with specified version and directory
+# def get_checkpoint(version, dir=""):
+#     checkpoint_dir = dir + "/version_" + str(version) + "/checkpoints/"
+#
+#     for file in os.listdir(checkpoint_dir):
+#         if file.endswith(".ckpt"):
+#             checkpoint_file = os.path.join(checkpoint_dir, file)
+#     return checkpoint_file
+
+def get_beta_and_W(model, hidden_key=None, include_gaps=False):
+    if model._get_name() == "RBM":
+        W = model.get_param("W")
+        if include_gaps:
+            return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+        else:
+            return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
+    elif model._get_name() == "CRBM":
+        if hidden_key is None:
+            print("Must specify hidden key in get_beta_and_W for crbm")
+            exit(-1)
+        else:
+            W = model.get_param(hidden_key + "_W").squeeze(1)
+            if include_gaps:
+                return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+            else:
+                return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
+
+def all_weights(model, name=None, rows=5):
+    if name is None:
+        name = model._get_name()
+    if model._get_name() == "RBM":
+        beta, W = get_beta_and_W(model)
+        order = np.argsort(beta)[::-1]
+        wdim = W.shape[1]
+        if wdim <= 20:
+            ncols = 2
+        else:
+            ncols = 1
+        fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=ncols, figsize=(11, 9), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=400, molecule=model.molecule)
+    elif model._get_name() == "CRBM":
+        for key in model.hidden_convolution_keys:
+            wdim = model.convolution_topology[key]["weight_dims"]
+            kernelx = wdim[2]
+            if kernelx <= 10:
+                ncols = 2
+            else:
+                ncols = 1
+            conv_weights(model, key, name+"_"+key, rows, ncols, 11, 9)
+
+def conv_weights(crbm, hidden_key, name, rows, columns, h, w):
+    beta, W = get_beta_and_W(crbm, hidden_key)
+    order = np.argsort(beta)[::-1]
+    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=400, molecule=crbm.molecule)
 
 
 ## Implementation inspired from https://stackoverflow.com/questions/42615527/sequence-logos-in-matplotlib-aligning-xticks

@@ -1319,23 +1319,6 @@ class RBM(LightningModule):
             return data
 
 
-# Get Model from checkpoint File with specified version and directory
-def get_checkpoint(version, dir=""):
-    checkpoint_dir = dir + "/version_" + str(version) + "/checkpoints/"
-
-    for file in os.listdir(checkpoint_dir):
-        if file.endswith(".ckpt"):
-            checkpoint_file = os.path.join(checkpoint_dir, file)
-    return checkpoint_file
-
-def get_beta_and_W(rbm):
-    W = rbm.get_param("W")
-    return np.sqrt((W ** 2).sum(-1).sum(-1)), W
-
-def all_weights(rbm, name, rows, columns, h, w, molecule='rna'):
-    beta, W = get_beta_and_W(rbm)
-    order = np.argsort(beta)[::-1]
-    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=10,ticks_labels_size=10,title_size=12, dpi=400, molecule=molecule)
 
 
 if __name__ == '__main__':

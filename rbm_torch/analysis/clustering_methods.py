@@ -1,6 +1,6 @@
 import sys
 sys.path.append("../")
-from rbm import fasta_read, RBM, get_beta_and_W
+from rbm import RBM
 import utils
 from crbm import CRBM
 

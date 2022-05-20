@@ -84,7 +84,7 @@ def conv2d_dim(input_shape, conv_topology):
 
 
 class CRBM(LightningModule):
-    def __init__(self, config, debug=False):
+    def __init__(self, config, debug=False, load_data=True):
         super().__init__()
         # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
         self.v_num = config['v_num']   # Number of visible nodes
@@ -148,19 +148,16 @@ class CRBM(LightningModule):
             exit(1)
 
         # Load data
-        self.training_data, self.validation_data = self.load_data(self.fasta_file)
+        if load_data:
+            self.training_data, self.validation_data = self.load_data(self.fasta_file)
 
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
         # sample types control whether gibbs sampling from the data points or parallel tempering from random configs are used
         # Switches How the training of the RBM is performed
 
-        if loss_type not in ['energy', 'free_energy']:
-            print(f"Loss Type {loss_type} not supported")
-            exit(1)
-        if sample_type not in ['gibbs', 'pt']:
-            print(f"Sample Type {sample_type} not supported")
-            exit(1)
+        assert loss_type in ['energy', 'free_energy']
+        assert sample_type in ['gibbs', 'pt']
 
         self.loss_type = loss_type
         self.sample_type = sample_type
@@ -266,7 +263,7 @@ class CRBM(LightningModule):
         self.update_betas_lr = 0.1
         self.update_betas_lr_decay = 1
 
-    ############################################################# RBM Functions
+    ############################################################# CRBM Functions
     ## Compute Psuedo likelihood of given visible config
     # TODO: Figure this out
     # Currently gives wrong values
@@ -1575,38 +1572,6 @@ class CRBM(LightningModule):
 # optionally returns the affinities
 
 
-# Get Model from checkpoint File with specified version and directory
-def get_checkpoint(version, dir=""):
-    checkpoint_dir = dir + "/version_" + str(version) + "/checkpoints/"
-
-    for file in os.listdir(checkpoint_dir):
-        if file.endswith(".ckpt"):
-            checkpoint_file = os.path.join(checkpoint_dir, file)
-    return checkpoint_file
-
-def get_beta_and_W(crbm, hidden_key, include_gaps=False):
-    W = crbm.get_param(hidden_key + "_W").squeeze(1)
-    if include_gaps:
-        return np.sqrt((W ** 2).sum(-1).sum(-1)), W
-    else:
-        return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
-
-
-def conv_weights(crbm, hidden_key, name, rows, columns, h, w):
-    beta, W = get_beta_and_W(crbm, hidden_key)
-    order = np.argsort(beta)[::-1]
-    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=400, molecule=crbm.molecule)
-
-def all_weights(crbm, base_name="crbm_"):
-    for key in crbm.hidden_convolution_keys:
-        wdim = crbm.convolution_topology[key]["weight_dims"]
-        kernelx = wdim[2]
-        if kernelx <= 10:
-            ncols = 2
-        else:
-            ncols = 1
-        nrows = math.ceil(wdim[0]/ncols)  # number of weights the weight matrix
-        conv_weights(crbm, key, base_name+"_"+key, nrows, ncols, 11, 9)
 
 
 if __name__ == '__main__':

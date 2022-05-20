@@ -1,8 +1,9 @@
 import sys
 sys.path.append("../")
-from rbm import fasta_read, RBM, get_beta_and_W
-import rbm_utils
+
+import utils
 from crbm import CRBM
+from rbm import RBM
 
 import math
 import pandas as pd
@@ -20,16 +21,16 @@ from notebook_generation_methods import generate_notebook
 # Clusters are 1 indexed
 
 
-int_to_letter_dicts = {"protein": rbm_utils.aadict, "dna": rbm_utils.dnadict, "rna": rbm_utils.rnadict}
+int_to_letter_dicts = {"protein": utils.aadict, "dna": utils.dnadict, "rna": utils.rnadict}
 
 # Colors Used for Likelihood Plots, can always add / change order
-supported_colors = ["b", "r", "g", "y", "m", "c", "bl", "k", "c", "DarkKhaki", "DarkOrchid"]
+supported_colors = ["b", "r", "g", "y", "m", "c", "k", "DarkKhaki", "DarkOrchid"]
 
 # Helper Functions for loading data and loading RBMs not in our current directory
 # assignment function assigns label based off the count (ex. returns "low" for count < 10 )
 def fetch_data(fasta_names, dir="", counts=False, assignment_function=None, threads=1, molecule="protein"):
     for xid, x in enumerate(fasta_names):
-        seqs, counts, all_chars, q_data = fasta_read(dir + "/" + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
+        seqs, counts, all_chars, q_data = utils.fasta_read(dir + "/" + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
         round_label = [x for i in range(len(seqs))]
         if assignment_function is not None:
             assignment = [assignment_function(i) for i in counts]
@@ -145,7 +146,7 @@ def seq_logo(dataframe, output_file, weight=False, outdir=""):
 
 
 def view_weights(rbm, type="max", selected=None, molecule="protein", title=None):
-    beta, W = rbm.get_beta_and_W(rbm)
+    beta, W = utils.get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
     W = W[order]
     assert type in ["max", "select"]
@@ -160,7 +161,7 @@ def view_weights(rbm, type="max", selected=None, molecule="protein", title=None)
             selected_weights[id] = W[i]  # Overwrite with weights we are interested in
 
     # Assume we want weights
-    fig = rbm_utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
+    fig = utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
 
 
 def dataframe_to_input(dataframe, base_to_id, v_num, weights=False):
@@ -186,7 +187,7 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     input_hiddens = rbm.compute_output_v(data_tensor).detach().numpy()
 
     # Get Beta and sort hidden Units by Frobenius Norms
-    beta, W = get_beta_and_W(rbm)
+    beta, W = utils.get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
 
     gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
@@ -206,7 +207,7 @@ def cgf_with_weights_plot(rbm, dataframe, hidden_unit_numbers):
     for hid, hu_num in enumerate(hidden_unit_numbers):
         ix = order[hu_num]  # get weight index
         # Make Sequence Logo
-        rbm_utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
+        utils.Sequence_logo(W[ix], ax=axd[f"weight{hid}"], data_type="weights", ylabel=f"Weight #{hu_num}", ticks_every=5, ticks_labels_size=14, title_size=20, molecule='protein')
 
         t_x = np.asarray(fullranges[:, ix])
         t_y = np.asarray(pre_cgf[:, ix])
@@ -230,7 +231,7 @@ def plot_input_mean(RBM, I, hidden_unit_numbers, I_range=None, weights=None, xla
         hidden_unit_numbers = [hidden_unit_numbers]
 
     # Get order of highest normed weights
-    beta, W = get_beta_and_W(RBM)
+    beta, W = utils.get_beta_and_W(RBM)
     order = np.argsort(beta)[::-1]
 
     # Change hidden unit numbers to correspond to the max weights inputs
@@ -414,7 +415,7 @@ if __name__ == '__main__':
     data_c2 = fetch_data(c2_rounds, dir="../../pig_tissue", counts=True)
     b3_data = data_c2[data_c2["round"] == "b3_c2"]
     # b3_input, b3_weight_list = dataframe_to_input(b3_data, int_to_letter_dicts["protein"], 45, weights=True)
-    checkp, v_dir = get_checkpoint_path("b3_c2", rbmdir=mdir)
+    checkp, v_dir = utils.get_checkpoint_path("b3_c2", rbmdir=mdir)
     b3_rbm = RBM.load_from_checkpoint(checkp)
     cgf_with_weights_plot(b3_rbm, b3_data, [0, 1, 2, 5, 8, 9, 10, 12, 14, 16])
     print("hello")
