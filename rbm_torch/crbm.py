@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import numpy as np
 from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning.profiler import SimpleProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
@@ -84,7 +85,7 @@ def conv2d_dim(input_shape, conv_topology):
 
 
 class CRBM(LightningModule):
-    def __init__(self, config, debug=False, load_data=True):
+    def __init__(self, config, debug=False, load_data=True, precision="double"):
         super().__init__()
         # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
         self.v_num = config['v_num']   # Number of visible nodes
@@ -186,7 +187,12 @@ class CRBM(LightningModule):
 
         # Pytorch Basic Options
         torch.manual_seed(self.seed)  # For reproducibility
-        torch.set_default_dtype(torch.float64)  # Double Precision
+        supported_precisions = {"double": torch.float64, "single": torch.float32}
+        try:
+            torch.set_default_dtype(supported_precisions[precision])
+        except:
+            print(f"Precision {precision} not supported.")
+            exit(-1)
 
         self.convolution_topology = config["convolution_topology"]
 
@@ -409,7 +415,7 @@ class CRBM(LightningModule):
     ## Computes g(si) term of potential
     def energy_v(self, config, remove_init=False):
         # config is a one hot vector
-        v = config.double()
+        v = config.type(torch.get_default_dtype())
         E = torch.zeros(config.shape[0], device=self.device)
         for i in range(self.q):
             if remove_init:
@@ -608,7 +614,7 @@ class CRBM(LightningModule):
         outputs = []
         for i in self.hidden_convolution_keys:
             # convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv2d(X.unsqueeze(1).double(), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+            outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
             # outputs[-1] /= convx
@@ -625,7 +631,7 @@ class CRBM(LightningModule):
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
-            nonzero_masks.append((outputs[-1] != 0.).double())  # Used for calculating mean of outputs, don't want zeros to influence mean
+            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()))  # Used for calculating mean of outputs, don't want zeros to influence mean
             # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored
@@ -734,7 +740,7 @@ class CRBM(LightningModule):
 
     ## Hidden dReLU supporting Function
     def erf_times_gauss(self, X):  # This is the "characteristic" function phi
-        m = torch.zeros_like(X, dtype=torch.float64)
+        m = torch.zeros_like(X, device=self.device)
         tmp1 = X < -6
         m[tmp1] = 2 * torch.exp(X[tmp1] ** 2 / 2)
 
@@ -749,7 +755,7 @@ class CRBM(LightningModule):
 
     ## Hidden dReLU supporting Function
     def log_erf_times_gauss(self, X):
-        m = torch.zeros_like(X)
+        m = torch.zeros_like(X, device=self.device)
         tmp = X < 4
         m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / np.sqrt(2))) + self.logsqrtpiover2
         m[~tmp] = - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4)
@@ -793,7 +799,7 @@ class CRBM(LightningModule):
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i + 1], [0])[:, swap]
 
             if self.record_acceptance:
-                self.acceptance_rates[i] = swap.double().mean()
+                self.acceptance_rates[i] = swap.type(torch.get_default_dtype()).mean()
                 self.mav_acceptance_rates[i] = self.mavar_gamma * self.mav_acceptance_rates[i] + self.acceptance_rates[
                     i] * (1 - self.mavar_gamma)
 
@@ -841,7 +847,7 @@ class CRBM(LightningModule):
                     particle_id[i:i + 2, swap] = torch.flip(particle_id[:i+1], [0])[:, swap]
 
             if self.record_acceptance:
-                self.acceptance_rates[i] = swap.double().mean()
+                self.acceptance_rates[i] = swap.type(torch.get_default_dtype()).mean()
                 self.mav_acceptance_rates[i] = self.mavar_gamma * self.mav_acceptance_rates[i] + self.acceptance_rates[i] * (1 - self.mavar_gamma)
 
         if self.record_swaps:
@@ -1184,7 +1190,7 @@ class CRBM(LightningModule):
         self.eval()
         for i, batch in enumerate(data_loader):
             seqs, one_hot, seq_weights = batch
-            one_hot_v = Variable(one_hot.double(), requires_grad=True)
+            one_hot_v = Variable(one_hot.type(torch.get_default_dtype()), requires_grad=True)
             V_neg, h_neg, V_pos, h_pos = self(one_hot_v)
             weights = seq_weights
             F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
@@ -1591,24 +1597,25 @@ if __name__ == '__main__':
     # 5: Other stuff I'm sure
 
     # Training Code
-    # crbm = CRBM(config, debug=False)
-    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
-    # plt.fit(crbm)
+    crbm = CRBM(config, debug=False, precision="single")
+    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    # profiler = SimpleProfiler(profiler_memory=True)
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
+    plt.fit(crbm)
 
     # Debugging Code1
-    checkpoint = "./tb_logs/conv_lattice_trial/version_87/checkpoints/epoch=49-step=99.ckpt"
-    crbm = CRBM.load_from_checkpoint(checkpoint)
-
-
-    # results = gen_data_lowT(crbm, which="marginal")
-    # results = gen_data_zeroT(crbm, which="joint")
-    results = gen_data_lowT(crbm, which="joint")
-    visible, hiddens = results
-
-    E = crbm.energy(visible, hiddens)
-    print("E", E.shape)
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_87/checkpoints/epoch=49-step=99.ckpt"
+    # crbm = CRBM.load_from_checkpoint(checkpoint)
+    #
+    #
+    # # results = gen_data_lowT(crbm, which="marginal")
+    # # results = gen_data_zeroT(crbm, which="joint")
+    # results = gen_data_lowT(crbm, which="joint")
+    # visible, hiddens = results
+    #
+    # E = crbm.energy(visible, hiddens)
+    # print("E", E.shape)
     # crbm_lat.prepare_data()
     # all_weights(crbm_lat, "crbm_lattice")
     # crbm_lat.AIS()

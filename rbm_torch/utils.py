@@ -110,7 +110,7 @@ class Categorical(Dataset):
         self.seq_data = self.dataset.sequence.to_numpy()
 
         if self.oh:
-            self.train_data = self.one_hot(self.train_data)
+            self.train_data = self.one_hot(self.categorical(self.seq_data))
         else:
             self.train_data = self.categorical(self.seq_data)
 
@@ -151,8 +151,12 @@ class Categorical(Dataset):
     def field_init(self):
         out = torch.zeros((self.max_length, self.n_bases), device=self.device)
         position_index = torch.arange(0, self.max_length, 1, device=self.device)
+        if self.oh:
+            cat_tensor = self.train_data.argmax(-1)
+        else:
+            cat_tensor = self.train_data
         for b in range(self.total):
-            out[position_index, self.train_data[b]] += self.train_weights[b]
+            out[position_index, cat_tensor[b]] += self.train_weights[b]
         out.div_(self.total)  # in place
 
         # invert softmax
