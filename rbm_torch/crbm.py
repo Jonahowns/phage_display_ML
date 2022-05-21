@@ -85,7 +85,7 @@ def conv2d_dim(input_shape, conv_topology):
 
 
 class CRBM(LightningModule):
-    def __init__(self, config, debug=False, load_data=True, precision="double"):
+    def __init__(self, config, debug=False, precision="double"):
         super().__init__()
         # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
         self.v_num = config['v_num']   # Number of visible nodes
@@ -147,10 +147,6 @@ class CRBM(LightningModule):
         else:
             print("Provided Weights Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
             exit(1)
-
-        # Load data
-        if load_data:
-            self.training_data, self.validation_data = self.load_data(self.fasta_file)
 
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
@@ -235,7 +231,6 @@ class CRBM(LightningModule):
     
         # Initialize PT members, might b
         self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
-
 
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
         self.N_PT = N_PT
@@ -506,7 +501,6 @@ class CRBM(LightningModule):
                 new_h = new_h.unsqueeze(dim)
             new_config.append(new_h)
         return new_config
-
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
@@ -809,7 +803,6 @@ class CRBM(LightningModule):
         self.count_swaps += 1
         return v, h, e
 
-
     ## Markov Step for Parallel Tempering
     def markov_step_PT(self, v, h, e):
         for i, beta in zip(torch.arange(self.N_PT), self.betas):
@@ -856,36 +849,43 @@ class CRBM(LightningModule):
         self.count_swaps += 1
         return v, h, e
 
-
     ######################################################### Pytorch Lightning Functions
     ## Loads Data to be trained from provided fasta file
-    def load_data(self, file):
-        try:
-            if self.worker_num == 0:
-                threads = 1
+    def setup(self):
+        if type(self.fasta_file) is str:
+            self.fasta_file = [self.fasta_file]
+
+        data_pds = []
+
+        for file in self.fasta_file:
+            try:
+                if self.worker_num == 0:
+                    threads = 1
+                else:
+                    threads = self.worker_num
+                seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=True, threads=threads)
+            except IOError:
+                print(f"Provided Fasta File '{file}' Not Found")
+                print(f"Current Directory '{os.getcwd()}'")
+                exit()
+
+            if self.weights == "fasta":
+                self.weights = np.asarray(seq_read_counts)
+
+            if q_data != self.q:
+                print(
+                    f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
+                exit(-1)
+
+            if self.weights is None:
+                data = pd.DataFrame(data={'sequence': seqs})
             else:
-                threads = self.worker_num
-            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, self.molecule, drop_duplicates=True, threads=threads)
-        except IOError:
-            print(f"Provided Fasta File '{self.fasta_file}' Not Found")
-            print(f"Current Directory '{os.curdir}'")
-            exit()
+                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
 
-        if self.weights == "fasta":
-            self.weights = np.asarray(seq_read_counts)
+            data_pds.append(data)
 
-        if q_data != self.q:
-            print(
-                f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
-            exit(-1)
-
-        if self.weights is None:
-            data = pd.DataFrame(data={'sequence': seqs})
-        else:
-            data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
-
-        train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
-        return train, validate
+        all_data = pd.concat(data_pds)
+        self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):

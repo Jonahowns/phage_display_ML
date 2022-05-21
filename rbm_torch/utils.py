@@ -38,6 +38,11 @@ from multiprocessing import Pool
 import pandas as pd
 import types
 from torch.utils.data import Dataset
+from pytorch_lightning import LightningDataModule
+from typing import Optional
+from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
+
 
 # Globals used for Converting Sequence Strings to Integers
 aa = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y', '-']
@@ -144,7 +149,6 @@ class Categorical(Dataset):
 
         return seq, model_input, weight
 
-
     def categorical(self, seq_dataset):
         return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)
 
@@ -152,7 +156,6 @@ class Categorical(Dataset):
         one_hot_vector = F.one_hot(cat_dataset, num_classes=self.n_bases)
         return one_hot_vector
 
-    # verified to work exactly as done in tubiana's implementation
     def field_init(self):
         out = torch.zeros((self.max_length, self.n_bases), device=self.device)
         position_index = torch.arange(0, self.max_length, 1, device=self.device)
@@ -170,7 +173,7 @@ class Categorical(Dataset):
         fields -= fields.sum(1).unsqueeze(1) / self.n_bases
         return fields
 
-    def distance(MSA):
+    def distance(self, MSA):
         B = MSA.shape[0]
         N = MSA.shape[1]
         distance = np.zeros([B, B])
@@ -179,7 +182,7 @@ class Categorical(Dataset):
             distance[b, b] = 2.
         return distance
 
-    def count_neighbours(MSA, threshold=0.1):  # Compute reweighting
+    def count_neighbours(self, MSA, threshold=0.1):  # Compute reweighting
         B = MSA.shape[0]
         N = MSA.shape[1]
         num_neighbours = np.zeros(B)
@@ -194,6 +197,113 @@ class Categorical(Dataset):
         self.count = 0
         if self.shuffle:
             self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
+
+# import os
+# import torch
+# import pickle
+#
+#
+#
+# class PartitionDataset(Dataset):
+#
+#     def __init__(self, data):
+#         self.data = data
+#     def __len__(self):
+#         return len(self.data["features"])
+#     def __getitem__(self, idx):
+#         return (
+#             self.data["features"][idx],
+#             self.data["labels"][idx]
+#         )
+#
+# class PartitionPerEpochDataModule(LightningDataModule):
+#
+#     def __init__(self, batch_size, train_files, q, num_workers=2, molecule="protein", seed=0):
+#         super().__init__()
+#         self.train_files = sorted(train_files)
+#         # self.val_file = val_file
+#         self.batch_size = batch_size
+#         self.num_workers = num_workers
+#         self.molecule = molecule
+#         self.seed = seed
+#         self.q = q
+#         # self.val_data = self.load_data(self.val_file)
+#     def load_data(self):
+#         data_pds = []
+#         for fasta_file in self.train_files:
+#             try:
+#                 if self.num_workers == 0:
+#                     threads = 1
+#                 else:
+#                     threads = self.num_workers
+#                 seqs, seq_read_counts, all_chars, q_data = fasta_read(fasta_file, self.molecule, drop_duplicates=True,
+#                                                                       threads=threads)
+#             except IOError:
+#                 print(f"Provided Fasta File '{fasta_file}' Not Found")
+#                 print(f"Current Directory '{os.getcwd()}'")
+#                 exit()
+#
+#             if self.weights == "fasta":
+#                 self.weights = np.asarray(seq_read_counts)
+#
+#             if q_data != self.q:
+#                 print(
+#                     f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
+#                 exit(-1)
+#
+#             if self.weights is None:
+#                 data = pd.DataFrame(data={'sequence': seqs})
+#             else:
+#                 data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
+#
+#             data_pds.append(data)
+#
+#         all_data = pd.concat(data_pds)
+#         train, validate = train_test_split(all_data, test_size=0.2, random_state=self.seed)
+#
+#         return train, validate
+#     def prepare_data(self):
+#         pass
+#     def setup(self, stage: Optional[str] = None):
+#         """
+#         Anything called here is being distributed across GPUs
+#         (do many times).  Lightning handles distributed sampling.
+#         """
+#         # Build the val dataset
+#         self.val_dataset = PartitionDataset(data=self.val_data)
+#     def train_dataloader(self):
+#         """
+#         This function sends the same file to each GPU and
+#         loops back after running out of files.
+#         Lightning will apply distributed sampling to
+#         the data loader so that each GPU receives
+#         different samples from the file until exhausted.
+#         """
+#         # Load the data file with the right index
+#         total = len(self.train_files)
+#         train_file_idx = self.trainer.current_epoch % total
+#         train_file = self.train_files[train_file_idx]
+#         train_data = self.load_data(train_file)
+#         # Build the train dataset
+#         train_dataset = PartitionDataset(data=train_data)
+#         # Return the dataloader, which lightning will turn
+#         # into a distributed data loader, ensuring that
+#         # different samples are selected on each GPU
+#         return DataLoader(
+#             train_dataset,
+#             self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=True
+#         )
+#     def val_dataloader(self):
+#         return DataLoader(
+#             self.val_dataset,
+#             self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=True
+#         )
+#
+
 
 def cat_to_seq(categorical_tensor, molecule="protein"):
     base_to_id = int_to_letter_dicts[molecule]
