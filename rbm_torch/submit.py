@@ -15,6 +15,7 @@ if __name__ == "__main__":
     parser.add_argument('-w', action="store_true", help="Use sequence count to weight sequences")
     parser.add_argument('--wdir', nargs="?", type=str, help="Manually Set working directory, Usually handled internally.")
     parser.add_argument('-o', '--output', type=str, help="Set slurm output file prefix")
+    parser.add_argument('--precision', type=str, help="Set precision of the model, single or double", default="double")
     parser.add_argument('-c', nargs="?", help="Number of CPU cores to use. Default is 6.", default="6", type=str)
     parser.add_argument('--walltime', default="7-00:00", type=str, nargs="?", help="Set wall time for training")
     parser.add_argument('-a', '--account', default="jprocyk", type=str, nargs="?", help="Account name for server submission")
@@ -77,6 +78,7 @@ if __name__ == "__main__":
         filedata = filedata.replace("EMAIL", args.email)
         filedata = filedata.replace("CORES", args.c)
         filedata = filedata.replace("WALLTIME", args.walltime)
+        filedata = filedata.replace("PRECISION", args.precision)
 
         if args.w:
             filedata = filedata.replace("WEIGHTS", 'True')

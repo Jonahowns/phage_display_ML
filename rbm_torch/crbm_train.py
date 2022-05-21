@@ -18,6 +18,7 @@ if __name__ == '__main__':
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of gpus available")
     parser.add_argument('weights', type=str, help="Use sequence count to weight sequences")
+    parser.add_argument('precision', type=str, help="single or double precision", default="double")
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)

@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python MODEL_train.py DATATYPE DATAPATH EPOCHS GPUS WEIGHTS
+python MODEL_train.py DATATYPE DATAPATH EPOCHS GPUS WEIGHTS PRECISION
 
