@@ -3,7 +3,7 @@ import pandas as pd
 import math
 import numpy as np
 from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler
+from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
@@ -906,7 +906,7 @@ class CRBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
 
         # initialize fields from data
         if init_fields:
@@ -930,7 +930,7 @@ class CRBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
 
         return torch.utils.data.DataLoader(
             val_reader,
@@ -1158,7 +1158,7 @@ class CRBM(LightningModule):
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
         # Read in data
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1178,7 +1178,7 @@ class CRBM(LightningModule):
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the saliency map for all sequences in X
     def saliency_map(self, X):
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1583,7 +1583,7 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 50
+    config["epochs"] = 10
     # config["convolution_topology"] = {
     #     "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     #     "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -1601,7 +1601,9 @@ if __name__ == '__main__':
     logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
     # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
     # profiler = SimpleProfiler(profiler_memory=True)
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
+    # profiler = torch.profiler.profile(profile_memory=True)
+    # profiler = PyTorchProfiler()
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, profiler="simple")  # gpus=1
     plt.fit(crbm)
 
     # Debugging Code1

@@ -649,7 +649,7 @@ class RBM(LightningModule):
             training_weights = None
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                    shuffle=False, base_to_id=self.molecule, device=self.device)
+                                    shuffle=False, molecule=self.molecule, device=self.device)
 
         # initialize fields from data
         if init_fields:
@@ -680,7 +680,7 @@ class RBM(LightningModule):
             validation_weights = None
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                    shuffle=False, base_to_id=self.molecule, device=self.device)
+                                    shuffle=False, molecule=self.molecule, device=self.device)
 
         return DataLoader(
             val_reader,
@@ -948,7 +948,7 @@ class RBM(LightningModule):
         # X must be a pandas dataframe
         # Needs to be set
         self.prep_W()
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -965,7 +965,7 @@ class RBM(LightningModule):
         return X.sequence.tolist(), likelihood
 
     def saliency_map(self, X):
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1005,7 +1005,7 @@ class RBM(LightningModule):
     # Don't use this
     def predict_psuedo(self, X):
         self.prep_W()
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,

@@ -45,18 +45,21 @@ aalower = [x.lower() for x in aa]
 aadictU = {aa[k]: k for k in range(len(aa))}
 aadictL = {aalower[k]:k for k in range(len(aalower))}
 aadict = {**aadictU, **aadictL}
+aadict_inverse = {v: k for k, v in aadictU.items()}
 
 dna = ['A', 'C', 'G', 'T', '-']
 dnalower = [x.lower() for x in dna]
 dnadictU = {dna[k]: k for k in range(len(dna))}
 dnadictL = {dnalower[k]: k for k in range(len(dnalower))}
 dnadict = {**dnadictU, **dnadictL}
+dnadict_inverse = {v: k for k, v in dnadictU.items()}
 
 rna = ['A', 'C', 'G', 'U', '-']
 rnalower = [x.lower() for x in rna]
 rnadictU = {rna[k]: k for k in range(len(rna))}
 rnadictL = {rnalower[k]: k for k in range(len(rnalower))}
 rnadict = {**rnadictU, **rnadictL}
+rnadict_inverse = {v: k for k, v in rnadict.items()}
 
 # Deal with wildcard values, all are equivalent
 dnadict['*'] = dnadict['-']
@@ -78,12 +81,15 @@ aadict['b'] = len(aa)
 aadict['z'] = -1
 aadict['.'] = -1
 
+letter_to_int_dicts = {"protein": aadict, "dna": dnadict, "rna": rnadict}
+int_to_letter_dicts = {"protein": aadict_inverse, "dna": dnadict_inverse, "rna": rnadict_inverse}
+
 
 class Categorical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, base_to_id='protein', device='cpu', one_hot=False, neighbor_threshold=None):
+    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, molecule='protein', device='cpu', one_hot=False, neighbor_threshold=None):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -93,12 +99,11 @@ class Categorical(Dataset):
         self.on_epoch_end()
 
         # dictionaries mapping One letter code to integer for all macro molecule types
-        if base_to_id == 'protein':
-            self.base_to_id = aadict
-        elif base_to_id == 'dna':
-            self.base_to_id = dnadict
-        elif base_to_id == 'rna':
-            self.base_to_id = rnadict
+        try:
+            self.base_to_id = letter_to_int_dicts[molecule]
+        except:
+            print(f"Molecule {molecule} not supported. Please use protein, dna, or rna")
+
         self.n_bases = q
 
         self.device = device # Makes sure everything is on correct device
@@ -190,7 +195,15 @@ class Categorical(Dataset):
         if self.shuffle:
             self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
 
-
+def cat_to_seq(categorical_tensor, molecule="protein"):
+    base_to_id = int_to_letter_dicts[molecule]
+    seqs = []
+    for i in range(categorical_tensor.shape[0]):
+        seq = ""
+        for j in range(categorical_tensor.shape[1]):
+            seq += base_to_id[categorical_tensor[i][j]]
+        seqs.append(seq)
+    return seqs
 
 ######### Data Reading Methods #########
 
