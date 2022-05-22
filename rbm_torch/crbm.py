@@ -851,10 +851,11 @@ class CRBM(LightningModule):
 
     ######################################################### Pytorch Lightning Functions
     ## Loads Data to be trained from provided fasta file
-    def setup(self):
+    def setup(self, stage=None):
         if type(self.fasta_file) is str:
             self.fasta_file = [self.fasta_file]
 
+        assert type(self.fasta_file) is list
         data_pds = []
 
         for file in self.fasta_file:
