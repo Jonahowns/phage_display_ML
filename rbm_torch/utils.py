@@ -94,7 +94,7 @@ class Categorical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, molecule='protein', device='cpu', one_hot=False, neighbor_threshold=None):
+    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, molecule='protein', device='cpu', one_hot=False, neighbor_threshold=None, scale_weights=None):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -126,16 +126,21 @@ class Categorical(Dataset):
 
         if neighbor_threshold is not None:
             neighs = self.count_neighbours(self.train_data, threshold=neighbor_threshold)
-            self.train_weights = 1./neighs
-        elif weights is not None:
+            self.train_weights = neighs/neighs.max()
+        elif weights is not None and type(weights) is list:
             if len(self.train_data) != len(weights):
                 print("Provided Weights are not the correct length")
                 exit(1)
-            self.train_weights = np.asarray(weights)
-            self.train_weights /= self.train_weights.sum()
+            if scale_weights is None:
+                self.train_weights = np.asarray(weights)
+            elif scale_weights is "log":
+                self.train_weights = self.log_scale(weights)
+            else:
+                print(f"Scale Weights '{scale_weights}' not supported! Implement in Categorical Dataset.")
+            # self.train_weights /= self.train_weights.sum()
         else:
             # all equally weighted
-            self.train_weights = 1./np.asarray([1. for x in range(self.total)])
+            self.train_weights = np.asarray([1. for x in range(self.total)])
 
     def __getitem__(self, index):
 
@@ -153,8 +158,10 @@ class Categorical(Dataset):
         return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)
 
     def one_hot(self, cat_dataset):
-        one_hot_vector = F.one_hot(cat_dataset, num_classes=self.n_bases)
-        return one_hot_vector
+        return F.one_hot(cat_dataset, num_classes=self.n_bases)
+
+    def log_scale(self, weights):
+        return np.asarray([math.log(x + 0.0001) for x in weights])
 
     def field_init(self):
         out = torch.zeros((self.max_length, self.n_bases), device=self.device)
@@ -183,12 +190,29 @@ class Categorical(Dataset):
         return distance
 
     def count_neighbours(self, MSA, threshold=0.1):  # Compute reweighting
+        # works but is quite slow, should probably move this eventually
+        # msa_long = MSA.long()
         B = MSA.shape[0]
-        N = MSA.shape[1]
-        num_neighbours = np.zeros(B)
+        neighs = np.zeros((B,), dtype=float)
         for b in range(B):
-            num_neighbours[b] = ((MSA[b] != MSA).mean(1) < threshold).sum()
-        return num_neighbours
+            if self.oh:
+                # pairwise_dist = torch.logical_and(MSA[b].unsqueeze(0))
+                pairwise_dists = (MSA[b].unsqueeze(0) * MSA).sum(-1).sum(-1) / self.max_length
+                neighs[b] = (pairwise_dists > threshold).float().sum().item()
+            else:
+                pairwise_dist = (MSA[b].unsqueeze(0) - MSA)
+                dists = (pairwise_dist == 0).float().sum(1) / self.max_length
+                neighs[b] = (dists > threshold).float().sum()
+
+            if b % 10000 == 0:
+                print("Progress:", round(b/B, 3) * 100)
+
+        # N = MSA.shape[1]
+        # num_neighbours = np.zeros(B)
+        #
+        # for b in range(B):
+        #     num_neighbours[b] = 1 + ((MSA[b] != MSA).float().mean(1) < threshold).sum()
+        return neighs
 
     def __len__(self):
         return self.train_data.shape[0]
@@ -197,6 +221,27 @@ class Categorical(Dataset):
         self.count = 0
         if self.shuffle:
             self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
+
+
+def prepare_weight_file(fasta_file, out, method="neighbors", threads=1, molecule="protein"):
+    seqs, counts, all_chars, q = fasta_read(fasta_file, molecule, threads, drop_duplicates=False)
+    cat_tensor = seq_to_cat(seqs, molecule=molecule)
+    if method == "neighbors":
+        count = count_neighbours(cat_tensor.numpy())
+
+    np.savetxt(out, count)
+
+
+
+def count_neighbours(MSA, threshold=0.1):  # Compute reweighting
+    B = MSA.shape[0]
+    MSA = MSA.detach().numpy()
+    num_neighbours = np.zeros(B)
+    for b in range(B):
+        num_neighbours[b] = 1 + ((MSA[b] != MSA).mean(1) < threshold).sum()
+    return num_neighbours
+
+
 
 # import os
 # import torch
@@ -314,6 +359,11 @@ def cat_to_seq(categorical_tensor, molecule="protein"):
             seq += base_to_id[categorical_tensor[i][j]]
         seqs.append(seq)
     return seqs
+
+def seq_to_cat(seqs, molecule="protein"):
+    base_to_id = letter_to_int_dicts[molecule]
+    return torch.tensor(list(map(lambda x: [base_to_id[y] for y in x], seqs)), dtype=torch.long)
+
 
 ######### Data Reading Methods #########
 

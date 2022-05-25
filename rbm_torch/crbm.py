@@ -16,7 +16,7 @@ import multiprocessing  # Just to set the worker number
 from torch.autograd import Variable
 
 import crbm_configs
-from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT
+from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights
 
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
@@ -73,7 +73,6 @@ def conv2d_dim(input_shape, conv_topology):
     conv_output_size = (batch_size, h_num, convx_num, convy_num)
 
     return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
-
 
 # Example convolution topology
  # config["convolution_topology"] = {
@@ -134,10 +133,15 @@ class CRBM(LightningModule):
         self.ld = config['ld']
         self.seed = config['seed']
 
+        if "scale_weights" in config.keys():
+            self.scale_weights = config["scale_weights"]
+        else:
+            self.scale_weights = None
+
 
         if weights == None:
             self.weights = None
-        elif type(weights) == "str":
+        elif type(weights) == str:
             if weights == "fasta": # Assumes weights are in fasta file
                 self.weights = "fasta"
         elif type(weights) == torch.tensor:
@@ -145,7 +149,7 @@ class CRBM(LightningModule):
         elif type(weights) == np.array:
             self.weights = weights
         else:
-            print("Provided Weights Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
+            print("Provided Weights  Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
             exit(1)
 
 
@@ -907,7 +911,8 @@ class CRBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
+        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False,
+                                   molecule=self.molecule, device=self.device, one_hot=True, scale_weights=self.scale_weights)
 
         # initialize fields from data
         if init_fields:
@@ -931,7 +936,8 @@ class CRBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
+        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False,
+                                 molecule=self.molecule, device=self.device, one_hot=True, scale_weights=self.scale_weights)
 
         return torch.utils.data.DataLoader(
             val_reader,
@@ -1090,14 +1096,13 @@ class CRBM(LightningModule):
         cd_loss = F_v - F_vp
 
         # Regularization Terms
-        reg1 = self.lf/2 * getattr(self, "fields").square().sum((0, 1))
+        reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-            reg2 += x.sum(0) * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
-
+            reg2 += x.mean() * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
             reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
         # Calculate Loss
@@ -1566,10 +1571,6 @@ class CRBM(LightningModule):
 
             return data
 
-# returns list of strings containing sequences
-# optionally returns the affinities
-
-
 
 
 if __name__ == '__main__':
@@ -1583,8 +1584,13 @@ if __name__ == '__main__':
     # config["ld"] = 40.0
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
-    config["sequence_weights"] = None
-    config["epochs"] = 10
+    # config["sequence_weights"] = 'fasta'
+    config['scale_weights'] = "log"
+    config["epochs"] = 100
+
+    config["l1_2"] = 25.
+    config["ld"] = 10.
+    config["lf"] = 5.
     # config["convolution_topology"] = {
     #     "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     #     "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -1598,18 +1604,23 @@ if __name__ == '__main__':
     # 5: Other stuff I'm sure
 
     # Training Code
-    crbm = CRBM(config, debug=False, precision="single")
+    crbm = CRBM(config, debug=True, precision="single")
+    crbm.setup()
+    crbm.train_dataloader()
+
+
     logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
     # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
     # profiler = SimpleProfiler(profiler_memory=True)
     # profiler = torch.profiler.profile(profile_memory=True)
     # profiler = PyTorchProfiler()
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, profiler="simple")  # gpus=1
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
     plt.fit(crbm)
 
     # Debugging Code1
-    # checkpoint = "./tb_logs/conv_lattice_trial/version_87/checkpoints/epoch=49-step=99.ckpt"
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_116/checkpoints/epoch=99-step=199.ckpt"
     # crbm = CRBM.load_from_checkpoint(checkpoint)
+    # all_weights(crbm, name="./tb_logs/conv_lattice_trial/version_116/conv_trial")
     #
     #
     # # results = gen_data_lowT(crbm, which="marginal")

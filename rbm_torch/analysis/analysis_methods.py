@@ -129,8 +129,7 @@ def data_subset(data_df, likelihood_dict, target, lmin, lmax):
     all_counts = tdf.copynum.tolist()
     likelihood = likelihood_dict[target]
     seqs, counts, ls = zip(*[(all_seqs[xid], all_counts[xid], x) for xid, x in enumerate(likelihood) if lmin < x < lmax])
-    final = pd.DataFrame({"sequence": seqs, "copynum": counts, "likelihood": ls})
-    return final
+    return pd.DataFrame({"sequence": seqs, "copynum": counts, "likelihood": ls})
 
 
 def seq_logo(dataframe, output_file, weight=False, outdir=""):
