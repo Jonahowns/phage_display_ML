@@ -223,8 +223,8 @@ if focus == 'pig':
     odir = f'./pig_tissue/{datatype_dir}/'  # out directory
     rounds = ['np1', 'np2', 'np3', 'n1', 'b3']
     if not os.path.isdir(odir):
-        os.mkdir(f"./pig_tissue/{datatype_dir}")
-        os.mkdir(f"./pig_tissue/{datatype_dir}/trained_{model}s/")
+        os.mkdir(f"pig/{datatype_dir}")
+        os.mkdir(f"pig/{datatype_dir}/trained_{model}s/")
 
 
 elif focus == 'invivo':
@@ -286,7 +286,7 @@ def extract_data(i, cnum, c_indices, add_gaps=True):
 # #              showmeans=True, showextrema=True, showmedians=True,
 # #              quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
 # # ax.set_xlabel("Sequence Length")
-# plt.savefig("./pig_tissue/data_length_vis.png", dpi=300)
+# plt.savefig("./pig/data_length_vis.png", dpi=300)
 
 
 

@@ -10,7 +10,7 @@ from global_info import get_global_info
 
 if __name__ == '__main__':
     # Example Usage
-    # rbm_train.py pig ../pig_tissue/b3_c1.fasta protein 200 1 False
+    # rbm_train.py pig ../pig/b3_c1.fasta protein 200 1 False
     parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
     parser.add_argument('datatype_str', type=str, help="Which Datset? pig, invivo, rod, or cov? Used to Set default config")
     parser.add_argument('dataset', type=str, help="Location of Data File")
@@ -27,7 +27,7 @@ if __name__ == '__main__':
 
     clusternum = name[-1]  # cluster the data belongs to
     if clusternum.isalpha() or clusternum.isdigit() and name[-2] != "c":
-        clusternum = 0
+        clusternum = 1
     elif clusternum.isdigit() and name[-2] == "c":  # Cluster specified
         clusternum = int(clusternum)
     else:  # Character is neither a letter nor number
@@ -43,16 +43,16 @@ if __name__ == '__main__':
     model = "rbm"
 
     try:
-        info = get_global_info(args.datatype_str, cluster=clusternum, weights=w_bool, model=model)
+        info = get_global_info(args.datatype_str)
     except KeyError:
         print(f"Key {args.datatype_str} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
 
     # Set Default config
     try:
-        config = rbm_configs.all_configs[info["configkey"]]
+        config = rbm_configs.all_configs[info["configkey"][clusternum]]
     except KeyError:
-        print(f"Configkey {info['configkey']} Not Supported.")
+        print(f"Configkey {info['configkey'][clusternum]} Not Supported.")
         print("Please add default config to configs.py under this key. Please add global info about to /analysis/analysis_methods.py")
         exit(-1)
 
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     # Training Code
     rbm = RBM(config, debug=False)
-    logger = TensorBoardLogger('../' + info["server_model_dir"], name=name)
+    logger = TensorBoardLogger('../' + info["server_model_dir"][clusternum], name=name)
     if args.gpus > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines
         plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="ddp")  # distributed data-parallel

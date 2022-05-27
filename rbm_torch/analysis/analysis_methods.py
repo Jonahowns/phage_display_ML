@@ -131,17 +131,21 @@ def data_subset(data_df, likelihood_dict, target, lmin, lmax):
     seqs, counts, ls = zip(*[(all_seqs[xid], all_counts[xid], x) for xid, x in enumerate(likelihood) if lmin < x < lmax])
     return pd.DataFrame({"sequence": seqs, "copynum": counts, "likelihood": ls})
 
-
+# Returns path to generated seq logo png file
 def seq_logo(dataframe, output_file, weight=False, outdir=""):
     out = outdir + output_file
     df = dataframe[["sequence", "copynum"]]
-    df.to_csv('tmp.csv', sep='\t', index=False, header=False)
-    if weight:
-        sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1 -weight 2", shell=True)
+    if df.empty:
+        print("No sequences found in provided dataframe")
+        exit(-1)
     else:
-        sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1", shell=True)
-    sp.check_call("rm tmp.csv", shell=True)
-    return out
+        df.to_csv('tmp.csv', sep='\t', index=False, header=False)
+        if weight:
+            sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1 -weight 2", shell=True)
+        else:
+            sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1", shell=True)
+        sp.check_call("rm tmp.csv", shell=True)
+        return out
 
 
 def view_weights(rbm, type="max", selected=None, molecule="protein", title=None):
@@ -411,7 +415,7 @@ if __name__ == '__main__':
     c1_rounds = [x + "_c1" for x in rounds]
     c2_rounds = [x + "_c2" for x in rounds]
 
-    data_c2 = fetch_data(c2_rounds, dir="../../pig_tissue", counts=True)
+    data_c2 = fetch_data(c2_rounds, dir="../../pig", counts=True)
     b3_data = data_c2[data_c2["round"] == "b3_c2"]
     # b3_input, b3_weight_list = dataframe_to_input(b3_data, int_to_letter_dicts["protein"], 45, weights=True)
     checkp, v_dir = utils.get_checkpoint_path("b3_c2", rbmdir=mdir)

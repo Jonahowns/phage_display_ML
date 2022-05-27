@@ -32,5 +32,5 @@ def write_ss_file(file, seqs, structures):
 
 if __name__ == "__main__":
     # 25 C and 37 C, no impact on binders SP5, SP5. SP7
-    seqs, structs = nupack_predict_ss("../../../cov/r12.fasta", molecule="dna", celsius=25, sodium=0.157, magnesium=0.03)
+    seqs, structs = nupack_predict_ss("../../../datasets/cov/r12.fasta", molecule="dna", celsius=25, sodium=0.157, magnesium=0.03)
     write_ss_file("r12_ss.txt", seqs, structs)

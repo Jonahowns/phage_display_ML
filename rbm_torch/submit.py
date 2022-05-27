@@ -34,13 +34,19 @@ if __name__ == "__main__":
     else:
         output = args.output
 
-    clusternum = 0  # Used on datasets that has been divided into clusters of sequences with similar lengths
-    if "pig" in args.datatype:  # Pig dataset is the only one that does this right now
-        clusternum = int(args.round[-1])
+    clusternum = args.round[-1]  # cluster the data belongs to (). Need to use a string to access
+    if clusternum.isalpha() or clusternum.isdigit() and args.round[-2] != "c":  # No cluster number, set to 1
+        clusternum = str(1)
+    elif clusternum.isdigit() and args.round[-2] == "c":  # Cluster specified, get clusternum
+        pass
+    else:  # Character is neither a letter nor number
+        print(f"Cluster Designation {clusternum} is not supported.")
+        exit(-1)
+
 
     # Now we get the global information which gives us specifics
     try:
-        info = get_global_info(args.datatype, cluster=clusternum, weights=args.w, model=args.model)
+        info = get_global_info(args.datatype)
     except KeyError:
         print(f"Key {args.datatype} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
@@ -49,13 +55,13 @@ if __name__ == "__main__":
     paths = []
     outs = []
     if "all" in args.round:
-        paths = [info["data_dir"][3:] + x for x in info["data_files"]]
-        outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"]]
+        paths = [info["data_dir"][3:] + x for x in info["data_files"][clusternum]]
+        outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"][clusternum]]
     else:
-        data_index = info['data_files'].index(args.round+".fasta")
+        data_index = info['data_files'][clusternum].index(args.round+".fasta")
         if data_index == -1:
             print(f"Dataset {args.round+'.fasta'} Not Found. Please Ensure everything is listed correctly in global_info")
-        paths.append(info["data_dir"][3:] + info["data_files"][data_index])
+        paths.append(info["data_dir"][3:] + info["data_files"][clusternum][data_index])
         outs.append(f"{args.datatype}_{args.model}_{output}" + output)
 
     for pid, p in enumerate(paths):

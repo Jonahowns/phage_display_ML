@@ -11,7 +11,7 @@ from global_info import get_global_info
 
 if __name__ == '__main__':
     # Example Usage
-    # rbm_train.py pig ../pig_tissue/b3_c1.fasta protein 200 1 False
+    # rbm_train.py pig ../pig/b3_c1.fasta protein 200 1 False
     parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
     parser.add_argument('datatype_str', type=str, help="Which Datset? pig, invivo, rod, or cov? Used to Set default config")
     parser.add_argument('dataset', type=str, help="Location of Data File")
@@ -28,9 +28,9 @@ if __name__ == '__main__':
     name = file.split(".")[0]   # short specifier of round etc.
 
     clusternum = name[-1]  # cluster the data belongs to ()
-    if clusternum.isalpha() or clusternum.isdigit() and name[-2] != "c":
-        clusternum = 0
-    elif clusternum.isdigit() and name[-2] == "c": # Cluster specified
+    if clusternum.isalpha() or clusternum.isdigit() and name[-2] != "c":  # No cluster number, set to 1
+        clusternum = 1
+    elif clusternum.isdigit() and name[-2] == "c": # Cluster specified, get clusternum
         clusternum = int(clusternum)
     else:  # Character is neither a letter nor number
         print(f"Cluster Designation {clusternum} is not supported.")
@@ -45,16 +45,16 @@ if __name__ == '__main__':
     model = "crbm"
 
     try:
-        info = get_global_info(args.datatype_str, cluster=clusternum, weights=w_bool, model=model)
+        info = get_global_info(args.datatype_str, dir="../datasets/dataset_files/")
     except KeyError:
         print(f"Key {args.datatype_str} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
 
     # Set Default config
     try:
-        config = crbm_configs.all_configs[info["configkey"]]
+        config = crbm_configs.all_configs[info["configkey"][str(clusternum)]]
     except KeyError:
-        print(f"Configkey {info['configkey']} Not Supported.")
+        print(f"Configkey {info['configkey'][str(clusternum)]} Not Supported.")
         print("Please add default config to configs.py under this key. Please add global info about to /analysis/analysis_methods.py")
         exit(-1)
 
@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
     # Training Code
     crbm = CRBM(config, debug=False)
-    logger = TensorBoardLogger('../' + info["server_model_dir"], name=name)
+    logger = TensorBoardLogger('../' + info["server_model_dir"][model], name=name)
     if args.gpus > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines
         plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="ddp")  # distributed data-parallel

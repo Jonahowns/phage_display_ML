@@ -133,7 +133,7 @@ class Categorical(Dataset):
                 exit(1)
             if scale_weights is None:
                 self.train_weights = np.asarray(weights)
-            elif scale_weights is "log":
+            elif scale_weights == "log":
                 self.train_weights = self.log_scale(weights)
             else:
                 print(f"Scale Weights '{scale_weights}' not supported! Implement in Categorical Dataset.")
@@ -522,9 +522,26 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
                     setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}")*beta, requires_grad=False))
         elif which == "marginal":
             param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            new_convolution_keys = copy.deepcopy(tmp_model.hidden_convolution_keys)
+
+            # Setup Steps for editing the hidden layer topology of our model
+            setattr(tmp_model, "convolution_topology", copy.deepcopy(model.convolution_topology))
+            tmp_model_conv_topology = getattr(tmp_model, "convolution_topology")  # Get and edit tmp_model_conv_topology
+
+            # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
             for key in tmp_model.hidden_convolution_keys:
-                for pkey in param_keys:
-                    setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(torch.repeat_interleave(getattr(tmp_model, f"{key}_{pkey}"), beta, dim=0), requires_grad=False))
+                for b in range(beta-1):
+                    new_key = f"{key}_{b}"
+                    new_convolution_keys.append(new_key)
+                    tmp_model_conv_topology[f"{new_key}"] = copy.deepcopy(tmp_model_conv_topology[f"{key}"])
+
+                    for pkey in param_keys:
+                        new_param_key = f"{new_key}_{pkey}"
+                        setattr(tmp_model, new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+
+
+
+            tmp_model.hidden_convolution_keys = new_convolution_keys
 
     return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 

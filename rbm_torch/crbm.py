@@ -138,7 +138,6 @@ class CRBM(LightningModule):
         else:
             self.scale_weights = None
 
-
         if weights == None:
             self.weights = None
         elif type(weights) == str:
@@ -151,7 +150,6 @@ class CRBM(LightningModule):
         else:
             print("Provided Weights  Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
             exit(1)
-
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
         # sample types control whether gibbs sampling from the data points or parallel tempering from random configs are used
@@ -200,7 +198,6 @@ class CRBM(LightningModule):
         self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
-        self.h_layer_num = len(self.hidden_convolution_keys)
         for key in self.hidden_convolution_keys:
             # Set information about the convolutions that will be useful
             dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
@@ -233,12 +230,21 @@ class CRBM(LightningModule):
         self.invsqrt2 = torch.tensor(0.7071067812, device=self.device, requires_grad=False)
         self.sqrt2 = torch.tensor(1.4142135624, device=self.device, requires_grad=False)
     
-        # Initialize PT members, might b
-        self.initialize_PT(5, n_chains=None, record_acceptance=True, record_swaps=True)
+        # Initialize PT members
+        if sample_type == "pt":
+            try:
+                self.N_PT = config["N_PT"]
+            except KeyError:
+                print("No member N_PT found in provided config.")
+                exit(-1)
+            self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
+    @property
+    def h_layer_num(self):
+        return len(self.hidden_convolution_keys)
+
+    # Initializes Members for both PT and gen_data functions
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
-        self.N_PT = N_PT
-        self.n_chains = n_chains # either None which defaults to batch_size or a set integer value
         self.record_acceptance = record_acceptance
         self.record_swaps = record_swaps
 
@@ -247,26 +253,21 @@ class CRBM(LightningModule):
         self.betas = self.betas.flip(0)
 
         if n_chains is None:
-            self.n_chains = self.batch_size
-        else:
-            self.n_chains = n_chains
+            n_chains = self.batch_size
 
-        if self.record_swaps:
-            self.particle_id = [torch.arange(N_PT).unsqueeze(1).expand(N_PT, self.n_chains)]
-        else:
-            self.particle_id = None
+        self.particle_id = [torch.arange(N_PT).unsqueeze(1).expand(N_PT, n_chains)]
 
-        if self.record_acceptance:
-            self.mavar_gamma = 0.95
-            self.acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
-            self.mav_acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
+        # if self.record_acceptance:
+        self.mavar_gamma = 0.95
+        self.acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
+        self.mav_acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
 
         # gen data
         self.count_swaps = 0
         self.last_at_zero = None
         self.trip_duration = None
-        self.update_betas_lr = 0.1
-        self.update_betas_lr_decay = 1
+        # self.update_betas_lr = 0.1
+        # self.update_betas_lr_decay = 1
 
     ############################################################# CRBM Functions
     ## Compute Psuedo likelihood of given visible config
@@ -372,9 +373,11 @@ class CRBM(LightningModule):
     def energy(self, v, h, remove_init=False, hidden_sub_index=-1):
         return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, sub_index=hidden_sub_index, remove_init=remove_init) - self.bidirectional_weight_term(v, h, hidden_sub_index=hidden_sub_index)
 
-    def energy_PT(self, v, h, remove_init=False):
-        E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
-        for i in range(self.N_PT):
+    def energy_PT(self, v, h, N_PT, remove_init=False):
+        # if N_PT is None:
+        #     N_PT = self.N_PT
+        E = torch.zeros((N_PT, v.shape[1]), device=self.device)
+        for i in range(N_PT):
             E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h, sub_index=i, remove_init=remove_init) - self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
         return E
 
@@ -766,18 +769,18 @@ class CRBM(LightningModule):
         h = self.sample_from_inputs_h(self.compute_output_v(v), beta=beta)
         return self.sample_from_inputs_v(self.compute_output_h(h), beta=beta), h
 
-    def markov_PT_and_exchange(self, v, h, e):
-        for i, beta in zip(torch.arange(self.N_PT), self.betas):
+    def markov_PT_and_exchange(self, v, h, e, N_PT):
+        for i, beta in zip(torch.arange(N_PT), self.betas):
             v[i], htmp = self.markov_step(v[i], beta=beta)
             for hid in range(self.h_layer_num):
                 h[hid][i] = htmp[hid]
             e[i] = self.energy(v[i], h, hidden_sub_index=i)
 
         if self.record_swaps:
-            particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
+            particle_id = torch.arange(N_PT).unsqueeze(1).expand(N_PT, v.shape[1])
 
         betadiff = self.betas[1:] - self.betas[:-1]
-        for i in np.arange(self.count_swaps % 2, self.N_PT - 1, 2):
+        for i in np.arange(self.count_swaps % 2, N_PT - 1, 2):
             proba = torch.exp(betadiff[i] * e[i + 1] - e[i]).minimum(torch.ones_like(e[i]))
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
@@ -808,24 +811,24 @@ class CRBM(LightningModule):
         return v, h, e
 
     ## Markov Step for Parallel Tempering
-    def markov_step_PT(self, v, h, e):
-        for i, beta in zip(torch.arange(self.N_PT), self.betas):
+    def markov_step_PT(self, v, h, e, N_PT):
+        for i, beta in zip(torch.arange(N_PT), self.betas):
             v[i], htmp = self.markov_step(v[i], beta=beta)
             for kid, k in self.hidden_convolution_keys:
                 h[kid][i] = htmp[kid]
             e[i] = self.energy(v[i], h, hidden_sub_index=i)
         return v, h, e
 
-    def exchange_step_PT(self, v, h, e, compute_energy=True):
+    def exchange_step_PT(self, v, h, e, N_PT, compute_energy=True):
         if compute_energy:
-            for i in torch.arange(self.N_PT):
+            for i in torch.arange(N_PT):
                 e[i] = self.energy(v[i], h, hidden_sub_index=i)
 
         if self.record_swaps:
-            particle_id = torch.arange(self.N_PT).unsqueeze(1).expand(self.N_PT, v.shape[1])
+            particle_id = torch.arange(N_PT).unsqueeze(1).expand(N_PT, v.shape[1])
 
         betadiff = self.betas[1:] - self.betas[:-1]
-        for i in np.arange(self.count_swaps % 2, self.N_PT - 1, 2):
+        for i in np.arange(self.count_swaps % 2, N_PT - 1, 2):
             proba = torch.exp(betadiff[i] * e[i+1] - e[i]).minimum(torch.ones_like(e[i]))
             swap = torch.rand(proba.shape[0], device=self.device) < proba
             if i > 0:
@@ -1019,16 +1022,14 @@ class CRBM(LightningModule):
         cd_loss = E_p - E_n
 
         # Regularization Terms
-        reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-            reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum(
-                (1, 2, 3)).mean() + 1)
+            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
         # Calculate Loss
         loss = cd_loss + reg1 + reg2 + reg3
@@ -1050,6 +1051,7 @@ class CRBM(LightningModule):
     def training_step_PT_free_energy(self, batch, batch_idx):
         seqs, one_hot, seq_weights = batch
         weights = seq_weights.clone()
+
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
         # Calculate CD loss
@@ -1058,16 +1060,14 @@ class CRBM(LightningModule):
         cd_loss = F_v - F_vp
 
         # Regularization Terms
-        reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
+        reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-            reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum(
-                (1, 2, 3)).mean() + 1)
+            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
         # Calc loss
         loss = cd_loss + reg1 + reg2 + reg3
@@ -1144,18 +1144,19 @@ class CRBM(LightningModule):
         elif self.sample_type == "pt":
             # Parallel Tempering
             n_chains = V_pos_ohe.shape[0]
+            N_PT = self.N_PT
 
             with torch.no_grad():
                 fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
                 fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
-                fantasy_E = self.energy_PT(fantasy_v, fantasy_h)
+                fantasy_E = self.energy_PT(fantasy_v, fantasy_h, self.N_PT)
 
                 for _ in range(self.mc_moves-1):
-                    fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
-                    self.update_betas()
+                    fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E, self.N_PT)
+                    self.update_betas(self.N_PT)
 
-            fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E)
-            self.update_betas()
+            fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E, self.N_PT)
+            self.update_betas(self.N_PT)
 
             # V_neg, h_neg, V_pos, h_pos
             return fantasy_v[0], fantasy_h[0], V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
@@ -1247,21 +1248,23 @@ class CRBM(LightningModule):
             print(f"Key {param_name} not found")
             exit()
 
-    def update_betas(self, beta=1):
+    def update_betas(self, N_PT, beta=1, update_betas_lr=0.1, update_betas_lr_decay=1):
         with torch.no_grad():
+            if N_PT < 3:
+                return
             if self.acceptance_rates.mean() > 0:
-                self.stiffness = torch.maximum(1 - (self.mav_acceptance_rates / self.mav_acceptance_rates.mean()), torch.zeros_like(self.mav_acceptance_rates)) + 1e-4 * torch.ones(self.N_PT - 1)
+                self.stiffness = torch.maximum(1 - (self.mav_acceptance_rates / self.mav_acceptance_rates.mean()), torch.zeros_like(self.mav_acceptance_rates)) + 1e-4 * torch.ones(N_PT - 1)
                 diag = self.stiffness[0:-1] + self.stiffness[1:]
-                if self.N_PT > 3:
+                if N_PT > 3:
                     offdiag_g = -self.stiffness[1:-1]
                     offdiag_d = -self.stiffness[1:-1]
                     M = torch.diag(offdiag_g, -1) + torch.diag(diag, 0) + torch.diag(offdiag_d, 1)
                 else:
                     M = torch.diag(diag, 0)
-                B = torch.zeros(self.N_PT - 2)
+                B = torch.zeros(N_PT - 2)
                 B[0] = self.stiffness[0] * beta
-                self.betas[1:-1] = self.betas[1:-1] * (1 - self.update_betas_lr) + self.update_betas_lr * torch.linalg.solve(M, B)
-                self.update_betas_lr *= self.update_betas_lr_decay
+                self.betas[1:-1] = self.betas[1:-1] * (1 - update_betas_lr) + update_betas_lr * torch.linalg.solve(M, B)
+                update_betas_lr *= update_betas_lr_decay
 
     def AIS(self, M=10, n_betas=10000, batches=None, verbose=0, beta_type='adaptive'):
         with torch.no_grad():
@@ -1293,7 +1296,10 @@ class CRBM(LightningModule):
 
             # Initialization.
             log_weights = torch.zeros(M)
-            config = self.gen_data(Nchains=M, Lchains=1, Nthermalize=0, beta=0)
+            # config = self.gen_data(Nchains=M, Lchains=1, Nthermalize=0, beta=0)
+
+            config = [self.sample_from_inputs_v(self.random_init_config_v(custom_size=(M,))),
+                      self.sample_from_inputs_h(self.random_init_config_h(custom_size=(M,)))]
 
             log_Z_init = torch.zeros(1)
 
@@ -1363,6 +1369,7 @@ class CRBM(LightningModule):
             beta (1): The inverse temperature of the model.
         """
         with torch.no_grad():
+            self.initialize_PT(N_PT, n_chains=Nchains, record_acceptance=record_acceptance, record_swaps=record_swaps)
 
             if batches == None:
                 batches = Nchains
@@ -1378,13 +1385,13 @@ class CRBM(LightningModule):
                 if update_betas == None:
                     update_betas = False
 
-                if record_acceptance:
-                    self.mavar_gamma = 0.95
+                # if record_acceptance:
+                #     self.mavar_gamma = 0.95
 
                 if update_betas:
                     record_acceptance = True
-                    self.update_betas_lr = 0.1
-                    self.update_betas_lr_decay = 1
+                    # self.update_betas_lr = 0.1
+                    # self.update_betas_lr_decay = 1
             else:
                 record_acceptance = False
                 update_betas = False
@@ -1429,8 +1436,11 @@ class CRBM(LightningModule):
 
     def _gen_data(self, Nthermalize, Ndata, Nstep, N_PT=1, batches=1, reshape=True, config_init=[], beta=1, record_replica=False, record_acceptance=True, update_betas=False, record_swaps=False):
         with torch.no_grad():
-            self.N_PT = N_PT
-            if self.N_PT > 1:
+
+
+
+
+            if N_PT > 1:
                 if update_betas or len(self.betas) != N_PT:
                     self.betas = torch.flip(torch.arange(N_PT) / (N_PT - 1) * beta, [0])
 
@@ -1445,25 +1455,21 @@ class CRBM(LightningModule):
 
             Ndata /= batches
             Ndata = int(Ndata)
-            if N_PT > 1:
-                if config_init != []:
-                    config = config_init
-                else:
-                    config = [self.random_init_config_v(custom_size=(N_PT, batches)), self.random_init_config_h(custom_size=(N_PT, batches))]
 
-                energy = torch.zeros([N_PT, batches])
+            if config_init != []:
+                config = config_init
             else:
-                if config_init != []:
-                    config = config_init
+                if N_PT > 1:
+                    config = [self.random_init_config_v(custom_size=(N_PT, batches)), self.random_init_config_h(custom_size=(N_PT, batches))]
                 else:
                     config = [self.random_init_config_v(custom_size=(batches,)), self.random_init_config_h(custom_size=(batches,))]
 
             for _ in range(Nthermalize):
                 if N_PT > 1:
-                    energy = self.energy_PT(config[0], config[1])
-                    config[0], config[1], energy = self.markov_PT_and_exchange(config[0], config[1], energy)
+                    energy = self.energy_PT(config[0], config[1], N_PT)
+                    config[0], config[1], energy = self.markov_PT_and_exchange(config[0], config[1], energy, N_PT)
                     if update_betas:
-                        self.update_betas(beta=beta)
+                        self.update_betas(N_PT, beta=beta)
                 else:
                     config[0], config[1] = self.markov_step(config[0], beta=beta)
 
@@ -1486,8 +1492,8 @@ class CRBM(LightningModule):
                         for hid in range(self.h_layer_num):
                             data_gen_h[hid][0] = clone[hid]
                     else:
-                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT), zeros=True)
-                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, N_PT), zeros=True)
+                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, batches), zeros=True)
+                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, batches), zeros=True)
                         data_gen_v[0] = config[0][0].clone()
 
                         clone = self.clone_h(config[1], sub_index=0)
@@ -1505,10 +1511,10 @@ class CRBM(LightningModule):
             for n in range(Ndata - 1):
                 for _ in range(Nstep):
                     if N_PT > 1:
-                        energy = self.energy_PT(config[0], config[1])
-                        config[0], config[1], energy = self.markov_PT_and_exchange(config[0], config[1], energy)
+                        energy = self.energy_PT(config[0], config[1], N_PT)
+                        config[0], config[1], energy = self.markov_PT_and_exchange(config[0], config[1], energy, N_PT)
                         if update_betas:
-                            self.update_betas(beta=beta)
+                            self.update_betas(N_PT, beta=beta)
                     else:
                         config[0], config[1] = self.markov_step(config[0], beta=beta)
 
@@ -1605,27 +1611,28 @@ if __name__ == '__main__':
 
     # Training Code
     crbm = CRBM(config, debug=True, precision="single")
-    crbm.setup()
-    crbm.train_dataloader()
+    # crbm.setup()
+    # crbm.train_dataloader()
 
 
-    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
-    # profiler = SimpleProfiler(profiler_memory=True)
-    # profiler = torch.profiler.profile(profile_memory=True)
-    # profiler = PyTorchProfiler()
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
-    plt.fit(crbm)
+    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    # # profiler = SimpleProfiler(profiler_memory=True)
+    # # profiler = torch.profiler.profile(profile_memory=True)
+    # # profiler = PyTorchProfiler()
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
+    # plt.fit(crbm)
 
     # Debugging Code1
-    # checkpoint = "./tb_logs/conv_lattice_trial/version_116/checkpoints/epoch=99-step=199.ckpt"
-    # crbm = CRBM.load_from_checkpoint(checkpoint)
-    # all_weights(crbm, name="./tb_logs/conv_lattice_trial/version_116/conv_trial")
+    checkpoint = "./tb_logs/conv_lattice_trial/version_128/checkpoints/epoch=99-step=199.ckpt"
+    crbm = CRBM.load_from_checkpoint(checkpoint)
+    # all_weights(crbm, name="./tb_logs/conv_lattice_trial/version_128/conv_trial")
     #
     #
     # # results = gen_data_lowT(crbm, which="marginal")
     # # results = gen_data_zeroT(crbm, which="joint")
-    # results = gen_data_lowT(crbm, which="joint")
+    crbm.AIS(verbose=True)
+    # results = gen_data_lowT(crbm, beta=2, which='marginal', Nchains=100, Lchains=500, Nthermalize=200, Nstep=10, N_PT=2, reshape=True, update_betas=False)
     # visible, hiddens = results
     #
     # E = crbm.energy(visible, hiddens)

@@ -106,7 +106,7 @@ def process_raw_fasta_files(*files, in_dir=None, out_dir=None, violin_out=None):
         if in_dir is not None:
             fasta_file = in_dir + fasta_file
         seqs = fasta_read(fasta_file)
-        useqs, cpy_num, df = data_prop(seqs, rnd, outfile=f"{rnd}_len_report.txt")
+        useqs, cpy_num, df = data_prop(seqs, rnd, outfile=out_dir+f"{rnd}_len_report.txt")
         dfs.append(df)
     master_df = pd.concat(dfs)
     if violin_out is not None:

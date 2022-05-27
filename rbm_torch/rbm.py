@@ -1325,7 +1325,7 @@ if __name__ == '__main__':
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
-    # b3_c1 = "../pig_tissue/b3_c1.fasta"
+    # b3_c1 = "../pig/b3_c1.fasta"
     # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
     config = rbm_configs.lattice_default_config

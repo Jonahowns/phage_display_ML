@@ -464,9 +464,9 @@ class Clamp(torch.autograd.Function): # clamp parameter values
 #### Prepare Submission Scripts
 #
 # if focus == "pig":
-#     # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/ or /pig_tissue/trained_crbms/
-#     dest_path = f"../pig_tissue/{datatype_dir}/trained_{model}s/"
-#     src_path = f"../pig_tissue/{datatype_dir}/"
+#     # path is from ProteinMotifRBM/ to /pig/trained_rbms/ or /pig/trained_crbms/
+#     dest_path = f"../pig/{datatype_dir}/trained_{model}s/"
+#     src_path = f"../pig/{datatype_dir}/"
 #
 #     all_data_files = []
 #     all_model_names = []
@@ -479,7 +479,7 @@ class Clamp(torch.autograd.Function): # clamp parameter values
 #     paths_to_data = [src_path + x for x in all_data_files]
 #
 # elif focus == "invivo":
-#     # path is from ProteinMotifRBM/agave_sbumit/ to /pig_tissue/trained_rbms/
+#     # path is from ProteinMotifRBM/agave_sbumit/ to /pig/trained_rbms/
 #     dest_path = f"../invivo/trained_{model}s/"
 #     src_path = "../invivo/"
 #
@@ -502,7 +502,7 @@ class Clamp(torch.autograd.Function): # clamp parameter values
 # if focus == "cov":
 #     # data type variable
 #     datatype_dir = datatype["process"]+f"_{datatype['clusters']}_clusters"
-#     # path is from ProteinMotifRBM/ to /pig_tissue/trained_rbms/
+#     # path is from ProteinMotifRBM/ to /pig/trained_rbms/
 #     dest_path = f"../cov/{datatype_dir}/trained_{model}s/"
 #     src_path = f"../cov/"
 #

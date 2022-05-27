@@ -96,61 +96,43 @@ if __name__=='__main__':
     parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
-    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=False, model=args.ml_model)
-    info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True, model=args.ml_model)
+    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str)
+    # info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True, model=args.ml_model)
 
-    destination_dir = info["local_model_dir"]
+    destination_dir = info["local_model_dir"][args.ml_model]
 
-    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir']}"
+    source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir'][args.ml_model]}"
 
-    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir']}"
+    source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir'][args.ml_model]}"
 
-    # The RBMS string specifiers
-    if "pig" in args.datatype_str:
-        c_rounds = info["model_names"]
-        c_w_rounds = info_w["model_names"]
+    # MAKE MORE GENERAL
+    clusters = info["clusters"] # number of clusters
+    c_rounds, c_w_rounds = [], []  # non weighted, weighted
+    for clust in range(clusters):
+        c_rounds.append(info["model_names"]["equal"][clust+1])
+        c_w_rounds.append(info["model_names"]["weights"][clust+1])
 
-        flat_c_rounds = [item for sublist in c_rounds for item in sublist]
-        flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]
-        all_rounds = flat_c_rounds + flat_c_w_rounds
+    flat_c_rounds = [item for sublist in c_rounds for item in sublist]
+    flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]
+    all_rounds = flat_c_rounds + flat_c_w_rounds
 
-        individual = []  # individual round specifiers are added here for one call to model_transfer at the end
-        for specifier in args.model_string:  # specifier is the rbm name, ususally something like n1_c2_w etc.
-            if specifier.startswith("c"):  # Tranfer a Cluster
-                cluster = int(specifier[1])
-                if "_w" in specifier:
-                    individual += c_w_rounds[cluster - 1]
-                else:
-                    individual += c_rounds[cluster - 1]
-            elif specifier == "all":   # Transfer all rbms under this datatype_str
-                for i in range(len(info["rounds"])):
-                    individual += c_rounds[i]
-                    individual += c_w_rounds[i]
-            elif specifier in all_rounds:
-                individual.append(specifier)
+    individual = []  # individual round specifiers are added here for one call to model_transfer at the end
+    for specifier in args.model_string:  # specifier is the rbm name, ususally something like n1_c2_w etc.
+        if specifier.startswith("c"):  # Tranfer a Cluster
+            cluster = int(specifier[1])
+            if "_w" in specifier:
+                individual += c_w_rounds[cluster - 1]
             else:
-                print(f"Specifier Strings {specifier} not supported!")
-                exit(-1)
-
-    elif "cov" in args.datatype_str:
-        # The RBMS string specifiers
-        rounds = info["model_names"]
-        rounds_w = info_w["model_names"]
-        all_rounds = rounds + rounds_w
-
-        individual = []  # individual round specifiers are added here for one call to model_transfer at the end
-        for specifier in args.model_string:
-            if specifier == "r": # all rounds
-                individual += rounds
-            elif specifier == "r_w":  # all rounds weighted
-                individual += rounds_w
-            elif specifier == "all":  # All
-                individual += all_rounds
-            elif specifier in all_rounds:
-                individual.append(specifier)
-            else:
-                print(f"Specifier String {specifier} not supported!")
-                exit(-1)
+                individual += c_rounds[cluster - 1]
+        elif specifier == "all":  # Transfer all rbms under this datatype_str
+            for i in range(len(info["rounds"])):
+                individual += c_rounds[i]
+                individual += c_w_rounds[i]
+        elif specifier in all_rounds:
+            individual.append(specifier)
+        else:
+            print(f"Specifier Strings {specifier} not supported!")
+            exit(-1)
 
     model_transfer(individual, source_dir, source_endpoint_dir, destination_dir)
 
