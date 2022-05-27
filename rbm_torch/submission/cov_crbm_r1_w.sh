@@ -3,7 +3,7 @@
 #SBATCH -A jprocyk
 #SBATCH -n 1
 #SBATCH -c 6
-#SBATCH -t 7-00:00
+#SBATCH -t 4-00:00
 #SBATCH -p wzhengpu1
 #SBATCH -q wildfire
 #SBATCH --gres=gpu:2
@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py cov ../cov/r1.fasta 200 2 True
+python crbm_train.py cov ../datasets/cov/r1.fasta 200 2 True double
 

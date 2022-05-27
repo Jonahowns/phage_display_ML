@@ -46,7 +46,7 @@ if __name__ == "__main__":
 
     # Now we get the global information which gives us specifics
     try:
-        info = get_global_info(args.datatype)
+        info = get_global_info(args.datatype, dir="../datasets/dataset_files/")
     except KeyError:
         print(f"Key {args.datatype} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
@@ -56,7 +56,10 @@ if __name__ == "__main__":
     outs = []
     if "all" in args.round:
         paths = [info["data_dir"][3:] + x for x in info["data_files"][clusternum]]
-        outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"][clusternum]]
+        if args.w:
+            outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"]["weights"][clusternum]]
+        else:
+            outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"]["equal"][clusternum]]
     else:
         data_index = info['data_files'][clusternum].index(args.round+".fasta")
         if data_index == -1:

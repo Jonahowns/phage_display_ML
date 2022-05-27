@@ -12,7 +12,7 @@ from global_info import get_global_info
 if __name__ == '__main__':
     # Example Usage
     # rbm_train.py pig ../pig/b3_c1.fasta protein 200 1 False
-    parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
+    parser = argparse.ArgumentParser(description="CRBM Training on Phage Display Dataset")
     parser.add_argument('datatype_str', type=str, help="Which Datset? pig, invivo, rod, or cov? Used to Set default config")
     parser.add_argument('dataset', type=str, help="Location of Data File")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
