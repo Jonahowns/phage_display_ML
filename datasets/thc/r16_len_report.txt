@@ -1,0 +1,8 @@
+Removed 0 Repeat Sequences
+Length: 37 Number of Sequences 2
+Length: 38 Number of Sequences 226
+Length: 39 Number of Sequences 76
+Length: 40 Number of Sequences 380
+Length: 41 Number of Sequences 32585
+Length: 42 Number of Sequences 581816
+Length: 43 Number of Sequences 151008

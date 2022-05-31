@@ -1,5 +1,5 @@
 import json
-
+import os
 
 supported_ml_models = ["rbm", "crbm"]
 
@@ -19,17 +19,17 @@ pig_ge4_datatype = {"focus": "pig", "molecule": "protein", "id": "ge4", "process
 pig_gm4_datatype = {"focus": "pig", "molecule": "protein", "id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
 cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 ribo_datatype = {"focus": "ribo", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[115, 121]]}
+thc_datatype = {"focus": "thc", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[41, 43]]}
 
 # datatype_str : very important string specifier. For clustered datasets set as datatype["focus"] + datatype["id"]. For non-clustered datasets set as datatype["focus"]
-
-
 datatype_list = [
     pig_ge2_datatype,
     pig_gm2_datatype,
     pig_ge4_datatype,
     pig_gm4_datatype,
     cov_datatype,
-    ribo_datatype
+    ribo_datatype,
+    thc_datatype
 ]
 
 supported_datatypes = {}
@@ -68,7 +68,7 @@ def load_dataset(datatype_str, dir="../../datasets/dataset_files/"):
 
 def generate_dataset_file(data_filenames, datatype, destination="../../datasets/dataset_files/"):
     # rounds are assigned by each filename
-    rounds = data_filenames
+    rounds = [x.split(".")[0] for x in data_filenames]
 
     if datatype["process"] is not None:
         data_location = f"../../datasets/{datatype['focus']}/{datatype['id']}/"

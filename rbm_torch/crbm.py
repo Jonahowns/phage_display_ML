@@ -16,63 +16,11 @@ import multiprocessing  # Just to set the worker number
 from torch.autograd import Variable
 
 import crbm_configs
-from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights
+from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, conv2d_dim
 
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
 # Useful for building a convolution topology
-def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
-    v_num, q = input_shape
-
-    print(f"Finding Whole Convolutions for Input with {v_num} inputs:")
-    # kernel size
-    for i in range(1, v_num+1):
-        kernel = [i, q]
-        # padding
-        for p in range(padding_max+1):
-            padding = [p, 0]
-            # dilation
-            for d in range(1, dilation_max+1):
-                dilation = [d, 1]
-                # stride
-                for s in range(1, stride_max+1):
-                    stride = [s, 1]
-                    # Convolution Output size
-                    convx_num = int(math.floor((v_num + padding[0] * 2 - dilation[0] * (kernel[0] - 1) - 1) / stride[0] + 1))
-                    convy_num = int(math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1] - 1) - 1) / stride[1] + 1))
-                    # Reconstruction Size
-                    recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
-                    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel[1] - 1) + 1
-                    if recon_x == v_num:
-                        print(f"Whole Convolution Found: Kernel: {kernel[0]}, Stride: {stride[0]}, Dilation: {dilation[0]}, Padding: {padding[0]}")
-    return
-
-def conv2d_dim(input_shape, conv_topology):
-    [batch_size, input_channels, v_num, q] = input_shape
-    stride = conv_topology["stride"]
-    padding = conv_topology["padding"]
-    kernel = conv_topology["kernel"]
-    dilation = conv_topology["dilation"]
-    h_num = conv_topology["number"]
-
-    # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
-    convx_num = int(math.floor((v_num + padding[0]*2 - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1))
-    convy_num = int(math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1))  # most configurations will set this to 1
-
-    # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
-    recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
-    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel[1] - 1) + 1
-
-    # Pad for the unsampled visible units (depends on stride, and tensor size)
-    output_padding = (v_num - recon_x, q - recon_y)
-
-    # Size of Convolution Filters
-    weight_size = (h_num, input_channels, kernel[0], kernel[1])
-
-    # Size of Hidden unit Inputs h_uk
-    conv_output_size = (batch_size, h_num, convx_num, convy_num)
-
-    return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
 
 # Example convolution topology
  # config["convolution_topology"] = {
@@ -198,6 +146,15 @@ class CRBM(LightningModule):
         self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
+
+        # Hidden Layer Weights, Two options (1) provided weights or (2) learns the weights as a model parameter
+        try:
+            hidden_layer_weights = [v['weight'] for x, v in self.convolution_topology.items()]
+            self.register_parameter("hidden_layer_W", nn.Parameter(torch.tensor(hidden_layer_weights, device=self.device), requires_grad=False))
+        except KeyError:
+            print("Hidden layer weights not provided or incomplete. Attempting to learn instead.")
+            self.register_parameter("hidden_layer_W", nn.Parameter(torch.ones((len(self.hidden_convolution_keys)), device=self.device), requires_grad=True))
+
         for key in self.hidden_convolution_keys:
             # Set information about the convolutions that will be useful
             dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
@@ -613,18 +570,23 @@ class CRBM(LightningModule):
     ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
     def compute_output_v(self, X): # X is the one hot vector
         outputs = []
-        for i in self.hidden_convolution_keys:
+        hidden_layer_W = getattr(self, "hidden_layer_W")
+        total_weights = hidden_layer_W.sum()
+        for iid, i in enumerate(self.hidden_convolution_keys):
             # convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
-            # outputs[-1] /= convx
+            outputs[-1] *= hidden_layer_W[iid]/total_weights
+            # outputs[-1] *= convx
         return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h(self, Y):  # from h_uk (B, hidden_num, convx_num)
         outputs = []
         nonzero_masks = []
+        hidden_layer_W = getattr(self, "hidden_layer_W")
+        total_weights = hidden_layer_W.sum()
         for iid, i in enumerate(self.hidden_convolution_keys):
             # convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), getattr(self, f"{i}_W"),
@@ -632,7 +594,8 @@ class CRBM(LightningModule):
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
-            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()))  # Used for calculating mean of outputs, don't want zeros to influence mean
+            outputs[-1] *= hidden_layer_W[iid]/total_weights
+            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()) * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
             # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored
@@ -1610,28 +1573,29 @@ if __name__ == '__main__':
     # 5: Other stuff I'm sure
 
     # Training Code
-    crbm = CRBM(config, debug=True, precision="single")
+    crbm = CRBM(config, debug=False, precision="single")
     # crbm.setup()
     # crbm.train_dataloader()
 
 
-    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
     # # profiler = SimpleProfiler(profiler_memory=True)
     # # profiler = torch.profiler.profile(profile_memory=True)
     # # profiler = PyTorchProfiler()
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
-    # plt.fit(crbm)
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
+    plt.fit(crbm)
 
     # Debugging Code1
-    checkpoint = "./tb_logs/conv_lattice_trial/version_128/checkpoints/epoch=99-step=199.ckpt"
-    crbm = CRBM.load_from_checkpoint(checkpoint)
+    # checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=99-step=199.ckpt"
+    # crbm = CRBM.load_from_checkpoint(checkpoint)
+    # print("hi")
     # all_weights(crbm, name="./tb_logs/conv_lattice_trial/version_128/conv_trial")
     #
     #
     # # results = gen_data_lowT(crbm, which="marginal")
     # # results = gen_data_zeroT(crbm, which="joint")
-    crbm.AIS(verbose=True)
+    # crbm.AIS(verbose=True)
     # results = gen_data_lowT(crbm, beta=2, which='marginal', Nchains=100, Lchains=500, Nthermalize=200, Nstep=10, N_PT=2, reshape=True, update_betas=False)
     # visible, hiddens = results
     #

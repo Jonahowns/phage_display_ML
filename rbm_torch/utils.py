@@ -242,6 +242,61 @@ def count_neighbours(MSA, threshold=0.1):  # Compute reweighting
     return num_neighbours
 
 
+## CRBM only functions
+def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
+    v_num, q = input_shape
+
+    print(f"Finding Whole Convolutions for Input with {v_num} inputs:")
+    # kernel size
+    for i in range(1, v_num+1):
+        kernel = [i, q]
+        # padding
+        for p in range(padding_max+1):
+            padding = [p, 0]
+            # dilation
+            for d in range(1, dilation_max+1):
+                dilation = [d, 1]
+                # stride
+                for s in range(1, stride_max+1):
+                    stride = [s, 1]
+                    # Convolution Output size
+                    convx_num = int(math.floor((v_num + padding[0] * 2 - dilation[0] * (kernel[0] - 1) - 1) / stride[0] + 1))
+                    convy_num = int(math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1] - 1) - 1) / stride[1] + 1))
+                    # Reconstruction Size
+                    recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
+                    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel[1] - 1) + 1
+                    if recon_x == v_num:
+                        print(f"Whole Convolution Found: Kernel: {kernel[0]}, Stride: {stride[0]}, Dilation: {dilation[0]}, Padding: {padding[0]}")
+    return
+
+# used by crbm to initialize weight sizes
+def conv2d_dim(input_shape, conv_topology):
+    [batch_size, input_channels, v_num, q] = input_shape
+    stride = conv_topology["stride"]
+    padding = conv_topology["padding"]
+    kernel = conv_topology["kernel"]
+    dilation = conv_topology["dilation"]
+    h_num = conv_topology["number"]
+
+    # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+    convx_num = int(math.floor((v_num + padding[0]*2 - dilation[0] * (kernel[0]-1) - 1)/stride[0] + 1))
+    convy_num = int(math.floor((q + padding[1] * 2 - dilation[1] * (kernel[1]-1) - 1)/stride[1] + 1))  # most configurations will set this to 1
+
+    # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+    recon_x = (convx_num - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel[0] - 1) + 1
+    recon_y = (convy_num - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel[1] - 1) + 1
+
+    # Pad for the unsampled visible units (depends on stride, and tensor size)
+    output_padding = (v_num - recon_x, q - recon_y)
+
+    # Size of Convolution Filters
+    weight_size = (h_num, input_channels, kernel[0], kernel[1])
+
+    # Size of Hidden unit Inputs h_uk
+    conv_output_size = (batch_size, h_num, convx_num, convy_num)
+
+    return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
+
 
 # import os
 # import torch
