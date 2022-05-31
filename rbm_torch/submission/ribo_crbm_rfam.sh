@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH -c 6
 #SBATCH -t 7-00:00
-#SBATCH -p wzhengpu1
+#SBATCH -p sjayasurgpu1
 #SBATCH -q wildfire
 #SBATCH --gres=gpu:2
 #SBATCH -o ribo_crbm_rfam.%j.out
