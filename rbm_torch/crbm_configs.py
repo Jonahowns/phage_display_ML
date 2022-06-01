@@ -22,7 +22,6 @@ pig_c1_2_default_config = {"fasta_file": "",
           "lf": 5,
           "ld": 10,
           "data_worker_num": 4,
-
           }
 
 pig_c2_2_default_config = {"fasta_file": "",
@@ -141,9 +140,9 @@ pig_c4_4_default_config = {"fasta_file": "",
 #                                                   "hidden3": {"number": 5, "kernel": (7, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
 #                                                   "hidden4": {"number": 5, "kernel": (pig_c1_2_default_config["v_num"], pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
 #                                                  }
-pig_c1_2_default_config["convolution_topology"] = {"hidden1": {"number": 10, "kernel": (11, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 20, "kernel": (7, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 20, "kernel": (5, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c1_2_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (7, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden2": {"number": 30, "kernel": (13, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden3": {"number": 30, "kernel": (17, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c1_2_default_config["v_num"], pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
                                                  }
 
@@ -152,36 +151,36 @@ pig_c1_2_default_config["convolution_topology"] = {"hidden1": {"number": 10, "ke
 #                                                   "hidden3": {"number": 5, "kernel": (5, pig_c2_2_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
 #                                                   "hidden4": {"number": 5, "kernel": (pig_c2_2_default_config["v_num"], pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
 #                                                  }
-pig_c2_2_default_config["convolution_topology"] = {"hidden1": {"number": 10, "kernel": (11, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 15, "kernel": (19, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 15, "kernel": (32, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c2_2_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (11, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden2": {"number": 30, "kernel": (19, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden3": {"number": 30, "kernel": (32, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c2_2_default_config["v_num"], pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
                                                  }
 
 
-pig_c1_4_default_config["convolution_topology"] = {"hidden1": {"number": 10, "kernel": (5, pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 15, "kernel": (9, pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 15, "kernel": (13, pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c1_4_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (5, pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden2": {"number": 30, "kernel": (9, pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden3": {"number": 30, "kernel": (13, pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c1_4_default_config["v_num"], pig_c1_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                  }
 
-pig_c2_4_default_config["convolution_topology"] = {"hidden1": {"number": 10, "kernel": (9, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 10, "kernel": (13, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 20, "kernel": (17, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c2_4_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (9, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden2": {"number": 30, "kernel": (13, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden3": {"number": 30, "kernel": (17, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c1_2_default_config["v_num"], pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
                                                  }
 
 
-pig_c3_4_default_config["convolution_topology"] = {"hidden1": {"number": 10, "kernel": (11, pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 15, "kernel": (18, pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 15, "kernel": (25, pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c3_4_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (11, pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden2": {"number": 30, "kernel": (18, pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden3": {"number": 30, "kernel": (25, pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c3_4_default_config["v_num"], pig_c3_4_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
                                                  }
 
 
-pig_c4_4_default_config["convolution_topology"] = {"hidden1": {"number": 10, "kernel": (9, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 15, "kernel": (18, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (2, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 15, "kernel": (27, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c4_4_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (9, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden2": {"number": 30, "kernel": (18, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (2, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden3": {"number": 30, "kernel": (29, pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c2_2_default_config["v_num"], pig_c2_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                  }
 
@@ -215,10 +214,11 @@ cov_default_config = {"fasta_file": "",
 #                                            }
 
 cov_default_config["convolution_topology"] = {
-                                            "hidden1": {"number": 10, "kernel": (10, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight" :1.0},
-                                            "hidden2": {"number": 10, "kernel": (7, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden3": {"number": 10, "kernel": (20, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden3": {"number": 10, "kernel": (35, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden1": {"number": 10, "kernel": (9, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden2": {"number": 10, "kernel": (15, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden3": {"number": 20, "kernel": (20, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden3": {"number": 20, "kernel": (27, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden3": {"number": 20, "kernel": (35, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                              }
 
 
