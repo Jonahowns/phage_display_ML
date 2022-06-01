@@ -98,10 +98,9 @@ if __name__ == "__main__":
             file.write(filedata)
 
     if len(paths) > 1:
-        if clusternum != 0:
-            tmp = args.model + f"_c{clusternum}"
-        else:
-            tmp = args.model
+        tmp = args.model
+        if info["clusters"] > 1:
+            tmp += f"_c{clusternum}"
         if args.w:
             tmp += "_w"
         with open(f"./submission/submit_{args.datatype}_{tmp}.sh", 'w+') as file:
