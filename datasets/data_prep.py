@@ -41,7 +41,7 @@ def gunter_read(gunterfile):
     for line in o:
         c_num, seq = line.split()
         seqs.append(seq.upper())
-        copy_num.append(c_num)
+        copy_num.append(float(c_num))
     o.close()
 
     all_chars = []
@@ -53,20 +53,26 @@ def gunter_read(gunterfile):
 
     return seqs, copy_num, all_chars
 
-def data_prop(seqs, round, outfile=sys.stdout):
+def data_prop(seqs, round, outfile=sys.stdout, calculate_copy_number=True):
     if outfile != sys.stdout:
         outfile = open(outfile, 'w+')
 
-    cpy_num = Counter(seqs)
+
     useqs = list(set(seqs))
-    copy_number = [cpy_num[x] for x in useqs]
+
+    if calculate_copy_number:
+        cpy_num = Counter(seqs)
+        copy_number = [cpy_num[x] for x in useqs]
     print(f'Removed {len(seqs)-len(useqs)} Repeat Sequences', file=outfile)
     ltotal = []
     for s in useqs:
         l = len(s)
         ltotal.append(l)
     roundlist = [round for x in useqs]
-    df = pd.DataFrame({"sequence": useqs, "length": ltotal, "round": roundlist, "copynum": copy_number})
+    if calculate_copy_number:
+        df = pd.DataFrame({"sequence": useqs, "length": ltotal, "round": roundlist, "copy_num": copy_number})
+    else:
+        df = pd.DataFrame({"sequence": useqs, "length": ltotal, "round": roundlist})
     lp = set(ltotal)
     lps = sorted(lp)
     counts = []
@@ -85,7 +91,7 @@ def data_prop(seqs, round, outfile=sys.stdout):
     #     #              quantiles=[0.05, 0.1, 0.8, 0.9], bw_method=0.5)
     #     # ax.set_xlabel("Sequence Length")
     #     plt.savefig(violin_out+".png", dpi=300)
-    return useqs, copy_number, df
+    return df
 
 def prep_data(seqs, lmin=0, lmax=10, cpy_num=None):
     fseqs = []
@@ -135,12 +141,12 @@ def process_raw_fasta_files(*files, in_dir=None, out_dir=None, violin_out=None, 
         if input_format == "fasta":
             seqs, rnd_chars = fasta_read(file)
             all_chars += rnd_chars
-            useqs, cpy_num, df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt")
+            df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt", calculate_copy_number=True)
             dfs.append(df)
         elif input_format == "gunter":
             seqs, copy_num, rnd_chars = gunter_read(file)
             all_chars += rnd_chars
-            useqs, ignr_cpy_num, df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt")
+            df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt", calculate_copy_number=False)
             df["copy_num"] = copy_num
             dfs.append(df)
         else:
@@ -180,15 +186,16 @@ def prepare_data_files(datatype_str, master_df, target_dir, character_conversion
     for round in rounds:
         round_data = master_df[master_df["round"] == round]
         r_seqs = round_data.sequence.tolist()
+        r_copynum = round_data.copy_num.tolist()
         if remove_chars is not None:
             for char in remove_chars:
                 og_len = len(r_seqs)
-                r_seqs = [x for x in r_seqs if x.find(char) == -1]
+                rs, rc = zip(*[(seq, copy_num) for seq, copy_num in zip(r_seqs, r_copynum) if seq.find(char) == -1])
+                r_seqs, r_copynum = list(rs), list(rc)
                 new_len = len(r_seqs)
                 print(f"Removed {og_len-new_len} sequences with character {char}")
 
         if character_conversion is not None:
             for key, value in character_conversion.items():
                 r_seqs = [x.replace(key, value) for x in r_seqs]
-        r_cpynum = round_data.copynum.tolist()
-        extractor(r_seqs, dt['clusters'], dt["cluster_indices"], target_dir+round, r_cpynum, uniform_length=True, position_indx=dt["gap_position_indices"])
+        extractor(r_seqs, dt['clusters'], dt["cluster_indices"], target_dir+round, r_copynum, uniform_length=True, position_indx=dt["gap_position_indices"])

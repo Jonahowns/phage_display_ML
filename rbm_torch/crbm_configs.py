@@ -252,6 +252,33 @@ ribo_default_config["convolution_topology"] = {"hidden10": {"number": 10, "kerne
                                                 "hidden112": {"number": 20, "kernel": (112, ribo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                              }
 
+thc_default_config = {"fasta_file": "",
+          "v_num": 43,
+          "q": 5,
+          "molecule": "rna",
+          "epochs": 100, # get's overwritten by training script anyway
+          "seed": seed, # this is defined in the config file
+          "batch_size": 10000, # can be raised or lowered depending on memory usage
+          "mc_moves": 4,
+          "lr": 0.006,
+          "lr_final": None, # automatically set as lr * 1e-2
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 25.0,
+          "lf": 5.0,
+          "ld": 10.0,
+          "data_worker_num": 4
+          }
+
+thc_default_config["convolution_topology"] = {"hidden10": {"number": 15, "kernel": (9, thc_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden25": {"number": 15, "kernel": (17, thc_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden46": {"number": 15, "kernel": (25, thc_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden86": {"number": 15, "kernel": (33, thc_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                             }
 
 
 all_configs = {
@@ -269,7 +296,7 @@ all_configs = {
    "pig_c4_ge4": pig_c4_4_default_config,
    "cov": cov_default_config,
    "ribo": ribo_default_config,
-    # add thc
+    "thc" : thc_default_config
 }
 
 

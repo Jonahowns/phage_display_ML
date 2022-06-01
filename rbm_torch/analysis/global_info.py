@@ -20,6 +20,7 @@ pig_gm4_datatype = {"focus": "pig", "molecule": "protein", "id": "gm4", "process
 cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 ribo_datatype = {"focus": "ribo", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[115, 121]]}
 thc_datatype = {"focus": "thc", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[41, 43]]}
+pal_datatype = {"focus": "pal", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[39, 41]]}
 
 # datatype_str : very important string specifier. For clustered datasets set as datatype["focus"] + datatype["id"]. For non-clustered datasets set as datatype["focus"]
 datatype_list = [
@@ -29,7 +30,8 @@ datatype_list = [
     pig_gm4_datatype,
     cov_datatype,
     ribo_datatype,
-    thc_datatype
+    thc_datatype,
+    pal_datatype
 ]
 
 supported_datatypes = {}
