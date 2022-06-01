@@ -6,7 +6,7 @@
 #SBATCH -t 4-00:00
 #SBATCH -p wzhengpu1
 #SBATCH -q wildfire
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH -o pig_ge4_crbm_np1_c1_w.%j.out
 #SBATCH -e slurm.%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py pig_ge4 ../datasets/pig/ge4/np1_c1.fasta 200 2 True double
+python crbm_train.py pig_ge4 ../datasets/pig/ge4/np1_c1.fasta 200 1 True single
 

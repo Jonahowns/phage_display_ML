@@ -575,3 +575,51 @@ class Clamp(torch.autograd.Function): # clamp parameter values
 # #
 # write_submission_scripts(all_model_names, w_script_names, paths_to_data, dest_path, 20, focus, 200, weights=True, gaps=False, gpus=2, partition="sulcgpu2")
 
+## Alternate sampler for hidden units? Doesn't work as the truncated normal from pytorch only works for 1 set value, not a matrix of means/ std devs
+# def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
+    #     h_uks = []
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         if beta == 1:
+    #             a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0).unsqueeze(2)
+    #             a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0).unsqueeze(2)
+    #             theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0).unsqueeze(2)
+    #             theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0).unsqueeze(2)
+    #         else:
+    #             theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2)
+    #             theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2)
+    #             a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2)
+    #             a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2)
+    #             psi[iid] *= beta
+    #
+    #         if nancheck:
+    #             nans = torch.isnan(psi[iid])
+    #             if nans.max():
+    #                 nan_unit = torch.nonzero(nans.max(0))[0]
+    #                 print('NAN IN INPUT')
+    #                 print('Hidden units', nan_unit)
+    #
+    #         psi_plus = (-psi[iid]).add(theta_plus).div(torch.sqrt(a_plus))
+    #         psi_minus = psi[iid].add(theta_minus).div(torch.sqrt(a_minus))
+    #
+    #         etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
+    #         etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
+    #
+    #         p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
+    #         nans = torch.isnan(p_plus)
+    #
+    #         if True in nans:
+    #             p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+    #         p_minus = 1 - p_plus
+    #
+    #         huk_plus = torch.zeros_like(psi_plus, device=self.device)
+    #         huk_minus = torch.zeros_like(psi_minus, device=self.device)
+    #
+    #         max_val = 1e9
+    #
+    #         nn.init.trunc_normal_(huk_plus, (psi[iid]-theta_plus)/a_plus, 1/a_plus, 0, max_val)
+    #         nn.init.trunc_normal_(huk_minus, (psi[iid]-theta_minus)/a_minus, 1/a_minus, 0, -max_val)
+    #
+    #         huk = p_plus*huk_plus + p_minus*huk_minus
+    #         h_uks.append(huk)
+    #     return h_uks
+

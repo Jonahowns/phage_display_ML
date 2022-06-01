@@ -269,6 +269,7 @@ all_configs = {
    "pig_c4_ge4": pig_c4_4_default_config,
    "cov": cov_default_config,
    "ribo": ribo_default_config,
+    # add thc
 }
 
 

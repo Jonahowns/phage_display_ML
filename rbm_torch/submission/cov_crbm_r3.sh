@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py cov ../datasets/cov/r3.fasta 200 2 False double
+python crbm_train.py cov ../datasets/cov/r3.fasta 200 2 False single
 
