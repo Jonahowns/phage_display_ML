@@ -32,7 +32,7 @@ from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen
 
 
 class CRBM(LightningModule):
-    def __init__(self, config, debug=False, precision="double"):
+    def __init__(self, config, debug=False, precision="double", memtest=False):
         super().__init__()
         # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
         self.v_num = config['v_num']   # Number of visible nodes
@@ -196,6 +196,10 @@ class CRBM(LightningModule):
                 exit(-1)
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
+        if memtest:
+            pass
+
+
     @property
     def h_layer_num(self):
         return len(self.hidden_convolution_keys)
@@ -355,7 +359,9 @@ class CRBM(LightningModule):
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
-        return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
+        # return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
+
+        return self.one_hot_tmp.scatter(2, torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1).unsqueeze(-1), 1.)
 
     def transform_h(self, I):
         output = []
@@ -635,7 +641,8 @@ class CRBM(LightningModule):
 
             in_progress = low < high
 
-        return F.one_hot(high, self.q)
+        # return F.one_hot(high, self.q)
+        return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
 
     ## Gibbs Sampling of dReLU hidden layer
     def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
@@ -1090,7 +1097,10 @@ class CRBM(LightningModule):
     #     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip_value)
 
     def forward(self, V_pos_ohe):
-        # Enforces Zero Sum Gauge on Weights
+
+        # Trying this out
+        self.one_hot_tmp = torch.zeros_like(V_pos_ohe, device=self.device)
+
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
@@ -1105,9 +1115,10 @@ class CRBM(LightningModule):
             return V_neg, self.sample_from_inputs_h(self.compute_output_v(V_neg)), V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
         elif self.sample_type == "pt":
+            # Initialize_PT is called before the forward function is called. Therefore, N_PT will be filled
+
             # Parallel Tempering
             n_chains = V_pos_ohe.shape[0]
-            N_PT = self.N_PT
 
             with torch.no_grad():
                 fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
@@ -1400,9 +1411,6 @@ class CRBM(LightningModule):
     def _gen_data(self, Nthermalize, Ndata, Nstep, N_PT=1, batches=1, reshape=True, config_init=[], beta=1, record_replica=False, record_acceptance=True, update_betas=False, record_swaps=False):
         with torch.no_grad():
 
-
-
-
             if N_PT > 1:
                 if update_betas or len(self.betas) != N_PT:
                     self.betas = torch.flip(torch.arange(N_PT) / (N_PT - 1) * beta, [0])
@@ -1573,7 +1581,7 @@ if __name__ == '__main__':
     # 5: Other stuff I'm sure
 
     # Training Code
-    crbm = CRBM(config, debug=False, precision="single")
+    crbm = CRBM(config, debug=True, precision="single")
     # crbm.setup()
     # crbm.train_dataloader()
 
