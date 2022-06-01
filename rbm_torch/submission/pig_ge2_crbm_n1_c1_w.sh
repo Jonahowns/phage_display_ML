@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH -c 6
 #SBATCH -t 4-00:00
-#SBATCH -p wzhengpu1
+#SBATCH -p amciigpu1
 #SBATCH -q wildfire
 #SBATCH --gres=gpu:1
 #SBATCH -o pig_ge2_crbm_n1_c1_w.%j.out
