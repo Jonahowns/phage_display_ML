@@ -46,8 +46,8 @@ def calc_neighbors(X, threshold_1=0.15, threshold_2=0.25):
     return neigh1, neigh2
 
 
-t1 = args.threshold_1
-t2 = args.threshold_2
+t1 = args.threshold1
+t2 = args.threshold2
 n1, n2 = calc_neighbors(X, threshold_1=t1, threshold_2=t2)
 o = open(f"./{dataset_dir}/{ffile}_{int(t1 * 100)}_pairwise_distances.pkl", "w+")
 pickle.dump(n1, o)

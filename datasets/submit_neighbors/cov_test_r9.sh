@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH -c 24
 #SBATCH -t 7-00:00               # wall time (D-HH:MM)
-#SBATCH -p normal
+#SBATCH -p serial
 #SBATCH -q normal
 #SBATCH -o slurm.%j.out          # STDOUT (%j = JobId)
 #SBATCH -e slurm.%j.err          # STDERR (%j = JobId)
