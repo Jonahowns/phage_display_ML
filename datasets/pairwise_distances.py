@@ -1,5 +1,5 @@
 from sklearn.metrics import pairwise_distances_chunked
-
+import sys
 sys.path.append("../rbm_torch/")
 import utils
 import numpy as np

@@ -12,3 +12,5 @@
 #SBATCH --mail-user=jprocyk@asu.edu     #send to my email
 #SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/datasets/
 
+source activate exmachina3
+
