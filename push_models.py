@@ -96,7 +96,7 @@ if __name__=='__main__':
     parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
-    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str)
+    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, dir="./datasets/dataset_files/")
     # info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True, model=args.ml_model)
 
     destination_dir = info["local_model_dir"][args.ml_model]
