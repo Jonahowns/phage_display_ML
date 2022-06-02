@@ -109,8 +109,8 @@ if __name__=='__main__':
     clusters = info["clusters"] # number of clusters
     c_rounds, c_w_rounds = [], []  # non weighted, weighted
     for clust in range(clusters):
-        c_rounds.append(info["model_names"]["equal"][clust+1])
-        c_w_rounds.append(info["model_names"]["weights"][clust+1])
+        c_rounds.append(info["model_names"]["equal"][str(clust+1)])
+        c_w_rounds.append(info["model_names"]["weights"][str(clust+1)])
 
     flat_c_rounds = [item for sublist in c_rounds for item in sublist]
     flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]

@@ -3,7 +3,6 @@ import os
 
 supported_ml_models = ["rbm", "crbm"]
 
-
 # Datatype defines the basics of our data, Each datatype is specified for a group of related fasta files
 # Focus - > short string specifier that gives the overall dataset we are using
 # Molecule -> What kind of sequence data? currently protein, dna, and rna are supported
