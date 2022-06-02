@@ -14,8 +14,8 @@
 
 source activate exmachina3
 
-python pairwise_distances.py ./pig/pig_ge2/ b3_c2.fasta protein 24 0.15 0.25
-python pairwise_distances.py ./pig/pig_ge2/ n1_c2.fasta protein 24 0.15 0.25
-python pairwise_distances.py ./pig/pig_ge2/ np1_c2.fasta protein 24 0.15 0.25
-python pairwise_distances.py ./pig/pig_ge2/ np2_c2.fasta protein 24 0.15 0.25
-python pairwise_distances.py ./pig/pig_ge2/ np3_c2.fasta protein 24 0.15 0.25
+python pairwise_distances.py ./pig/ge2/ b3_c2.fasta protein 24 0.15 0.25
+python pairwise_distances.py ./pig/ge2/ n1_c2.fasta protein 24 0.15 0.25
+python pairwise_distances.py ./pig/ge2/ np1_c2.fasta protein 24 0.15 0.25
+python pairwise_distances.py ./pig/ge2/ np2_c2.fasta protein 24 0.15 0.25
+python pairwise_distances.py ./pig/ge2/ np3_c2.fasta protein 24 0.15 0.25
