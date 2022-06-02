@@ -81,8 +81,10 @@ def generate_dataset_file(data_filenames, datatype, destination="../../datasets/
         # Server model location provides relative path from phage_display_ML directory to the server-side trained model directory
         server_model_location[model] = data_location[6:] + f"trained_{model}s/"
         # Paths from current directory (analysis) to location of data files and trained models folder
-        local_model_location[model] = f"/mnt/D1/globus/pig_trained_{model}s/{datatype['id']}"
-
+        if datatype["id"] is not None:
+            local_model_location[model] = f"/mnt/D1/globus/{datatype['focus']}_trained_{model}s/{datatype['id']}/"
+        else:
+            local_model_location[model] = f"/mnt/D1/globus/{datatype['focus']}_trained_{model}s/"
     # dictionaries with cluster number as the key
     all_data_files, all_model_names, all_model_names_w, all_rounds, all_configkeys = {}, {}, {}, {}, {}
 
