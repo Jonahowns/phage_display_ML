@@ -360,7 +360,6 @@ class CRBM(LightningModule):
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
         # return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
-
         return self.one_hot_tmp.scatter(2, torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1).unsqueeze(-1), 1.)
 
     def transform_h(self, I):
