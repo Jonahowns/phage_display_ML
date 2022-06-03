@@ -3,9 +3,29 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import numpy as np
 import os
+import pickle
+import math
 
 from rbm_torch.analysis.global_info import supported_datatypes
+from rbm_torch.utils import fasta_read
+
+
+def load_neighbor_file(neigh_file):
+    with open(neigh_file, "rb") as o:
+        data = pickle.load(o)
+    return data
+
+def summary1D(nparray, file=sys.stdout):
+    print(nparray.max(), nparray.min(), nparray.mean(), np.median(nparray), file=file)
+
+def log_scale1D(listofnumbers, base=1):
+    return np.asarray([math.log(x + base) for x in listofnumbers])
+
+# Intended to be run on an already processed fasta file with no duplicates, uniform length, and affinites denoted in the fasta file
+def scale_weights(fasta_file_in, fasta_file_out, molecule="protein", threads=12):
+    seqs, affs, all_chars, q = fasta_read(fasta_file_in, molecule, threads=threads, drop_duplicates=False)
 
 
 ## Fasta File Methods
@@ -16,7 +36,7 @@ def write_fasta(seqs, affs, out):
         print(x, file=o)
     o.close()
 
-def fasta_read(fastafile):
+def fasta_read_basic(fastafile):
     o = open(fastafile)
     seqs = []
     for line in o:
@@ -139,7 +159,7 @@ def process_raw_fasta_files(*files, in_dir=None, out_dir=None, violin_out=None, 
         if in_dir is not None:
             file = in_dir + file
         if input_format == "fasta":
-            seqs, rnd_chars = fasta_read(file)
+            seqs, rnd_chars = fasta_read_basic(file)
             all_chars += rnd_chars
             df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt", calculate_copy_number=True)
             dfs.append(df)
