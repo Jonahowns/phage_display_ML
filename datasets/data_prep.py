@@ -10,6 +10,7 @@ import math
 
 from rbm_torch.analysis.global_info import supported_datatypes
 from rbm_torch.utils import fasta_read
+from sklearn.preprocessing import MinMaxScaler
 
 
 def load_neighbor_file(neigh_file):
@@ -17,15 +18,68 @@ def load_neighbor_file(neigh_file):
         data = pickle.load(o)
     return data
 
-def summary1D(nparray, file=sys.stdout):
+def summary_np(nparray, file=sys.stdout):
     print(nparray.max(), nparray.min(), nparray.mean(), np.median(nparray), file=file)
 
-def log_scale1D(listofnumbers, base=1):
+def log_scale(listofnumbers, base=1):
     return np.asarray([math.log(x + base) for x in listofnumbers])
 
+def quick_hist(x, outfile):
+    plt.hist(x, bins=100)
+    plt.savefig(outfile+".png")
+
 # Intended to be run on an already processed fasta file with no duplicates, uniform length, and affinites denoted in the fasta file
-def scale_weights(fasta_file_in, fasta_file_out, molecule="protein", threads=12):
+def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="protein", threads=12, precision=5, log_scale=True):
     seqs, affs, all_chars, q = fasta_read(fasta_file_in, molecule, threads=threads, drop_duplicates=False)
+
+    fasta_file_name = os.path.basename(fasta_file_in)
+    fasta_name = fasta_file_name.split(".")[0]
+    fasta_in_dir = os.path.dirname(fasta_file_in)
+    log = open(fasta_out_dir+f"{fasta_name}_log", "w")
+
+    print("Copy Number Before", summary_np(np.asarray(affs)), file=log)
+    quick_hist(affs, fasta_out_dir+f"affs_before_{fasta_name}")
+
+    try:
+        neighs = load_neighbor_file(neighbor_pickle_file)
+    except IOError:
+        print(f"Neighbor File {neighbor_pickle_file} not found")
+        exit(-1)
+
+    print("Neighbor Number Before:", summary_np(np.asarray(neighs)), file=log)
+    quick_hist(neighs, fasta_out_dir + f"neighs_before_{fasta_name}")
+
+    if log_scale:
+        affs = log_scale(affs, base=1)
+
+        print("Copy Number Log Scaled", affs, file=log)
+        quick_hist(affs, fasta_out_dir + f"affs_log_{fasta_name}")
+
+        neighs = log_scale(neighs, base=1)
+
+        print("Neighbor Number Log Scaled", affs, file=log)
+        quick_hist(affs, fasta_out_dir + f"affs_log_{fasta_name}")
+
+    nscaler = MinMaxScaler(feature_range=(0.05, 0.95))
+    neighs_scaled = nscaler.fit_transform(neighs.reshape(-1, 1))
+
+    ascaler = MinMaxScaler(feature_range=(0.05, 0.95))
+    affs_scaled = ascaler.fit_transform(affs.reshape(-1, 1))
+
+    print("Neighbor Number Scaled", summary_np(neighs_scaled), file=log)
+    quick_hist(neighs_scaled.tolist(), fasta_out_dir+f"neighs_scaled_{fasta_name}")
+
+    print("Copy Number Scaled:", summary_np(affs_scaled), file=log)
+    quick_hist(affs_scaled, fasta_out_dir+f"affs_scaled_{fasta_name}")
+
+    new_weights = affs_scaled * (1 - neighs_scaled)
+
+    print("New Weights:", summary_np(new_weights), file=log)
+    quick_hist(new_weights.tolist(), fasta_out_dir+f"new_weights_{fasta_name}")
+
+    print("Writing File to: ", fasta_out_dir+fasta_file_name, file=log)
+    write_fasta(seqs, [round(x, precision) for x in new_weights.squeeze(1).tolist()], fasta_out_dir+fasta_file_name)
+    log.close()
 
 
 ## Fasta File Methods
