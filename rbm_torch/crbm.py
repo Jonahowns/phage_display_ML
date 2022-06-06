@@ -81,10 +81,11 @@ class CRBM(LightningModule):
         self.ld = config['ld']
         self.seed = config['seed']
 
-        if "scale_weights" in config.keys():
-            self.scale_weights = config["scale_weights"]
-        else:
-            self.scale_weights = None
+        # All weights are scaled by this muliplier
+        try:
+            self.weight_multiplier = config["weight_multiplier"]
+        except KeyError:
+            self.weight_multiplier = 1.
 
         if weights == None:
             self.weights = None
@@ -359,8 +360,8 @@ class CRBM(LightningModule):
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
-        # return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
-        return self.one_hot_tmp.scatter(2, torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1).unsqueeze(-1), 1.)
+        return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
+        # return self.one_hot_tmp.scatter(2, torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1).unsqueeze(-1), 1.)
 
     def transform_h(self, I):
         output = []
@@ -640,8 +641,8 @@ class CRBM(LightningModule):
 
             in_progress = low < high
 
-        # return F.one_hot(high, self.q)
-        return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
+        return F.one_hot(high, self.q)
+        # return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
 
     ## Gibbs Sampling of dReLU hidden layer
     def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
@@ -884,7 +885,7 @@ class CRBM(LightningModule):
             training_weights = None
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False,
-                                   molecule=self.molecule, device=self.device, one_hot=True, scale_weights=self.scale_weights)
+                                   molecule=self.molecule, device=self.device, one_hot=True, weight_multiplier=self.weight_multiplier)
 
         # initialize fields from data
         if init_fields:
@@ -909,7 +910,7 @@ class CRBM(LightningModule):
             validation_weights = None
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False,
-                                 molecule=self.molecule, device=self.device, one_hot=True, scale_weights=self.scale_weights)
+                                 molecule=self.molecule, device=self.device, one_hot=True, weight_multiplier=self.weight_multiplier)
 
         return torch.utils.data.DataLoader(
             val_reader,
@@ -1098,7 +1099,7 @@ class CRBM(LightningModule):
     def forward(self, V_pos_ohe):
 
         # Trying this out
-        self.one_hot_tmp = torch.zeros_like(V_pos_ohe, device=self.device)
+        # self.one_hot_tmp = torch.zeros_like(V_pos_ohe, device=self.device)
 
         if self.sample_type == "gibbs":
             # Gibbs sampling
@@ -1561,7 +1562,6 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     # config["sequence_weights"] = 'fasta'
-    config['scale_weights'] = "log"
     config["epochs"] = 100
 
     config["l1_2"] = 25.

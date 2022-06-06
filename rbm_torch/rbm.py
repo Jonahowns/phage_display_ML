@@ -71,6 +71,11 @@ class RBM(LightningModule):
         self.lf = config['lf']  # regularization on fields, ex. 0.001
         self.seed = config['seed']
 
+        # All weights are scaled by this muliplier
+        try:
+            self.weight_multiplier = config["weight_multiplier"]
+        except KeyError:
+            self.weight_multiplier = 1.
 
         if weights == None:
             self.weights = None
@@ -649,7 +654,7 @@ class RBM(LightningModule):
             training_weights = None
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                    shuffle=False, molecule=self.molecule, device=self.device)
+                                    shuffle=False, molecule=self.molecule, device=self.device, weight_multiplier=self.weight_multiplier)
 
         # initialize fields from data
         if init_fields:
@@ -680,7 +685,7 @@ class RBM(LightningModule):
             validation_weights = None
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                    shuffle=False, molecule=self.molecule, device=self.device)
+                                    shuffle=False, molecule=self.molecule, device=self.device, weight_multiplier=self.weight_multiplier)
 
         return DataLoader(
             val_reader,

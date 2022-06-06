@@ -94,7 +94,7 @@ class Categorical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, molecule='protein', device='cpu', one_hot=False, neighbor_threshold=None, scale_weights=None):
+    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, molecule='protein', device='cpu', one_hot=False, weight_multiplier=1):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -124,23 +124,14 @@ class Categorical(Dataset):
         else:
             self.train_data = self.categorical(self.seq_data)
 
-        if neighbor_threshold is not None:
-            neighs = self.count_neighbours(self.train_data, threshold=neighbor_threshold)
-            self.train_weights = neighs/neighs.max()
-        elif weights is not None and type(weights) is list:
-            if len(self.train_data) != len(weights):
-                print("Provided Weights are not the correct length")
-                exit(1)
-            if scale_weights is None:
-                self.train_weights = np.asarray(weights)
-            elif scale_weights == "log":
-                self.train_weights = self.log_scale(weights)
-            else:
-                print(f"Scale Weights '{scale_weights}' not supported! Implement in Categorical Dataset.")
-            # self.train_weights /= self.train_weights.sum()
+        if weights is not None:
+            if type(weights) is list:
+                self.train_weights = np.asarray(weights) * weight_multiplier
+            elif type(weights) is np.ndarray:
+                self.train_weights = weights * weight_multiplier
         else:
             # all equally weighted
-            self.train_weights = np.asarray([1. for x in range(self.total)])
+            self.train_weights = np.asarray([1. for x in range(self.total)]) * weight_multiplier
 
     def __getitem__(self, index):
 
@@ -222,24 +213,22 @@ class Categorical(Dataset):
         if self.shuffle:
             self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
 
+## REPLACED BY DATA_PREP COUNT NEIGHBORS FUNCTION
+# def prepare_weight_file(fasta_file, out, method="neighbors", threads=1, molecule="protein"):
+#     seqs, counts, all_chars, q = fasta_read(fasta_file, molecule, threads, drop_duplicates=False)
+#     cat_tensor = seq_to_cat(seqs, molecule=molecule)
+#     if method == "neighbors":
+#         count = count_neighbours(cat_tensor.numpy())
+#
+#     np.savetxt(out, count)
 
-def prepare_weight_file(fasta_file, out, method="neighbors", threads=1, molecule="protein"):
-    seqs, counts, all_chars, q = fasta_read(fasta_file, molecule, threads, drop_duplicates=False)
-    cat_tensor = seq_to_cat(seqs, molecule=molecule)
-    if method == "neighbors":
-        count = count_neighbours(cat_tensor.numpy())
-
-    np.savetxt(out, count)
-
-
-
-def count_neighbours(MSA, threshold=0.1):  # Compute reweighting
-    B = MSA.shape[0]
-    MSA = MSA.detach().numpy()
-    num_neighbours = np.zeros(B)
-    for b in range(B):
-        num_neighbours[b] = 1 + ((MSA[b] != MSA).mean(1) < threshold).sum()
-    return num_neighbours
+# def count_neighbours(MSA, threshold=0.1):  # Compute reweighting
+#     B = MSA.shape[0]
+#     MSA = MSA.detach().numpy()
+#     num_neighbours = np.zeros(B)
+#     for b in range(B):
+#         num_neighbours[b] = 1 + ((MSA[b] != MSA).mean(1) < threshold).sum()
+#     return num_neighbours
 
 
 ## CRBM only functions
@@ -483,6 +472,7 @@ def fasta_read(fastafile, molecule, threads=1, drop_duplicates=False):
     return all_seqs, all_counts, all_chars, q
 
 
+# Worker for fasta_read
 def process_lines(assigned_lines):
     titles, seqs, all_chars = [], [], []
 
@@ -582,6 +572,9 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
             # Setup Steps for editing the hidden layer topology of our model
             setattr(tmp_model, "convolution_topology", copy.deepcopy(model.convolution_topology))
             tmp_model_conv_topology = getattr(tmp_model, "convolution_topology")  # Get and edit tmp_model_conv_topology
+            # Also need to fix up parameter hidden_layer_W
+            # tmp_model_hidden_layer_W = getattr(tmp_model, "hidden_layer_W")
+            tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
 
             # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
             for key in tmp_model.hidden_convolution_keys:
@@ -592,7 +585,8 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
 
                     for pkey in param_keys:
                         new_param_key = f"{new_key}_{pkey}"
-                        setattr(tmp_model, new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+                        # setattr(tmp_model, new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+                        tmp_model.register_parameter(new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
 
 
 

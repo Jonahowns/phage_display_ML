@@ -203,8 +203,7 @@ cov_default_config = {"fasta_file": "",
           "l1_2": 20,
           "lf": 5,
           "ld": 10,
-          "data_worker_num": 4,
-          "scale_weights": "log"
+          "data_worker_num": 4
           }
 
 # cov_default_config["convolution_topology"] = {"hidden1": {"number": 5, "kernel": (10, cov_default_config["q"]), "stride": (5, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -217,9 +216,42 @@ cov_default_config["convolution_topology"] = {
                                             "hidden1": {"number": 10, "kernel": (9, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                             "hidden2": {"number": 10, "kernel": (15, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                             "hidden3": {"number": 20, "kernel": (20, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden3": {"number": 20, "kernel": (27, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden3": {"number": 20, "kernel": (35, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden4": {"number": 20, "kernel": (27, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden5": {"number": 20, "kernel": (35, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                              }
+
+cov_sw_default_config = {"fasta_file": "",
+          "v_num": 40,
+          "q": 5,
+          "molecule": "dna",
+          "epochs": 100,
+          "seed": seed,
+          "batch_size": 10000,
+          "mc_moves": 6,
+          "lr": 0.006,
+          "lr_final": None,
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 20,
+          "lf": 5,
+          "ld": 10,
+          "data_worker_num": 4,
+          "weight_multiplier": 2.
+          }
+
+
+cov_sw_default_config["convolution_topology"] = {
+                                            "hidden1": {"number": 10, "kernel": (9, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden2": {"number": 10, "kernel": (15, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden3": {"number": 20, "kernel": (20, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden4": {"number": 20, "kernel": (27, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden5": {"number": 20, "kernel": (35, cov_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                             }
+
 
 
 ribo_default_config = {"fasta_file": "",
@@ -295,8 +327,9 @@ all_configs = {
    "pig_c3_ge4": pig_c3_4_default_config,
    "pig_c4_ge4": pig_c4_4_default_config,
    "cov": cov_default_config,
+   "cov_sw": cov_sw_default_config,
    "ribo": ribo_default_config,
-    "thc" : thc_default_config
+   "thc" : thc_default_config
 }
 
 

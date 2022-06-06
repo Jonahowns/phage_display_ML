@@ -141,9 +141,9 @@ def seq_logo(dataframe, output_file, weight=False, outdir=""):
     else:
         df.to_csv('tmp.csv', sep='\t', index=False, header=False)
         if weight:
-            sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1 -weight 2", shell=True)
+            sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWYU- -fontsize 20 -seq 1 -weight 2", shell=True)
         else:
-            sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWY- -fontsize 20 -seq 1", shell=True)
+            sp.check_call(f"/home/jonah/kpLogo/bin/kpLogo tmp.csv -simple -o {out} -alphabet ACDEFGHIKLMNPQRSTVWYU- -fontsize 20 -seq 1", shell=True)
         sp.check_call("rm tmp.csv", shell=True)
         return out
 
@@ -406,6 +406,115 @@ def multi_peak_seq_log_fig(data, likelihoods, round, bounds, weight=False, title
         fig.suptitle(f"Composition of peaks across RBM Likelihood of Round{round}")
 
     plt.show()
+
+
+class Motif_Finder():
+    def __init__(self, *motif_files, motif_states, motif_len, molecule='dna', gaps=False, motif_format="hmm"):
+        self.base_to_id = utils.letter_to_int_dicts[molecule]
+
+        dna = ['A', 'C', 'G', 'T']
+        dnar = {'A':0, 'C':1, 'G':2, 'T':3}
+        dnag = ['-', 'A', 'C', 'G', 'T']
+        dnagr = {'-':0, 'A':1, 'C':2, 'G':3, 'T':4}
+
+        # if alphabet == 'dna' and not gaps:
+        #     self.alpha = dna
+        #     self.ralpha = dnar
+        # elif alphabet == 'dna' and gaps:
+        #     self.alpha = dnag
+        #     self.ralpha = dnagr
+        motif_matrices = []
+        motif_lens = []
+
+
+        for motif_file in motif_files:
+            if motif_format == "hmm":
+                m_mat = self.import_hmm_mat(motif_file)
+            elif motif_format == "meme":
+                m_mat = self.import_meme_mat(motif_file)
+
+            motif_matrices.append(m_mat)
+
+        # self.unaligned_seqs = []
+        # self.unaligned_indxs = []
+        # self.nomotif_indxs = []
+        # self.motif_indxs = []
+        # self.affinities = []
+        # self.aligned_seqs = None
+        # self.start_positions = []
+
+    def import_meme_mat(self, meme_file, length, states):
+        o = open(meme_file, 'r')
+        meme_mat = np.full((length, states), 0.0)
+        lid = 0
+        for line in o:
+            data = line.split()
+            for i in range(self.m_states):
+                meme_mat[lid, i] = float(data[i])
+            lid += 1
+        o.close()
+        return meme_mat
+    def import_hmm_mat(self):
+        pass
+    def slice_seq(self, s):
+        sqposs = []
+        for i in range(len(s)):
+            sl = s[i:i + self.m_len]
+            if len(sl) == self.m_len:
+                sqposs.append(sl)
+            else:
+                break
+        return sqposs
+    def find_motif(self, sqposs):
+        tscores = []
+        found = False
+        for xid, x in enumerate(sqposs):
+            scores = []
+            sc = 0
+            for yid, y in enumerate(x):
+                inds = self.m_mat[yid][self.ralpha[y]]
+                if inds != 0 and yid != len(x) - 1:
+                    sc += inds
+                    continue
+                elif inds != 0 and yid == len(x) - 1:
+                    sc += inds
+                    scores.append((x, xid, xid + self.m_len, sc))
+                else:
+                    break
+            if scores:
+                found = True
+                tscores.extend(scores)
+        if found:
+            tscores.sort(key=lambda tup: tup[3])
+            motif, si, ei, seqscore = tscores[-1]
+            return motif, si, ei
+        else:
+            return -1, -1, -1
+    def load_seqs(self, seqs):
+        hits, misses, motifstrt_indx = [], [], []
+        for sid, s in enumerate(seqs):
+            sqposs = self.slice_seq(s)
+            m, si, ei = self.find_motif(sqposs)
+            # motifstrt_indx.append(si)
+            if si > -1 and ei > -1:
+                hits.append(sid)
+            else:
+                misses.append(sid)
+        self.nomotif_indxs = misses
+        self.motif_indxs = hits
+
+        for iid, idx in enumerate(motifstrt_indx):
+            if idx > -1:
+                self.unaligned_seqs.append(seqs[iid])
+                self.unaligned_indxs.append(idx)
+        print('No Motif Found in', len(seqs) - len(self.motif_indxs), 'of', len(seqs), 'sequences')
+    # def write_msa(self, outfile):
+    #     o = open(outfile, 'w')
+    #     for iid, i in enumerate(self.aligned_seqs):
+    #         print('>Seq' + str(iid) + '-' + str(self.affinities[iid]), file=o)
+    #         print(i, file=o)
+    #     o.close()
+
 
 
 
