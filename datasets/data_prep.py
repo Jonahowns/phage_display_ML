@@ -127,6 +127,20 @@ def gunter_read(gunterfile):
 
     return seqs, copy_num, all_chars
 
+def csv_read(csv_file, sequence_label="sequence", copy_num_label="copy_num"):
+    df = pd.read_csv(csv_file)
+    seqs = df[sequence_label].tolist()
+    copy_num = df[copy_num_label].tolist()
+
+    all_chars = []
+    for seq in seqs:
+        letters = set(list(seq))
+        for l in letters:
+            if l not in all_chars:
+                all_chars.append(l)
+
+    return seqs, copy_num, all_chars
+
 def data_prop(seqs, round, outfile=sys.stdout, calculate_copy_number=True):
     if outfile != sys.stdout:
         outfile = open(outfile, 'w+')
@@ -219,6 +233,12 @@ def process_raw_fasta_files(*files, in_dir=None, out_dir=None, violin_out=None, 
             dfs.append(df)
         elif input_format == "gunter":
             seqs, copy_num, rnd_chars = gunter_read(file)
+            all_chars += rnd_chars
+            df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt", calculate_copy_number=False)
+            df["copy_num"] = copy_num
+            dfs.append(df)
+        elif input_format == "caris":
+            seqs, copy_num, rnd_chars = csv_read(file, sequence_label="sequence", copy_num_label="reads")
             all_chars += rnd_chars
             df = data_prop(seqs, rnd, outfile=out_dir + f"{rnd}_len_report.txt", calculate_copy_number=False)
             df["copy_num"] = copy_num

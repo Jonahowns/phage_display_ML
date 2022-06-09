@@ -21,6 +21,8 @@ cov_sw_datatype = {"focus": "cov", "molecule": "dna", "id": "sw", "process": "sc
 ribo_datatype = {"focus": "ribo", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[115, 121]]}
 thc_datatype = {"focus": "thc", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[41, 43]]}
 pal_datatype = {"focus": "pal", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[39, 41]]}
+exo_datatype = {"focus": "exo", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[35, 38]]}
+exo_sw_datatype = {"focus": "exo", "molecule": "dna", "id": "sw", "process": "scaled_weights", "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[35, 38]]}
 
 # datatype_str : very important string specifier. For clustered datasets set as datatype["focus"]_datatype["id"].
 # For non-clustered datasets with no id set as datatype["focus"]
@@ -34,7 +36,9 @@ datatype_list = [
     cov_sw_datatype,
     ribo_datatype,
     thc_datatype,
-    pal_datatype
+    pal_datatype,
+    exo_datatype,
+    exo_sw_datatype
 ]
 
 supported_datatypes = {}
