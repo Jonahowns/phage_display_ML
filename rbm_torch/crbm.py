@@ -126,8 +126,7 @@ class CRBM(LightningModule):
         else:
             self.lrf = lr_final
 
-        # Normal dist. times this value sets initial weight values
-        self.weight_intial_amplitude = np.sqrt(0.1 / self.v_num)
+
 
         ## Might Need if grad values blow up
         # self.grad_norm_clip_value = 1000 # i have no context for setting this value at all lol, it isn't in use currently but may be later
@@ -143,8 +142,16 @@ class CRBM(LightningModule):
 
         self.convolution_topology = config["convolution_topology"]
 
-        self.register_parameter("fields", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
-        self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
+        if type(self.v_num) is int:
+            # Normal dist. times this value sets initial weight values
+            self.weight_intial_amplitude = np.sqrt(0.1 / self.v_num)
+            self.register_parameter("fields", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
+            self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
+        elif type(self.v_num) is tuple:# Normal dist. times this value sets initial weight values
+
+            self.weight_intial_amplitude = np.sqrt(0.1 / math.prod(list(self.v_num)))
+            self.register_parameter("fields", nn.Parameter(torch.zeros((*self.v_num, self.q), device=self.device)))
+            self.register_parameter("fields0", nn.Parameter(torch.zeros((*self.v_num, self.q), device=self.device)))
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
 

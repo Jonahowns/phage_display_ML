@@ -261,6 +261,8 @@ def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
 # used by crbm to initialize weight sizes
 def conv2d_dim(input_shape, conv_topology):
     [batch_size, input_channels, v_num, q] = input_shape
+    if type(v_num) is tuple and q == 1:
+        v_num, q = v_num # 2d visible
     stride = conv_topology["stride"]
     padding = conv_topology["padding"]
     kernel = conv_topology["kernel"]
@@ -483,7 +485,9 @@ def process_lines(assigned_lines):
 
     for hid, hdr in enumerate(hdr_indices):
         try:
-            titles.append(float(assigned_lines[hdr].rstrip().split('-')[1]))
+            index = assigned_lines[hdr].find("-") # first dash
+            titles.append(float(assigned_lines[hdr][index:].rstrip()))
+            # titles.append(float(assigned_lines[hdr].rstrip().split('-')[1]))
         except IndexError:
             pass
 

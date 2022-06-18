@@ -623,3 +623,53 @@ class Clamp(torch.autograd.Function): # clamp parameter values
     #         h_uks.append(huk)
     #     return h_uks
 
+
+# class BinaryClassifier(nn.module):
+#     def __init__(self, crbm_config, dataset="mnist"):
+#         super().__init__()
+#         self.binary_crbm = BinaryCRBM(crbm_config)
+#         self.crbm_epochs = crbm_config["epochs"]
+#         self.classifier_epochs = crbm_config["classifier_epochs"]
+#
+#
+#
+#
+#
+#
+#     def get_test_rbm_output(self, input_size):
+#         return self.binary_crbm.compute_output_v(torch.rand(input_size, device=self.device))
+#
+#     def train(self, gpus=0, logger_dir="./tb_logs/", name="mnist_crbm"):
+#         # First we train the crbm
+#         print("Training CRBM")
+#         logger = TensorBoardLogger(logger_dir, name=name)
+#         plt = Trainer(max_epochs=self.crbm_epochs, logger=logger, gpus=gpus, accelerator="ddp")  # distributed data-parallel
+#         plt.fit(self.binary_crbm)
+#         # Now we train the classifier
+#         print("Training classifier")
+#
+#
+#
+#
+#
+#     def classifier_training_routine(self):
+#         td = self.binary_crbm.train_dataloader()
+#         vd = self.binary_crbm.val_dataloader()
+#
+#         self.binary_crbm.eval()  # set to eval so we don't change variables of the binary crbm
+#         for _ in range(self.classifier_epochs):
+#             for b, b_idx in td: # each training epoch
+#                 x, y = b  # images, labels = batch
+#                 probs = self(x)
+#                 preds = probs.argmax(1)
+#                 train_loss = F.cross_entropy(preds, y)
+#
+#             train_batch_loss = []
+#             for vb, vb_idx in vd: # each validation epoch
+#                 v, vy = vb
+#                 probs = self(v)
+#                 preds = probs.argmax(1)
+#                 val_loss = F.cross_entropy(preds, vy)
+#
+#             epoch_accuracy = torchmetrics.Accuracy(p)
+#
