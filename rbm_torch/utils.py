@@ -484,12 +484,14 @@ def process_lines(assigned_lines):
             hdr_indices.append(lid)
 
     for hid, hdr in enumerate(hdr_indices):
-        try:
-            index = assigned_lines[hdr].find("-") # first dash
-            titles.append(float(assigned_lines[hdr][index:].rstrip()))
-            # titles.append(float(assigned_lines[hdr].rstrip().split('-')[1]))
-        except IndexError:
-            pass
+
+        index = assigned_lines[hdr].find("-")  # first dash
+        if index > -1:
+            try:
+                titles.append(float(assigned_lines[hdr][index+1:].rstrip()))
+                # titles.append(float(assigned_lines[hdr].rstrip().split('-')[1]))
+            except IndexError:
+                pass
 
         if hid == len(hdr_indices) - 1:
             seq = "".join([line.rstrip() for line in assigned_lines[hdr + 1:]])
