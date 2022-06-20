@@ -92,7 +92,7 @@ class DatasetInfo:
         model_names = self.get_value("model_names")
         equal_model_names = model_names["equal"]
         w_model_names = model_names["weights"]
-        rounds = self.get_value("all_rounds")
+        rounds = self.get_value("rounds")
 
         # config key doesn't change here, maybe add that for more flexibility later?
         clusters = self.get_value("clusters") # get number of clusters

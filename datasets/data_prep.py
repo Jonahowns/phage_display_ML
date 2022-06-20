@@ -24,10 +24,17 @@ def summary_np(nparray):
 def log_scale(listofnumbers, base=1):
     return np.asarray([math.log(x + base) for x in listofnumbers])
 
-def quick_hist(x, outfile):
-    plt.hist(x, bins=100)
+def quick_hist(x, outfile, yscale="log"):
+    fig, axs = plt.subplots(1, 1)
+    axs.hist(x, bins=100)
+    axs.set_yscale(yscale)
     plt.savefig(outfile + ".png")
     plt.close()
+
+def scale_values_np(vals, min=0.05, max=0.95):
+    nscaler = MinMaxScaler(feature_range=(min, max))
+    return nscaler.fit_transform(vals.reshape(-1, 1))
+
 
 # Intended to be run on an already processed fasta file with no duplicates, uniform length, and affinites denoted in the fasta file
 def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="protein", threads=12, precision=5, scale_log=True, copynum_coeff=1.0, neighbor_coeff=1.0, normalize_threshold="median"):
@@ -66,12 +73,13 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
 
         print("Neighbor Number Log Scaled", summary_np(neighs), file=log)
         quick_hist(neighs.tolist(), full_out_dir+ f"neighs_log_{fasta_name}")
+    else:
+        affs = np.asarray(affs)
+        neighs = np.asarray(neighs)
 
-    nscaler = MinMaxScaler(feature_range=(0.05, 0.95))
-    neighs_scaled = nscaler.fit_transform(neighs.reshape(-1, 1))
+    neighs_scaled = scale_values_np(neighs)
 
-    ascaler = MinMaxScaler(feature_range=(0.05, 0.95))
-    affs_scaled = ascaler.fit_transform(affs.reshape(-1, 1))
+    affs_scaled = scale_values_np(affs)
 
     print("Neighbor Number Scaled", summary_np(neighs_scaled), file=log)
     quick_hist(neighs_scaled.squeeze(1).tolist(), full_out_dir+f"neighs_scaled_{fasta_name}")
