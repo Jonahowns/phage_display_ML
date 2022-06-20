@@ -68,6 +68,52 @@ def get_global_info(datatype_str, dir="../../datasets/dataset_files/"):
     return info
 
 
+class DatasetInfo:
+    def __init__(self):
+        self.info = None
+
+    def load_dataset(self, datatype_str, dir="../../datasets/dataset_files/"):
+        with open(dir + datatype_str + ".json", "r") as json_file:
+            info = json.load(json_file)
+        self.info = info
+
+    def generate_dataset(self, datatype_str, destination="../../datasets/dataset_files/"):
+        generate_dataset_file(self.info["data_files"], supported_datatypes[datatype_str], destination=destination)
+
+    def modify_value(self, key, new_value):
+        self.info[key] = new_value
+
+    def get_value(self, key):
+        return self.info[key]
+
+    # most common operation
+    def add_data_file(self, dataset_file_basename):
+        new_data_files = self.get_value("data_files")
+        model_names = self.get_value("model_names")
+        equal_model_names = model_names["equal"]
+        w_model_names = model_names["weights"]
+        rounds = self.get_value("all_rounds")
+
+        # config key doesn't change here, maybe add that for more flexibility later?
+        clusters = self.get_value("clusters") # get number of clusters
+        if clusters > 1:
+            for cluster in range(1, clusters+1):
+                # append data file to previous list
+                new_data_files[str(cluster)].append(f'{dataset_file_basename}_c{cluster}.fasta')
+                equal_model_names[str(cluster)].append(f'{dataset_file_basename}_c{cluster}')
+                w_model_names[str(cluster)].append(f'{dataset_file_basename}_c{cluster}_w')
+                rounds[str(cluster)].append(f"{dataset_file_basename}_c{cluster}")
+        else:
+            cluster = "1"
+            new_data_files[cluster].append(f'{dataset_file_basename}.fasta')
+            equal_model_names[cluster].append(dataset_file_basename)
+            w_model_names[cluster].append(f'{dataset_file_basename}_w')
+            rounds[cluster].append(dataset_file_basename)
+
+        self.modify_value("data_files", new_data_files)
+        self.modify_value("model_names", {"equal": equal_model_names, "weights": w_model_names})
+        self.modify_value("rounds", rounds)
+
 
 def load_dataset(datatype_str, dir="../../datasets/dataset_files/"):
     with open(dir+datatype_str+".json", "r") as json_file:

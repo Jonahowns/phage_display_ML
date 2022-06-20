@@ -103,6 +103,27 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
     write_fasta(seqs, [round(x, precision) for x in new_weights.squeeze(1).tolist()], fasta_out_dir+fasta_file_name)
     log.close()
 
+# Goal Remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
+# This is especially needed for early rounds of selection
+def standardize_affinities(affs, out_plot=None):
+    # First let's calculate how many sequences of each affinity there are
+    aff_num = Counter(affs)
+    uniq_aff = list(set(affs))
+    aff_totals = [aff_num[x] for x in uniq_aff]
+
+    # With our affinity totals we can now "standardize" the sequence impact by making the sum of weights of each affinity equal to 1
+    standardization_dict = {x: 1./aff_totals[xid]*math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
+    stand_affs = list(map(standardization_dict.get, affs))  # Replace each value in affs with the dictionary replacement defined in standardization dict
+
+    if out_plot is not None:
+        fig, axs = plt.subplots(1, 1)
+        axs.hist(stand_affs, bins=100)
+        axs.set_yscale('log')
+        axs.set_xlabel("Weight Value")
+        axs.set_ylabel("Number of Sequences")
+        plt.savefig(out_plot+".png", dpi=400)
+
+    return stand_affs
 
 ## Fasta File Methods
 def write_fasta(seqs, affs, out):
