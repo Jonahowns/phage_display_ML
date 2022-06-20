@@ -17,6 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of gpus available")
     parser.add_argument('weights', type=str, help="Use sequence count to weight sequences")
+    parser.add_argument('precision', type=str, help="single or double precision", default="double")
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
@@ -43,16 +44,16 @@ if __name__ == '__main__':
     model = "rbm"
 
     try:
-        info = get_global_info(args.datatype_str)
+        info = get_global_info(args.datatype_str, dir="../datasets/dataset_files/")
     except KeyError:
         print(f"Key {args.datatype_str} not found in get_global_info function in /analysis/analysis_methods.py")
         exit(-1)
 
     # Set Default config
     try:
-        config = rbm_configs.all_configs[info["configkey"][clusternum]]
+        config = rbm_configs.all_configs[info["configkey"][str(clusternum)]]
     except KeyError:
-        print(f"Configkey {info['configkey'][clusternum]} Not Supported.")
+        print(f"Configkey {info['configkey'][str(clusternum)]} Not Supported.")
         print("Please add default config to configs.py under this key. Please add global info about to /analysis/analysis_methods.py")
         exit(-1)
 
@@ -63,7 +64,7 @@ if __name__ == '__main__':
 
     # Training Code
     rbm = RBM(config, debug=False)
-    logger = TensorBoardLogger('../' + info["server_model_dir"][clusternum], name=name)
+    logger = TensorBoardLogger('../' + info["server_model_dir"][model], name=name)
     if args.gpus > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines
         plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=args.gpus, accelerator="ddp")  # distributed data-parallel
