@@ -179,6 +179,30 @@ exo_default_config = {"fasta_file": "",
           "data_worker_num": 4
           }
 
+
+exo_sw_default_config = {"fasta_file": "",
+          "v_num": 38,
+          "h_num": 50,
+          "q": 5,
+          "molecule": "dna",
+          "epochs": 100, # get's overwritten by training script anyway
+          "seed": seed, # this is defined in the config file
+          "batch_size": 10000, # can be raised or lowered depending on memory usage
+          "mc_moves": 4,
+          "lr": 0.006,
+          "lr_final": None, # automatically set as lr * 1e-2
+          "decay_after": 0.75,
+          "loss_type": "free_energy",
+          "sample_type": "gibbs",
+          "sequence_weights": None,
+          "optimizer": "AdamW",
+          "weight_decay": 0.001,  # l2 norm on all parameters
+          "l1_2": 0.35,
+          "lf": 0.005,
+          "data_worker_num": 4
+          }
+
+
 all_configs = {
    "pig_c1_ge2": pig_c1_2_default_config,
    "pig_c2_ge2": pig_c2_2_default_config,
@@ -194,6 +218,7 @@ all_configs = {
    "pig_c4_ge4": pig_c4_4_default_config,
    "cov": cov_default_config,
    "exo": exo_default_config,
+    "exo_sw": exo_sw_default_config,
 }
 
 

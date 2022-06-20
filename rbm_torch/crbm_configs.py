@@ -359,7 +359,8 @@ all_configs = {
    "cov_sw": cov_sw_default_config,
    "ribo": ribo_default_config,
    "thc": thc_default_config,
-   "exo": exo_default_config
+   "exo": exo_default_config,
+    "exo_sw": exo_default_config
 }
 
 
