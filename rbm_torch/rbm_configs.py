@@ -159,6 +159,7 @@ cov_default_config = {"fasta_file": "",
 
 exo_default_config = {"fasta_file": "",
           "v_num": 38,
+          "h_num": 50,
           "q": 5,
           "molecule": "dna",
           "epochs": 100, # get's overwritten by training script anyway
@@ -173,9 +174,8 @@ exo_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 25.0,
-          "lf": 5.0,
-          "ld": 10.0,
+          "l1_2": 0.475,
+          "lf": 0.004,
           "data_worker_num": 4
           }
 
