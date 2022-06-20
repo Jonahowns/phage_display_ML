@@ -23,7 +23,7 @@ import rbm_configs
 
 
 class RBM(LightningModule):
-    def __init__(self, config, debug=False):
+    def __init__(self, config, precision="double", debug=False):
         super().__init__()
         self.h_num = config['h_num']  # Number of hidden nodes, can be variable
         self.v_num = config['v_num']   # Number of visible nodes,
@@ -132,7 +132,12 @@ class RBM(LightningModule):
 
         # Pytorch Basic Options
         torch.manual_seed(self.seed)  # For reproducibility
-        torch.set_default_dtype(torch.float64)  # Double Precision
+        supported_precisions = {"double": torch.float64, "single": torch.float32}
+        try:
+            torch.set_default_dtype(supported_precisions[precision])
+        except:
+            print(f"Precision {precision} not supported.")
+            exit(-1)
 
         self.params = nn.ParameterDict({
             # weights
