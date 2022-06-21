@@ -226,7 +226,7 @@ cov_sw_default_config = {"fasta_file": "",
           "molecule": "dna",
           "epochs": 100,
           "seed": seed,
-          "batch_size": 10000,
+          "batch_size": 5000,
           "mc_moves": 6,
           "lr": 0.006,
           "lr_final": None,
@@ -240,7 +240,7 @@ cov_sw_default_config = {"fasta_file": "",
           "lf": 5,
           "ld": 10,
           "data_worker_num": 4,
-          "weight_multiplier": 2.
+          "weight_multiplier": 1.
           }
 
 
