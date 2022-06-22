@@ -357,10 +357,11 @@ all_configs = {
    "pig_c4_ge4": pig_c4_4_default_config,
    "cov": cov_default_config,
    "cov_sw": cov_sw_default_config,
+   "cov_nw": cov_sw_default_config,
    "ribo": ribo_default_config,
    "thc": thc_default_config,
    "exo": exo_default_config,
-    "exo_sw": exo_default_config
+   "exo_sw": exo_default_config
 }
 
 

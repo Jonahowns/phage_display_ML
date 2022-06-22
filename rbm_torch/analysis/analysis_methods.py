@@ -369,9 +369,9 @@ def seqlogo_subplot(ax, path, type="info"):
     img = mpimg.imread(f"{path}.{type}.png")
     ax.imshow(img, interpolation="nearest")
     ax.axis("off")
-    ax.set_yticks([])
-    ax.set_yticklabels([])
-    ax.set_xticklabels([])
+    # ax.set_yticks([])
+    # ax.set_yticklabels([])
+    # ax.set_xticklabels([])
 
 
 # bounds listed in ascending orderex. [[-140, -100], [-90, -72]]
@@ -387,7 +387,8 @@ def multi_peak_seq_log_fig(data, likelihoods, round, bounds, weight=False, title
     fig, axd = plt.subplot_mosaic([['top' for x in range(peak_num)], [f'lower{x}' for x in range(peak_num)]],
                                   gridspec_kw=gs_kw, figsize=(15, 5), constrained_layout=False)
 
-    axd["top"].set_xlim(*xlim)
+    if xlim is not None:
+        axd["top"].set_xlim(*xlim)
     sns.kdeplot(likelihoods[round], ax=axd["top"])
 
     path = axd["top"].get_children()[0].get_path()

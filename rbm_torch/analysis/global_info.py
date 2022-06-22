@@ -18,6 +18,7 @@ pig_ge4_datatype = {"focus": "pig", "molecule": "protein", "id": "ge4", "process
 pig_gm4_datatype = {"focus": "pig", "molecule": "protein", "id": "gm4", "process": "gaps_middle", "clusters": 4, "gap_position_indices": [2, 2, 16, 16], "cluster_indices": [[12, 16], [17, 22], [35, 39], [40, 45]]}
 cov_datatype = {"focus": "cov", "molecule": "dna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 cov_sw_datatype = {"focus": "cov", "molecule": "dna", "id": "sw", "process": "scaled_weights", "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
+cov_nw_datatype = {"focus": "cov", "molecule": "dna", "id": "nw", "process": "scaled_negative_weights", "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[40, 40]]}
 ribo_datatype = {"focus": "ribo", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[115, 121]]}
 thc_datatype = {"focus": "thc", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[41, 43]]}
 pal_datatype = {"focus": "pal", "molecule": "rna", "id": None, "process": None, "clusters": 1, "gap_position_indices": [-1], "cluster_indices": [[39, 41]]}
@@ -34,6 +35,7 @@ datatype_list = [
     pig_gm4_datatype,
     cov_datatype,
     cov_sw_datatype,
+    cov_nw_datatype,
     ribo_datatype,
     thc_datatype,
     pal_datatype,

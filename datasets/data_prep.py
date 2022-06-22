@@ -113,7 +113,7 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
 
 # Goal Remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
 # This is especially needed for early rounds of selection
-def standardize_affinities(affs, out_plot=None):
+def standardize_affinities(affs, out_plot=None, negative_weights=False):
     # First let's calculate how many sequences of each affinity there are
     aff_num = Counter(affs)
     uniq_aff = list(set(affs))
@@ -122,6 +122,10 @@ def standardize_affinities(affs, out_plot=None):
     # With our affinity totals we can now "standardize" the sequence impact by making the sum of weights of each affinity equal to 1
     standardization_dict = {x: 1./aff_totals[xid]*math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
     stand_affs = list(map(standardization_dict.get, affs))  # Replace each value in affs with the dictionary replacement defined in standardization dict
+
+    if negative_weights:
+        minimum_aff = min(stand_affs) # find minimum
+        stand_affs = [x if x > minimum_aff else -x for x in stand_affs]  # set these as negative weights
 
     if out_plot is not None:
         fig, axs = plt.subplots(1, 1)
