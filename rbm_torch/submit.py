@@ -14,7 +14,6 @@ if __name__ == "__main__":
     requiredNamed.add_argument('-g', '--gpus', type=str, help="Number of gpus available", required=True)
     parser.add_argument('-w', action="store_true", help="Use sequence count to weight sequences")
     parser.add_argument('--wdir', nargs="?", type=str, help="Manually Set working directory, Usually handled internally.")
-    parser.add_argument('-o', '--output', type=str, help="Set slurm output file prefix")
     parser.add_argument('--precision', type=str, help="Set precision of the model, single or double", default="double")
     parser.add_argument('-c', nargs="?", help="Number of CPU cores to use. Default is 6.", default="6", type=str)
     parser.add_argument('--walltime', default="7-00:00", type=str, nargs="?", help="Set wall time for training")
@@ -28,11 +27,6 @@ if __name__ == "__main__":
         wdir = "/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/"
     else:
         wdir = args.wdir
-
-    if args.output is None:
-        output = f"{args.datatype}_{args.round}"
-    else:
-        output = args.output
 
     clusternum = args.round[-1]  # cluster the data belongs to (). Need to use a string to access
     if clusternum.isalpha() or clusternum.isdigit() and args.round[-2] != "c":  # No cluster number, set to 1
@@ -65,7 +59,10 @@ if __name__ == "__main__":
         if data_index == -1:
             print(f"Dataset {args.round+'.fasta'} Not Found. Please Ensure everything is listed correctly in global_info")
         paths.append(info["data_dir"][3:] + info["data_files"][clusternum][data_index])
-        outs.append(f"{args.datatype}_{args.model}_{output}" + output)
+        if args.w:
+            outs.append(f"{args.datatype}_{args.model}_{args.round}_w")
+        else:
+            outs.append(f"{args.datatype}_{args.model}_{args.round}")
 
     for pid, p in enumerate(paths):
         o = open(f'./submission_templates/sbatch_template.sh', 'r')
