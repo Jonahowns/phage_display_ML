@@ -854,22 +854,23 @@ class CRBM(LightningModule):
                 print(f"Current Directory '{os.getcwd()}'")
                 exit()
 
-            if self.weights == "fasta":
-                self.weights = np.asarray(seq_read_counts)
-
             if q_data != self.q:
                 print(
                     f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
                 exit(-1)
 
-            if self.weights is None:
-                data = pd.DataFrame(data={'sequence': seqs})
+            if self.weights == "fasta":
+                weights = np.asarray(seq_read_counts)
+                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
             else:
-                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
+                data = pd.DataFrame(data={'sequence': seqs})
 
             data_pds.append(data)
 
         all_data = pd.concat(data_pds)
+        if self.weights is not None and self.weights != "fasta":
+            all_data["seq_count"] = self.weights
+
         self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy

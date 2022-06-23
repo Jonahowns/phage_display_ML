@@ -208,7 +208,7 @@ class RBM(LightningModule):
         self.update_betas_lr = 0.1
         self.update_betas_lr_decay = 1
 
-    def prep_W(self): # enforces
+    def prep_W(self): # enforces zero sum gauge on the weights
         self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
 
     ############################################################# RBM Functions
@@ -608,37 +608,45 @@ class RBM(LightningModule):
         self.count_swaps += 1
         return v, h, e
 
-
     ######################################################### Pytorch Lightning Functions
     ## Loads Data to be trained from provided fasta file
-    def prepare_data(self):
-        try:
-            if self.worker_num == 0:
-                threads = 1
+    def setup(self, stage=None):
+        if type(self.fasta_file) is str:
+            self.fasta_file = [self.fasta_file]
+
+        assert type(self.fasta_file) is list
+        data_pds = []
+
+        for file in self.fasta_file:
+            try:
+                if self.worker_num == 0:
+                    threads = 1
+                else:
+                    threads = self.worker_num
+                seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=True, threads=threads)
+            except IOError:
+                print(f"Provided Fasta File '{file}' Not Found")
+                print(f"Current Directory '{os.getcwd()}'")
+                exit()
+
+            if q_data != self.q:
+                print(
+                    f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
+                exit(-1)
+
+            if self.weights == "fasta":
+                weights = np.asarray(seq_read_counts)
+                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
             else:
-                threads = self.worker_num
-            seqs, seq_read_counts, all_chars, q_data = fasta_read(self.fasta_file, self.molecule, drop_duplicates=True, threads=threads)
-        except IOError:
-            print(f"Provided Fasta File '{self.fasta_file}' Not Found")
-            print(f"Current Directory '{os.curdir}'")
-            exit()
+                data = pd.DataFrame(data={'sequence': seqs})
 
-        if self.weights == "fasta":
-            self.weights = np.asarray(seq_read_counts)
+            data_pds.append(data)
 
-        if q_data != self.q:
-            print(
-                f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
-            exit(-1)
+        all_data = pd.concat(data_pds)
+        if self.weights is not None and self.weights != "fasta":
+            all_data["seq_count"] = self.weights
 
-        if self.weights is None:
-            data = pd.DataFrame(data={'sequence': seqs})
-        else:
-            data = pd.DataFrame(data={'sequence': seqs, 'seq_count': self.weights})
-
-        train, validate = train_test_split(data, test_size=0.2, random_state=self.seed)
-        self.validation_data = validate
-        self.training_data = train
+        self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):

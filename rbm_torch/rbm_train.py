@@ -1,6 +1,8 @@
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import Trainer
 import argparse
+import json
+import numpy as np
 import os
 import sys
 from rbm import RBM
@@ -35,11 +37,21 @@ if __name__ == '__main__':
         print(f"Cluster Designation {clusternum} is not supported.")
         exit(-1)
 
-    weights, w_bool = None, False
-    if args.weights in ["True", "true", "TRUE", "yes"]:
-        weights = "fasta"  # All weights are already in the processed files
-        name += "_w"
-        w_bool = True
+    weights = None
+    if args.weights == "fasta" or args.weights in ["True", "TRUE", "yes"]:
+        weights = "fasta"  # All weights are already in the processed fasta files
+        name += "_f"
+    elif args.weights == "" or args.weights is None:
+        pass
+    else:
+        try:
+            with open(args.weights) as f:
+                data = json.load(f)
+            weights = np.asarray(data["weights"])
+            name += f"_{data['extension']}"
+        except IOError:
+            print(f"Could not load provided weight file {args.weights}")
+            exit(-1)
 
     model = "rbm"
 

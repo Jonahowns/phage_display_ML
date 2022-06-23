@@ -1,12 +1,14 @@
 #!/bin/python
 import argparse
 from analysis.global_info import get_global_info
+import json
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Slurm Files for pytorch RBM and CRBM")
     requiredNamed = parser.add_argument_group('required named arguments')
     requiredNamed.add_argument('-d', '--datatype', help='Datatype Specifier String. See global_info', required=True)
     requiredNamed.add_argument('-r', '--round', type=str, help="Which Round should we run the scripts on?", required=True)
+
     requiredNamed.add_argument('-p', '--partition', type=str, help="Which Partition should the job be submitted on?", required=True)
     requiredNamed.add_argument('-q', '--queue', type=str, help="Which Queue should the job be submitted on?", required=True)
     requiredNamed.add_argument('-m', '--model', type=str, help="Which Model are we training, i.e. rbm or crbm?", required=True)
@@ -16,6 +18,7 @@ if __name__ == "__main__":
     parser.add_argument('--wdir', nargs="?", type=str, help="Manually Set working directory, Usually handled internally.")
     parser.add_argument('--precision', type=str, help="Set precision of the model, single or double", default="double")
     parser.add_argument('-c', nargs="?", help="Number of CPU cores to use. Default is 6.", default="6", type=str)
+    parser.add_argument('-w', nargs="?", help="Weight File to use to weight model training", default=None, type=str)
     parser.add_argument('--walltime', default="7-00:00", type=str, nargs="?", help="Set wall time for training")
     parser.add_argument('-a', '--account', default="jprocyk", type=str, nargs="?", help="Account name for server submission")
     parser.add_argument('--email', default="jprocyk@asu.edu", type=str, nargs="?", help="Email for Job notifications")
@@ -48,19 +51,33 @@ if __name__ == "__main__":
     # Make a list of paths for all files we want
     paths = []
     outs = []
+
+    if args.w == "fasta":
+        extension = "f"
+    elif args.w is not None:
+        try:
+            with open(args.w) as f:
+                data = json.load(f)
+        except IOError:
+            print(f"Could not load provided weight file {args.w}")
+            exit(-1)
+        extension = data["extension"]
+
     if "all" in args.round:
         paths = [info["data_dir"][3:] + x for x in info["data_files"][clusternum]]
-        if args.w:
-            outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"]["weights"][clusternum]]
-        else:
-            outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"]["equal"][clusternum]]
+        model_names = info["model_names"][clusternum]
+        if args.w is not None:
+            model_names = [x + "_" + extension for x in model_names]
+
+        outs = [f"{args.datatype}_{args.model}_{x}" for x in info["model_names"][clusternum]]
+
     else:
         data_index = info['data_files'][clusternum].index(args.round+".fasta")
         if data_index == -1:
             print(f"Dataset {args.round+'.fasta'} Not Found. Please Ensure everything is listed correctly in global_info")
         paths.append(info["data_dir"][3:] + info["data_files"][clusternum][data_index])
-        if args.w:
-            outs.append(f"{args.datatype}_{args.model}_{args.round}_w")
+        if args.w is not None:
+            outs.append(f"{args.datatype}_{args.model}_{args.round}_{extension}")
         else:
             outs.append(f"{args.datatype}_{args.model}_{args.round}")
 
@@ -86,10 +103,10 @@ if __name__ == "__main__":
         filedata = filedata.replace("WALLTIME", args.walltime)
         filedata = filedata.replace("PRECISION", args.precision)
 
-        if args.w:
-            filedata = filedata.replace("WEIGHTS", 'True')
+        if args.w is not None:
+            filedata = filedata.replace("WEIGHTS", args.w)
         else:
-            filedata = filedata.replace("WEIGHTS", 'False')
+            filedata = filedata.replace("WEIGHTS", 'None')
 
         with open(f"./submission/{outs[pid]}.sh", 'w+') as file:
             file.write(filedata)
@@ -99,7 +116,7 @@ if __name__ == "__main__":
         if info["clusters"] > 1:
             tmp += f"_c{clusternum}"
         if args.w:
-            tmp += "_w"
+            tmp += f"_{extension}"
         with open(f"./submission/submit_{args.datatype}_{tmp}.sh", 'w+') as file:
             file.write("#!/bin/bash\n")
             for out in outs:

@@ -92,8 +92,6 @@ class DatasetInfo:
     def add_data_file(self, dataset_file_basename):
         new_data_files = self.get_value("data_files")
         model_names = self.get_value("model_names")
-        equal_model_names = model_names["equal"]
-        w_model_names = model_names["weights"]
         rounds = self.get_value("rounds")
 
         # config key doesn't change here, maybe add that for more flexibility later?
@@ -102,18 +100,16 @@ class DatasetInfo:
             for cluster in range(1, clusters+1):
                 # append data file to previous list
                 new_data_files[str(cluster)].append(f'{dataset_file_basename}_c{cluster}.fasta')
-                equal_model_names[str(cluster)].append(f'{dataset_file_basename}_c{cluster}')
-                w_model_names[str(cluster)].append(f'{dataset_file_basename}_c{cluster}_w')
+                model_names[str(cluster)].append(f'{dataset_file_basename}_c{cluster}')
                 rounds[str(cluster)].append(f"{dataset_file_basename}_c{cluster}")
         else:
             cluster = "1"
             new_data_files[cluster].append(f'{dataset_file_basename}.fasta')
-            equal_model_names[cluster].append(dataset_file_basename)
-            w_model_names[cluster].append(f'{dataset_file_basename}_w')
+            model_names[cluster].append(dataset_file_basename)
             rounds[cluster].append(dataset_file_basename)
 
         self.modify_value("data_files", new_data_files)
-        self.modify_value("model_names", {"equal": equal_model_names, "weights": w_model_names})
+        self.modify_value("model_names", model_names)
         self.modify_value("rounds", rounds)
 
 
@@ -127,7 +123,7 @@ def generate_dataset_file(data_filenames, datatype, destination="../../datasets/
     # rounds are assigned by each filename
     rounds = [x.split(".")[0] for x in data_filenames]
 
-    if datatype["process"] is not None:
+    if datatype["id"] is not None:
         data_location = f"../../datasets/{datatype['focus']}/{datatype['id']}/"
     else:
         data_location = f"../../datasets/{datatype['focus']}/"
@@ -151,7 +147,7 @@ def generate_dataset_file(data_filenames, datatype, destination="../../datasets/
             all_configkeys[i+1] = f"{datatype['focus']}_c{i + 1}_{datatype['id']}"
 
             all_model_names[i+1] = [x + f"_c{i + 1}" for x in rounds]
-            all_model_names_w[i+1] = [x + f"_c{i + 1}_w" for x in rounds]
+            # all_model_names_w[i+1] = [x + f"_c{i + 1}_w" for x in rounds]
 
             all_rounds[i+1] = [x + f"_c{i + 1}" for x in rounds]
 
@@ -161,7 +157,7 @@ def generate_dataset_file(data_filenames, datatype, destination="../../datasets/
         all_rounds[1] = rounds
 
         all_model_names[1] = [f"{i}" for i in rounds]
-        all_model_names_w[1] = [f"{i}_w" for i in rounds]
+        # all_model_names_w[1] = [f"{i}_w" for i in rounds]
 
         if datatype["id"] is None:
             all_configkeys[1] = f"{datatype['focus']}"
@@ -169,7 +165,7 @@ def generate_dataset_file(data_filenames, datatype, destination="../../datasets/
             all_configkeys[1] = f"{datatype['focus']}_{datatype['id']}"
 
     info = {"data_files": all_data_files, "rounds": all_rounds,
-            "model_names": {"weights": all_model_names_w, "equal": all_model_names},
+            "model_names": all_model_names,
             "local_model_dir": local_model_location,
             "data_dir": data_location, "server_model_dir": server_model_location,
             "molecule": datatype['molecule'], "configkey": all_configkeys,

@@ -7,38 +7,6 @@ import rbm_torch.analysis.global_info
 # Should be run on Agave, Pushes latest models to our Work Dell
 # Goal is to Transfer the most recent version of each RBM automatically to our local computer for analysis
 
-# Configured "App" for Globus Transfers
-piggy_client_id = "fc83d632-e246-4a03-99ed-78e18f215bd1"
-
-# Agave Scratch Endpoint
-source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
-
-# Work Dell Endpoint
-dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
-
-# Additional data access scope Needed by Agave Scratch endpoint since it is a V5 globus endpoint
-source_scope = f"urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/{source_endpoint_id}/data_access]"
-
-
-client = globus_sdk.NativeAppAuthClient(piggy_client_id)
-# Authorization
-client.oauth2_start_flow(refresh_tokens=True, requested_scopes=[source_scope])
-authorize_url = client.oauth2_get_authorize_url()
-print(f"Please go to this URL and login:\n\n{authorize_url}\n")
-auth_code = input("Please enter the code you get after login here: ").strip()
-tokens = client.oauth2_exchange_code_for_tokens(auth_code)
-
-# Get Transfer Tokens for our transfer
-transfer_tokens = tokens.by_resource_server["transfer.api.globus.org"]
-
-# construct an AccessTokenAuthorizer and use it to construct the TransferClient
-transfer_client = globus_sdk.TransferClient(
-    authorizer=globus_sdk.AccessTokenAuthorizer(transfer_tokens["access_token"])
-)
-
-
-
-
 
 # find the latest version and return the path source_dir/version_{max}/
 # Endpoint dir is for the endpoint being mounted in a different place then where the script is run
@@ -52,7 +20,7 @@ def find_version(round, source_dir, endpoint_dir=None):
     try:
         maxv = max(versions)  # get highest version number
     except ValueError:
-        print(f"No Model found in {path}")
+        print(f"No Model {round} found in {path}")
         exit(-1)
     indexofinterest = versions.index(maxv)  # Get index of the highest version
     targetdir = subdirs[indexofinterest]  # Access directory path of the highest version
@@ -91,9 +59,10 @@ def model_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
-    parser.add_argument('ml_model', type=str, help="Which model? rbm or crbm?")
-    parser.add_argument('datatype_str', type=str, help="Which dataset to transfer")
-    parser.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
+    requiredNamed = parser.add_argument_group('required named arguments')
+    requiredNamed.add_argument('ml_model', type=str, help="Which model? rbm or crbm?")
+    requiredNamed.add_argument('datatype_str', type=str, help="Which dataset to transfer")
+    requiredNamed.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
     info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, dir="./datasets/dataset_files/")
@@ -107,32 +76,52 @@ if __name__=='__main__':
 
     # MAKE MORE GENERAL
     clusters = info["clusters"] # number of clusters
-    c_rounds, c_w_rounds = [], []  # non weighted, weighted
+    rounds = []
     for clust in range(clusters):
-        c_rounds.append(info["model_names"]["equal"][str(clust+1)])
-        c_w_rounds.append(info["model_names"]["weights"][str(clust+1)])
+        rounds.append(info["model_names"][str(clust+1)])
 
-    flat_c_rounds = [item for sublist in c_rounds for item in sublist]
-    flat_c_w_rounds = [item for sublist in c_w_rounds for item in sublist]
-    all_rounds = flat_c_rounds + flat_c_w_rounds
+    flat_rounds = [item for sublist in rounds for item in sublist]
 
     individual = []  # individual round specifiers are added here for one call to model_transfer at the end
     for specifier in args.model_string:  # specifier is the rbm name, ususally something like n1_c2_w etc.
-        if specifier.startswith("c"):  # Tranfer a Cluster
-            cluster = int(specifier[1])
-            if "_w" in specifier:
-                individual += c_w_rounds[cluster - 1]
+        if "all" in specifier:  # Transfer all rbms under this datatype_str
+            if specifier == "all":
+                individual += flat_rounds
             else:
-                individual += c_rounds[cluster - 1]
-        elif specifier == "all":  # Transfer all rbms under this datatype_str
-            for i in range(len(info["rounds"])):
-                individual += c_rounds[i]
-                individual += c_w_rounds[i]
-        elif specifier in all_rounds:
-            individual.append(specifier)
+                extension = specifier.split('_')[1]
+                individual += [f"{x}_{extension}" for x in flat_rounds]
         else:
-            print(f"Specifier Strings {specifier} not supported!")
-            exit(-1)
+            individual.append(specifier)
+
+    # Now we setup the Globus transfer
+
+    # Configured "App" for Globus Transfers
+    piggy_client_id = "fc83d632-e246-4a03-99ed-78e18f215bd1"
+
+    # Agave Scratch Endpoint
+    source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
+
+    # Work Dell Endpoint
+    dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
+
+    # Additional data access scope Needed by Agave Scratch endpoint since it is a V5 globus endpoint
+    source_scope = f"urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/{source_endpoint_id}/data_access]"
+
+    client = globus_sdk.NativeAppAuthClient(piggy_client_id)
+    # Authorization
+    client.oauth2_start_flow(refresh_tokens=True, requested_scopes=[source_scope])
+    authorize_url = client.oauth2_get_authorize_url()
+    print(f"Please go to this URL and login:\n\n{authorize_url}\n")
+    auth_code = input("Please enter the code you get after login here: ").strip()
+    tokens = client.oauth2_exchange_code_for_tokens(auth_code)
+
+    # Get Transfer Tokens for our transfer
+    transfer_tokens = tokens.by_resource_server["transfer.api.globus.org"]
+
+    # construct an AccessTokenAuthorizer and use it to construct the TransferClient
+    transfer_client = globus_sdk.TransferClient(
+        authorizer=globus_sdk.AccessTokenAuthorizer(transfer_tokens["access_token"])
+    )
 
     model_transfer(individual, source_dir, source_endpoint_dir, destination_dir)
 
