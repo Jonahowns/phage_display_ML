@@ -217,6 +217,8 @@ all_configs = {
    "pig_c3_ge4": pig_c3_4_default_config,
    "pig_c4_ge4": pig_c4_4_default_config,
    "cov": cov_default_config,
+    "cov_nw": cov_default_config,
+    "cov_sw": cov_default_config,
    "exo": exo_default_config,
     "exo_sw": exo_sw_default_config,
 }

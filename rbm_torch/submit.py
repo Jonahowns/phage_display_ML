@@ -51,6 +51,8 @@ if __name__ == "__main__":
     datatype_folder = f"./submission/{args.datatype}/"
     if not os.path.exists(datatype_folder):
         os.mkdir(datatype_folder)
+        os.mkdir(datatype_folder+"out/")
+        os.mkdir(datatype_folder+"err/")
 
     # Make a list of paths for all files we want
     paths = []
@@ -99,8 +101,8 @@ if __name__ == "__main__":
         filedata = filedata.replace("PARTITION", args.partition)
         filedata = filedata.replace("QUEUE", args.queue)
         filedata = filedata.replace("MODEL", args.model)
-        filedata = filedata.replace("OUT", outs[pid])
-        filedata = filedata.replace("ERR", args.error)
+        filedata = filedata.replace("OUT", datatype_folder+"out/"+outs[pid])
+        filedata = filedata.replace("ERR", datatype_folder+"err/"+args.error)
         filedata = filedata.replace("EPOCHS", args.epochs)
         filedata = filedata.replace("GPUS", args.gpus)
         filedata = filedata.replace("WDIR", wdir)
