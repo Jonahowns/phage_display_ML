@@ -77,7 +77,7 @@ class RBM(LightningModule):
         except KeyError:
             self.weight_multiplier = 1.
 
-        if weights == None:
+        if weights is None:
             self.weights = None
         elif type(weights) == str:
             if weights == "fasta": # Assumes weights are in fasta file
@@ -731,7 +731,7 @@ class RBM(LightningModule):
 
         seqs, V_pos, seq_weights = batch
 
-        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * seq_weights).sum() / seq_weights.sum()
+        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * seq_weights).sum() / seq_weights.abs().sum()
 
         batch_out = {
              "val_pseudo_likelihood": pseudo_likelihood.detach()
@@ -895,8 +895,8 @@ class RBM(LightningModule):
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos) * weights).sum() / weights.abs().sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg) * weights.abs()).sum() / weights.abs().sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         # Reconstruction Loss, Did not work very well

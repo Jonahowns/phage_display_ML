@@ -87,7 +87,7 @@ class CRBM(LightningModule):
         except KeyError:
             self.weight_multiplier = 1.
 
-        if weights == None:
+        if weights is None:
             self.weights = None
         elif type(weights) == str:
             if weights == "fasta": # Assumes weights are in fasta file
