@@ -430,9 +430,6 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
     else:
         return seqs
 
-def make_weight_file(filebasename, list_of_weights, str_extension):
-    with open(f'{filebasename}.json', 'w') as f:
-        json.dump({"weights": list_of_weights, "extension": str_extension}, f)
 
 
 ######### Data Generation Methods #########

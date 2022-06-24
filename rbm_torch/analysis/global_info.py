@@ -123,6 +123,8 @@ def generate_dataset_file(data_filenames, datatype, destination="../../datasets/
     # rounds are assigned by each filename
     rounds = [x.split(".")[0] for x in data_filenames]
 
+    assert type(datatype) is dict
+
     if datatype["id"] is not None:
         data_location = f"../../datasets/{datatype['focus']}/{datatype['id']}/"
     else:

@@ -44,13 +44,14 @@ if __name__ == '__main__':
     elif args.weights == "" or args.weights is None:
         pass
     else:
+        ## Assumes weight file to be in same directory as our data files.
         try:
-            with open(args.weights) as f:
+            with open(os.path.dirname(args.dataset) + '/' + args.weights) as f:
                 data = json.load(f)
             weights = np.asarray(data["weights"])
             name += f"_{data['extension']}"
         except IOError:
-            print(f"Could not load provided weight file {args.weights}")
+            print(f"Could not load provided weight file {os.path.dirname(args.dataset) + '/' + args.weights}")
             exit(-1)
 
     model = "rbm"

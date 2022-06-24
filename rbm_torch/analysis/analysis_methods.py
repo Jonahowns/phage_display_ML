@@ -24,7 +24,9 @@ from notebook_generation_methods import generate_notebook
 int_to_letter_dicts = {"protein": utils.aadict, "dna": utils.dnadict, "rna": utils.rnadict}
 
 # Colors Used for Likelihood Plots, can always add / change order
-supported_colors = ["b", "r", "g", "y", "m", "c", "k", "DarkKhaki", "DarkOrchid"]
+supported_colors = ["r", "orange", "y", "g", "b", "indigo", "violet", "m", "c", "k", "DarkKhaki", "DarkOrchid", "aqua", "yellowgreen", "aquamarine", "yellow", "beige", "wheat",
+                    "chartreuse", "violet", "coral", "turqoise", "crimson", "tomato", "darkblue", "darkgreen", "teal", "fuchsia",
+                    "gold", "silver", "sienna", "grey", "indigo", "salmon", "plum", "lavender", "orchid", "lime", "magenta", "navy"]
 
 # Helper Functions for loading data and loading RBMs not in our current directory
 # assignment function assigns label based off the count (ex. returns "low" for count < 10 )
@@ -92,6 +94,38 @@ def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelih
         if xid == len(order) - 1:
             y.set(xlabel=xaxislabel)
         axs[xid].legend()
+    if title:
+        fig.suptitle(title)
+    else:
+        fig.suptitle("Log-Likelihood Gaussian KDE Curve of Likelihoods by Dataset")
+    plt.show()
+
+# Plot Likelihoods as kde curves with each round in a new row
+# order must be a list of lists defining what data to plot on each subplot, same for labels
+def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False, legend_font_size=10):
+    colors = supported_colors
+    plot_num = len(order)
+    fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
+    for xid, x in enumerate(order): # each subplots likelihood dictionary labels
+        if xlim is not None:
+            axs[xid].set_xlim(*xlim)
+
+        plot_ymax = 0.
+        for yid, y in enumerate(x): # each label in the subplot labels
+            z = sns.kdeplot(likeli[y], shade=False, alpha=0.5, color=colors[yid], ax=axs[xid], label=labels[xid][yid], cumulative=cdf)
+            kdeplot = axs[xid].lines[-1]
+            ydata = kdeplot.get_ydata()
+            ymax = round(ydata.max(), 3)
+            if ymax > plot_ymax:
+                plot_ymax = ymax
+
+        if xid == len(order) - 1:
+            z.set(xlabel=xaxislabel)
+        # axs[xid].legend()
+        axs[xid].legend(loc=2, prop={'size': legend_font_size})
+        axs[xid].tick_params(axis='x', labelsize=12)
+        axs[xid].tick_params(axis='y', labelsize=8)
+        axs[xid].set_yticks([0., plot_ymax])
     if title:
         fig.suptitle(title)
     else:
