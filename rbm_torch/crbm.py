@@ -94,10 +94,10 @@ class CRBM(LightningModule):
                 self.weights = "fasta"
         elif type(weights) == torch.tensor:
             self.weights = weights.numpy()
-        elif type(weights) == np.array:
+        elif type(weights) == np.ndarray:
             self.weights = weights
         else:
-            print("Provided Weights  Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
+            print(f"Provided Weights of type {type(weights)} Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
             exit(1)
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
