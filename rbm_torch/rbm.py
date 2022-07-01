@@ -655,8 +655,9 @@ class RBM(LightningModule):
         decay_gamma = (self.lrf / self.lr) ** (1 / (self.epochs * (1 - self.decay_after)))
         decay_milestone = math.floor(self.decay_after * self.epochs)
         my_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optim, milestones=[decay_milestone], gamma=decay_gamma)
-        # my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decay_gamma)
-        return optim
+        optim_dict = {"lr_scheduler": my_lr_scheduler,
+                      "optimizer": optim}
+        return optim_dict
 
     ## Loads Training Data
     def train_dataloader(self, init_fields=True):
