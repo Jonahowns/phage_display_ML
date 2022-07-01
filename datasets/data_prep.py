@@ -281,10 +281,16 @@ def gap_adder(seqs, maxlen, position_indx=-1):
 # Clusters are defined by the length of the sequences
 # Extractor takes all data and writes fasta file for sequences of the specified lengths
 def extractor(seqs, cnum, lenindices, outdir, cpy_num, uniform_length=True, position_indx=[-1]):
-    for i in range(cnum):
-        ctmp, caffs = prep_data(seqs, lenindices[i][0], lenindices[i][1], cpy_num=cpy_num)
+    if cnum > 1:
+        for i in range(cnum):
+            ctmp, caffs = prep_data(seqs, lenindices[i][0], lenindices[i][1], cpy_num=cpy_num)
+            if uniform_length:
+                ctmp = gap_adder(ctmp, lenindices[i][1], position_indx=position_indx[i])
+            write_fasta(ctmp, caffs, outdir + f'_c{i+1}.fasta')
+    else:
+        ctmp, caffs = prep_data(seqs, lenindices[0][0], lenindices[0][1], cpy_num=cpy_num)
         if uniform_length:
-            ctmp = gap_adder(ctmp, lenindices[i][1], position_indx=position_indx[i])
+            ctmp = gap_adder(ctmp, lenindices[0][1], position_indx=position_indx[0])
         write_fasta(ctmp, caffs, outdir + '.fasta')
 
 
@@ -339,8 +345,8 @@ def prepare_data_files(datatype_str, master_df, target_dir, character_conversion
         exit(-1)
 
     # Add
-    if dt["process"] is not None:
-        target_dir = target_dir + dt["process"] + f"_{dt['clusters']}_clusters/"
+    # if dt["id"] is not None:
+    #     target_dir = target_dir + dt["process"] + f"_{dt['clusters']}_clusters/"
     # Make directory for files if not already specified
     if not os.path.isdir(target_dir):
         os.mkdir(f"./{target_dir}")

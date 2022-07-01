@@ -1499,25 +1499,25 @@ class CRBM(LightningModule):
 
                 if N_PT > 1 and Ndata > 1:
                     if record_replica:
-                        data_gen_v[n] = config[0].clone()
+                        data_gen_v[n+1] = config[0].clone()
 
                         clone = self.clone_h(config[1])
                         for hid in range(self.h_layer_num):
-                            data_gen_h[hid][n] = clone[hid]
+                            data_gen_h[hid][n+1] = clone[hid]
 
                     else:
-                        data_gen_v[n] = config[0][0].clone()
+                        data_gen_v[n+1] = config[0][0].clone()
 
                         clone = self.clone_h(config[1], sub_index=0)
                         for hid in range(self.h_layer_num):
-                            data_gen_h[hid][n] = clone[hid]
+                            data_gen_h[hid][n+1] = clone[hid]
 
                 else:
-                    data_gen_v[n] = config[0].clone()
+                    data_gen_v[n+1] = config[0].clone()
 
                     clone = self.clone_h(config[1])
                     for hid in range(self.h_layer_num):
-                        data_gen_h[hid][n] = clone[hid]
+                        data_gen_h[hid][n+1] = clone[hid]
 
             if Ndata > 1:
                 data = [data_gen_v, data_gen_h]
@@ -1593,13 +1593,13 @@ if __name__ == '__main__':
     # crbm.train_dataloader()
 
 
-    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
-    # # profiler = SimpleProfiler(profiler_memory=True)
-    # # profiler = torch.profiler.profile(profile_memory=True)
-    # # profiler = PyTorchProfiler()
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
-    plt.fit(crbm)
+    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    # # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    # # # profiler = SimpleProfiler(profiler_memory=True)
+    # # # profiler = torch.profiler.profile(profile_memory=True)
+    # # # profiler = PyTorchProfiler()
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
+    # plt.fit(crbm)
 
     # Debugging Code1
     # checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=99-step=199.ckpt"
@@ -1610,7 +1610,7 @@ if __name__ == '__main__':
     #
     # # results = gen_data_lowT(crbm, which="marginal")
     # # results = gen_data_zeroT(crbm, which="joint")
-    # crbm.AIS(verbose=True)
+    crbm.AIS(verbose=True)
     # results = gen_data_lowT(crbm, beta=2, which='marginal', Nchains=100, Lchains=500, Nthermalize=200, Nstep=10, N_PT=2, reshape=True, update_betas=False)
     # visible, hiddens = results
     #

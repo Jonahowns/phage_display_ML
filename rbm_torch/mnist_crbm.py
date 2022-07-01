@@ -5,6 +5,7 @@ from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 from torch.optim import SGD, AdamW
+from sklearn.metrics import balanced_accuracy_score
 
 import os
 import torch
@@ -131,6 +132,13 @@ class BinaryCRBM(CRBM):
             self.val_reader = MNIST(PATH_DATASETS, train=False, download=True, transform=transforms.ToTensor())
 
     def train_dataloader(self, init_fields=True):
+        if init_fields:
+            with torch.no_grad():
+                tmp_fields = torch.randn((*self.v_num, self.q), device=self.device)
+                self.fields += tmp_fields
+                self.fields0 += tmp_fields
+
+
         return torch.utils.data.DataLoader(
             self.train_reader,
             batch_size=self.batch_size,
@@ -158,14 +166,24 @@ class BinaryCRBM(CRBM):
 
         cd_loss = F_v - F_vp
 
+        # Regularization Terms
+        reg1 = self.lf / (2 * math.prod(self.v_num)) * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        # reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            # reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
         # Calculate Loss
-        loss = cd_loss  # + reg1 + reg2 + reg3
+        loss = cd_loss + reg1 + reg2  # + reg3
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
                 "train_free_energy": F_v.detach(),
-                # "field_reg": reg1.detach(),
-                # "weight_reg": reg2.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
                 # "distance_reg": reg3.detach()
                 }
 
@@ -270,11 +288,15 @@ class BinaryCRBM(CRBM):
         # These are detached
         avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
         avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
+        field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
+        weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
         # free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
         # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
                                                            "CD_Loss": avg_dF,
+                                                           "W_reg": weight_reg,
+                                                           "field_reg": field_reg,
                                                            # "Train_pseudo_likelihood": pseudo_likelihood,
                                                            # "Train Free Energy": free_energy,
                                                            }, self.current_epoch)
@@ -330,8 +352,6 @@ class BinaryClassifier(LightningModule):
             nn.Linear(linear_size, 10), # 10 possible digits
             nn.Softmax(dim=1)
         ]
-        self.train_accuracy = torchmetrics.Accuracy()
-        self.val_accuracy = torchmetrics.Accuracy()
 
 
         self.classifier = nn.Sequential(*classifier)
@@ -376,38 +396,27 @@ class BinaryClassifier(LightningModule):
         preds = probs.argmax(1)
         train_loss = F.cross_entropy(probs, y)
 
-        self.train_accuracy(preds, y)
-        self.log('train_acc_step', self.train_accuracy)
+        train_accuracy = balanced_accuracy_score(y.cpu(), preds.detach().cpu())
+        self.log('train_accuracy', train_accuracy, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return train_loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         probs = self(x.squeeze(1))
-        print(probs[0])
         preds = probs.argmax(1)
         val_loss = F.cross_entropy(probs, y)
 
-        print("label_type", y.dtype)
-        print("probs", probs.shape)
-        self.val_accuracy(probs.detach().double(), y)
-        self.log('val_acc_step', self.val_accuracy)
+        val_accuracy = balanced_accuracy_score(y.cpu(), preds.detach().cpu())
+        self.log('val_accuracy', val_accuracy, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return val_loss
-
-    def training_epoch_end(self, outs):
-        self.log('train_acc_epoch', self.accuracy)
-
-    def validation_epoch_end(self, outs):
-        self.log("val_acc_epoch", self.accuracy)
 
     def forward(self, input):
         with torch.no_grad():
             # attempting to remove crbm_variables from gradient calculation
             h_pos = self.binary_crbm.sample_from_inputs_h(self.binary_crbm.compute_output_v(input))
-        print("h_pos", h_pos[0].shape)
         h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in h_pos], dim=1)
-        print(h_flattened.shape)
         return self.classifier(h_flattened)
 
 
@@ -416,9 +425,9 @@ class BinaryClassifier(LightningModule):
 
 
 
-mnist_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "classifier_epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 4, "lr": 0.0005,
+mnist_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "classifier_epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 4, "lr": 0.0001,
                         "lr_final": None, "decay_after": 0.75, "sequence_weights": None, "optimizer": "AdamW", "weight_decay": 0.02, "data_worker_num": 4, "fasta_file": "", "molecule": "dna",
-                        "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 25.0, "lf": 5.0, "ld": 10.0, "classifier_lr": 0.005, "classifier_lr_final": 0.0005, "classifier_decay_after": 0.75,
+                        "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 500000.0, "lf": 5000.0, "ld": 10.0, "classifier_lr": 0.005, "classifier_lr_final": 0.0005, "classifier_decay_after": 0.75,
                         "classifier_weight_decay": 0.02, "classifier_optimizer": "AdamW",
                         "convolution_topology": {
                             "hidden20x20": {"number": 30, "kernel": (20, 20), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
@@ -428,15 +437,17 @@ if __name__ == "__main__":
     # binary_crbm = BinaryCRBM(mnist_default_config, dataset="mnist")
 
     config = mnist_default_config
-    config["epochs"] = 10
-    config["classifier_epochs"] = 20
+    config["epochs"] = 100
+    config["classifier_epochs"] = 50
 
-    binary_classifier = BinaryClassifier(mnist_default_config, dataset="mnist", train_crbm=False)
-    binary_classifier.load_crbm("./tb_logs/mnist_crbm/version_7/checkpoints/epoch=9-step=599.ckpt")
+    binary_classifier = BinaryClassifier(mnist_default_config, dataset="mnist", train_crbm=False, debug=True)
+    binary_classifier.train_crbm(1)
 
-    logger = TensorBoardLogger('./tb_logs/', name="mnist_classifier")
-    plt = Trainer(max_epochs=config['classifier_epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(binary_classifier)
+    # binary_classifier.load_crbm("./tb_logs/mnist_crbm/version_7/checkpoints/epoch=9-step=599.ckpt")
+
+    # logger = TensorBoardLogger('./tb_logs/', name="mnist_classifier")
+    # plt = Trainer(max_epochs=config['classifier_epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(binary_classifier)
 
     # binary_crbm.setup()
     # td = binary_crbm.train_dataloader()

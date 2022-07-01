@@ -1261,6 +1261,14 @@ class RBM(LightningModule):
                     config[0], config[1] = self.markov_step(config[0], beta=beta)
 
             if N_PT > 1:
+                if record_replica:
+                    data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
+                else:
+                    data = [config[0][0].clone().unsqueeze(0), config[1][0].clone().unsqueeze(0)]
+            else:
+                data = [config[0].clone().unsqueeze(0), config[1].clone().unsqueeze(0)]
+
+            if N_PT > 1:
                 if Ndata > 1:
                     if record_replica:
                         data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT, batches), zeros=True)
@@ -1268,8 +1276,8 @@ class RBM(LightningModule):
                         data_gen_v[0] = config[0].clone().unsqueeze(0)
                         data_gen_h[0] = config[1].clone().unsqueeze(0)
                     else:
-                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, N_PT), zeros=True)
-                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, N_PT), zeros=True)
+                        data_gen_v = self.random_init_config_v(custom_size=(Ndata, batches), zeros=True)
+                        data_gen_h = self.random_init_config_h(custom_size=(Ndata, batches), zeros=True)
                         data_gen_v[0] = config[0][0].clone().unsqueeze(0)
                         data_gen_h[0] = config[1][0].clone().unsqueeze(0)
             else:
@@ -1358,12 +1366,23 @@ if __name__ == '__main__':
     # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     # plt.fit(rbm)
 
-    checkp = "./lattice_proteins_verification/lattice_rbm/version_8/checkpoints/epoch=49-step=99.ckpt"
-    rbm = RBM.load_from_checkpoint(checkp)
+    # checkp = "./lattice_proteins_verification/lattice_rbm/version_8/checkpoints/epoch=49-step=99.ckpt"
+    # rbm = RBM.load_from_checkpoint(checkp)
+    #
+    # # results = gen_data_lowT(rbm, which="marginal")
+    # results = gen_data_zeroT(rbm, which="joint")
+    # visible, hiddens = results
+    #
+    # E = rbm.energy(visible, hiddens)
+    # print("E", E.shape)
 
-    # results = gen_data_lowT(rbm, which="marginal")
-    results = gen_data_zeroT(rbm, which="joint")
-    visible, hiddens = results
+    import analysis.analysis_methods as am
+    # Directory of Stored RBMs
+    mdir = "/mnt/D1/globus/exo_trained_rbms/"
+    rounds = ["exosome_st"]
+    data = ["exosome"]
 
-    E = rbm.energy(visible, hiddens)
-    print("E", E.shape)
+    checkp, v_dir = am.get_checkpoint_path(rounds[0], rbmdir=mdir)
+    exo_rbm = RBM.load_from_checkpoint(checkp)
+
+    exo_rbm.AIS()

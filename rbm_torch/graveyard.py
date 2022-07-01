@@ -159,14 +159,14 @@
 #         return X
 
 # may be used to clip parameter values, have yet to use
-class Clamp(torch.autograd.Function): # clamp parameter values
-    @staticmethod
-    def forward(ctx, input):
-        return input.clamp(min=0, max=1) # the value in iterative = 2
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output.clone()
+# class Clamp(torch.autograd.Function): # clamp parameter values
+#     @staticmethod
+#     def forward(ctx, input):
+#         return input.clamp(min=0, max=1) # the value in iterative = 2
+#
+#     @staticmethod
+#     def backward(ctx, grad_output):
+#         return grad_output.clone()
 
 ######### Loss Debugging
  # psuedo likelihood actually minimized, loss still rises, 1/this causes nan in parameter

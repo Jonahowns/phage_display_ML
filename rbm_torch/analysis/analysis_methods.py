@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import matplotlib.image as mpimg
 import nbformat as nbf
-from notebook_generation_methods import generate_notebook
+# from notebook_generation_methods import generate_notebook
 
 # Clusters are 1 indexed
 
@@ -28,11 +28,28 @@ supported_colors = ["r", "orange", "y", "g", "b", "indigo", "violet", "m", "c", 
                     "chartreuse", "violet", "coral", "turqoise", "crimson", "tomato", "darkblue", "darkgreen", "teal", "fuchsia",
                     "gold", "silver", "sienna", "grey", "indigo", "salmon", "plum", "lavender", "orchid", "lime", "magenta", "navy"]
 
-# Helper Functions for loading data and loading RBMs not in our current directory
-# assignment function assigns label based off the count (ex. returns "low" for count < 10 )
-def fetch_data(fasta_names, dir="", counts=False, assignment_function=None, threads=1, molecule="protein"):
+def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molecule="protein"):
+    """ Reads fasta files and returns pandas dataframe with their information
+
+    Parameters
+    ----------
+    fasta_names: list of str, file names of the target fasta files, don't include extensions
+    dir: str, optional, default: ./
+        directory where fasta files are located
+    assignment_function: function, optional, default: None
+        provides a str label for a provided copy number
+    threads: int, optional, default: 1
+        number of threads to read file with, helpful for large files especially
+    molecule: {"dna", "rna", "protein"}, default="protein"
+        specifies type of data
+
+    Returns
+    -------
+    pandas dataframe:
+        contains data from provided fasta files with columns "sequence", "round", "assignment", and "copynum"
+    """
     for xid, x in enumerate(fasta_names):
-        seqs, counts, all_chars, q_data = utils.fasta_read(dir + "/" + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
+        seqs, counts, all_chars, q_data = utils.fasta_read(dir + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
         round_label = [x for i in range(len(seqs))]
         if assignment_function is not None:
             assignment = [assignment_function(i) for i in counts]
@@ -46,7 +63,26 @@ def fetch_data(fasta_names, dir="", counts=False, assignment_function=None, thre
     return data_df
 
 
-def get_checkpoint_path(round, version=None, rbmdir=""):
+def get_checkpoint_path(round, version=None, rbmdir="./"):
+    """ Fetches checkpoint file path for trained models specified with round label and optionally the directory
+
+    Parameters
+    ----------
+    round: str,
+        directory name of model
+    version: int, optional, default: None
+        specify which version of the model to load
+        by default it will load the most recent version
+    rbmdir: str, optional, default: ./
+        base directory where model tensorboard directory is stored
+
+    Returns
+    -------
+    checkpoint_path: str,
+        path to checkpoint file of target pytorch model
+    version_dir: str,
+        tensorboard directory of target pytorch model
+    """
     ndir = rbmdir + round + "/"
     if version:
         version_dir = ndir + f"version_{version}/"
@@ -63,11 +99,30 @@ def get_checkpoint_path(round, version=None, rbmdir=""):
 
 
 # Returns dictionary of arrays of likelihoods
-def generate_likelihoods(rounds, RBM, all_data, identifier, key="round", dir="./generated/"):
+def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="./generated/"):
+    """ Calculates Likelihood of sequences in provided for the provided model
+
+      Parameters
+      ----------
+      rounds: list of str,
+          must match values of column {key} provided pandas dataframe
+      version: int, optional, default: None
+          specify which version of the model to load
+          by default it will load the most recent version
+      rbmdir: str, optional, default: ./
+          base directory where model tensorboard directory is stored
+
+      Returns
+      -------
+      checkpoint_path: str,
+          path to checkpoint file of target pytorch model
+      version_dir: str,
+          tensorboard directory of target pytorch model
+      """
     likelihoods = {}
     sequences = {}
     for x in rounds:
-        seqs, likeli = RBM.predict(all_data[all_data[key] == x])
+        seqs, likeli = model.predict(all_data[all_data[key] == x])
         likelihoods[x] = likeli
         sequences[x] = seqs
     data = {'likelihoods': likelihoods, "sequences": sequences}
@@ -87,13 +142,20 @@ def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelih
     colors = supported_colors
     plot_num = len(order)
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
-    for xid, x in enumerate(order):
+    if plot_num == 1:
         if xlim is not None:
-            axs[xid].set_xlim(*xlim)
-        y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], cumulative=cdf)
-        if xid == len(order) - 1:
-            y.set(xlabel=xaxislabel)
-        axs[xid].legend()
+            axs.set_xlim(*xlim)
+        y = sns.kdeplot(likeli[order[0]], shade=False, alpha=0.5, color=colors[0], ax=axs, label=labels[0], cumulative=cdf)
+        y.set(xlabel=xaxislabel)
+        axs.legend()
+    else:
+        for xid, x in enumerate(order):
+            if xlim is not None:
+                axs[xid].set_xlim(*xlim)
+            y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], cumulative=cdf)
+            if xid == len(order) - 1:
+                y.set(xlabel=xaxislabel)
+            axs[xid].legend()
     if title:
         fig.suptitle(title)
     else:

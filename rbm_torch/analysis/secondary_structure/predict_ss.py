@@ -1,7 +1,7 @@
 import nupack as nu
 import sys
 sys.path.append("../../")
-from rbm_utils import fasta_read
+from utils import fasta_read
 import math
 
 # sodium range [0.05,1.1]
