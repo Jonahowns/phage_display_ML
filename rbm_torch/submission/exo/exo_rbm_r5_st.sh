@@ -6,7 +6,7 @@
 #SBATCH -t 7-00:00
 #SBATCH -p wzhengpu1
 #SBATCH -q wildfire
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH -o ./submission/exo/out/exo_rbm_r5_st.%j.out
 #SBATCH -e ./submission/exo/err/slurm.%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python rbm_train.py exo ../datasets/exo/r5.fasta 200 2 r5_st_weights.json single
+python rbm_train.py exo ../datasets/exo/r5.fasta 200 1 r5_st_weights.json single
 
