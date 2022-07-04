@@ -51,7 +51,9 @@ if __name__ == "__main__":
     datatype_folder = f"./submission/{args.datatype}/"
     if not os.path.exists(datatype_folder):
         os.mkdir(datatype_folder)
+    if not os.path.exists(datatype_folder+"out/"):
         os.mkdir(datatype_folder+"out/")
+    if not os.path.exists(datatype_folder + "err/"):
         os.mkdir(datatype_folder+"err/")
 
     # Make a list of paths for all files we want

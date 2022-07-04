@@ -3,17 +3,17 @@
 #SBATCH -A jprocyk
 #SBATCH -n 1
 #SBATCH -c 6
-#SBATCH -t 4-00:00
+#SBATCH -t 7-00:00
 #SBATCH -p wzhengpu1
 #SBATCH -q wildfire
-#SBATCH --gres=gpu:1
-#SBATCH -o pig_ge4_crbm_np3_c3_w.%j.out
-#SBATCH -e slurm.%j.err
+#SBATCH --gres=gpu:2
+#SBATCH -o ./submission/exo/out/exo_crbm_r4_st.%j.out
+#SBATCH -e ./submission/exo/err/slurm.%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
 #SBATCH --mail-user=jprocyk@asu.edu     #send to my email
 #SBATCH --chdir=/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/
 
 source activate exmachina3
 
-python crbm_train.py pig_ge4 ../datasets/pig/ge4/np3_c3.fasta 200 1 True single
+python crbm_train.py exo ../datasets/exo/r4.fasta 200 2 r4_st_weights.json single
 
