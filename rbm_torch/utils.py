@@ -560,7 +560,7 @@ def all_weights(model, name=None, rows=5):
             ncols = 2
         else:
             ncols = 1
-        fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=ncols, figsize=(11, 9), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=400, molecule=model.molecule)
+        fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=ncols, figsize=(7, 9), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=400, molecule=model.molecule)
     elif model._get_name() == "CRBM":
         for key in model.hidden_convolution_keys:
             wdim = model.convolution_topology[key]["weight_dims"]
@@ -570,6 +570,7 @@ def all_weights(model, name=None, rows=5):
             else:
                 ncols = 1
             conv_weights(model, key, name+"_"+key, rows, ncols, 11, 9)
+    plt.close() # close all open figures
 
 def conv_weights(crbm, hidden_key, name, rows, columns, h, w):
     beta, W = get_beta_and_W(crbm, hidden_key)

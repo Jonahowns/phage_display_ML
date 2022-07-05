@@ -334,11 +334,10 @@ exo_default_config = {"fasta_file": "",
           "data_worker_num": 4
           }
 
-exo_default_config["convolution_topology"] = {"hidden7": {"number": 10, "kernel": (7, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden13": {"number": 10, "kernel": (13, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden19": {"number": 15, "kernel": (19, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden25": {"number": 15, "kernel": (25, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                              "hidden31": {"number": 15, "kernel": (31, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
+exo_default_config["convolution_topology"] = {"hidden7": {"number": 20, "kernel": (8, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden13": {"number": 20, "kernel": (13, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden19": {"number": 20, "kernel": (19, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden25": {"number": 15, "kernel": (25, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
                                              }
 
 
