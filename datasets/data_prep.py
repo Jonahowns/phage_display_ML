@@ -210,6 +210,8 @@ def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10,
         list of affinities/copy numbers to "standardize"
     out_plot: str, optional, default=None
         file where plot of new affinites should be saved, don't include file extension
+    percentiles: list, optional, default=[5, 10, 25]
+
 
     Returns
     -------
@@ -221,36 +223,31 @@ def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10,
     Goal of this function is to remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
     """
     # First let's calculate how many sequences of each affinity there are
-    aff_num = Counter(affs)
+    # aff_num = Counter(affs)
+    # aff_totals = [aff_num[x] for x in uniq_aff]
     uniq_aff = list(set(affs))
     np_uniq_aff = np.asarray(uniq_aff)
 
     boundaries = [np.percentile(np_uniq_aff, p) for p in percentiles]
     boundaries.insert(0, 0)
     boundaries.append(max(uniq_aff)+1)
-    for pid, p in enumerate(percentiles):
-        amount =  len([boundaries[pid] < i < boundaries[pid+1] for i in affs])
-    quarter = np.percentile(np_uniq_aff, 25)
-    half = np.percentile(np_uniq_aff, 50)
-    three_quarters = np.percentile(np_uniq_aff, 75)
 
-    quarter_number = len([i < quarter for i in affs])
-    half_number = len([quarter < i < half for i in affs])
-    three_quarter_number = len([half < i < three_quarters for i in affs])
-    rest = len([three_quarters < i for i in affs])
+    totals = []
+    for j in range(len(percentiles)+1):
+        totals.append(len([boundaries[j] < i < boundaries[j+1] for i in affs]))
 
-    def assign_denominator()
-
-
-    aff_totals = [aff_num[x] for x in uniq_aff]
+    def assign_denominator(x):
+        for j in range(len(percentiles)+1):
+            if boundaries[j] < x < boundaries[j+1]:
+                return totals[j]
 
     # With our affinity totals we can now "standardize" the sequence impact by making the sum of weights of each affinity equal to 1
     if scale == "linear":
         lin_affs = scale_values_np(np.asarray(uniq_aff), min=1e-2, max=1.)
         la = lin_affs.squeeze(1).tolist()
-        standardization_dict = {x: 1. / aff_totals[xid] * la[xid] for xid, x in enumerate(uniq_aff)}
+        standardization_dict = {x: 1. / assign_denominator(x) * la[xid] for xid, x in enumerate(uniq_aff)}
     elif scale == "log":
-        standardization_dict = {x: 1./aff_totals[xid]*math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
+        standardization_dict = {x: 1./ assign_denominator(x) * math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
     else:
         print(f"scale option {scale} not supported")
         exit(1)

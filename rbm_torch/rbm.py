@@ -23,6 +23,49 @@ import rbm_configs
 
 
 class RBM(LightningModule):
+    """ Pytorch Lightning Module of Restricted Boltzmann Machine
+
+    Parameters
+    ----------
+    config: dictionary,
+        sets mandatory variables for model to run
+    precision: str, optional, default="double"
+        sets default dtype of torch tensors as torch.float32 or torch.float64
+    debug: bool, optional, default=False
+        sets dataworker number to 1, enables use of debugger during model training
+        if False, tensor information won't be visible in debugger
+
+    Notes
+    -----
+    Description of Mandatory Config Keys and their accepted values
+        "fasta_file": str or list of strs,
+        "h_num": int, number of hidden nodes
+        "v_num": int, number of visible nodes, should be equal to sequence length of data
+        "q": int, number of values each visible node can take on, ex. for dna with values {A, C, G, T, -}, q is 5
+        "mc_moves": int, number of times each layer is sampled during each step
+        "batch_size": int, number of sequences in a batch
+        "epochs": int, number of iterations to run the model
+        "molecule": str, type of sequence data can be {"dna", "rna", "protein"}
+        "sample_type": str, {"gibbs", "pt", "pcd"}
+        "loss_type": str, {"free_energy", "energy"}
+        "optimizer": str, {"AdamW", "SGD", "Adagrad"}
+        "lr": float, learning rate of model
+        "l1_2": float, l1^2 penalty on the sum of the absolute value of the weights
+        "lf": float, penalty on the sum of the absolute value of the visible biases 'fields'
+        "seed": int, controls tensor generating random values for reproducable behavior
+
+
+
+    Description of Optional Config Keys and their accepted values
+        "data_worker_num": int, default=multiprocessing.cpu_count()
+        "sequence_weights": str, torch.tensor, or np.array
+            str values: "fasta", use values in fasta file
+                        other str, name of a weight file in same directory as provided fasta file
+
+        "lr_final"
+    """
+
+
     def __init__(self, config, precision="double", debug=False):
         super().__init__()
         self.h_num = config['h_num']  # Number of hidden nodes, can be variable
@@ -208,12 +251,29 @@ class RBM(LightningModule):
         self.update_betas_lr = 0.1
         self.update_betas_lr_decay = 1
 
-    def prep_W(self): # enforces zero sum gauge on the weights
+    def prep_W(self): # enforces zero-sum gauge on the weights
+        """ Sets weight matrix (self.W) as a zero-sum version of 'W_raw' parameter
+        """
         self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
 
     ############################################################# RBM Functions
     ## Compute Psudeo likelihood of given visible config
     def pseudo_likelihood(self, v):
+        """ Calculate Pseudo Likelihood of given visible configuration
+        Parameters
+        ----------
+        v: torch.tensor
+            visible node configuration, typically of size (batch_size, v_num) with values 0 to self.q-1
+
+        Returns
+        -------
+        pseudo_likelihood: torch.tensor
+            Approximate likelihood of given visible configuration
+
+        Notes
+        -----
+        Used as metric to assess model performance
+        """
         config = v.long()
         ind_x = torch.arange(config.shape[0], dtype=torch.long, device=self.device)
         ind_y = torch.randint(self.v_num, (config.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
@@ -228,18 +288,86 @@ class RBM(LightningModule):
 
     ## Used in our Loss Function
     def free_energy(self, v):
+        """ Calculate Free Energy of a given visible configuration
+        Parameters
+        ----------
+        v: torch.tensor
+            visible node configuration, typically of size (batch_size, v_num) with values 0 to self.q-1
+
+        Returns
+        -------
+        free_energy: torch.tensor
+            free energy of each sequence in shape (batch_size)
+
+        Notes
+        -----
+        Calculates
+        .. math:: F(v) = -\log P(v)
+        """
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
 
     ## Not used but may be useful
     def free_energy_h(self, h):
+        """ Calculate Free Energy of a given hidden configuration
+        Parameters
+        ----------
+        h: torch.tensor
+            hidden node configuration, typically of size (batch_size, h_num) with float values
+
+        Returns
+        -------
+        free_energy: torch.tensor
+            free energy of each hidden config, shape (batch_size)
+
+        Notes
+        -----
+        Calculates
+        .. math:: F(v) = -\log P(h)
+        """
         return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
 
     ## Total Energy of a given visible and hidden configuration
     def energy(self, v, h, remove_init=False):
+        """ Calculate Energy of a given visible and hidden configuration
+        Parameters
+        ----------
+        v: torch.tensor
+            visible node configuration, typically of size (batch_size, v_num) with values 0 to self.q-1
+        h: torch.tensor
+            hidden node configuration, typically of size (batch_size, h_num) with float values
+
+        Returns
+        -------
+        energy: torch.tensor
+            energy of given visible and hidden config, shape (batch_size)
+
+        Notes
+        -----
+        Calculates
+        .. math:: E(v, h) = -\sum_{i}g_i(v_i) + \sum_{\mu}\mathcal{U}_{\mu}(h_{\mu}) - \sum_{i, \mu}h_{\mu}w_{i,\mu}(v_i)
+        """
         return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, remove_init=remove_init) - self.bilinear_form(v, h)
 
     ## Total Energy of a given visible and hidden configuration
     def energy_PT(self, v, h, remove_init=False):
+        """ Calculate Energy of a given visible and hidden configuration for parallel tempering
+        Parameters
+        ----------
+        v: torch.tensor
+            visible node configuration, typically of size (N_PT, batch_size, v_num) with values 0 to self.q-1
+        h: torch.tensor
+            hidden node configuration, typically of size (N_PT, batch_size, h_num) with float values
+
+        Returns
+        -------
+        energy: torch.tensor
+            energy of given visible and hidden config, shape (N_PT, batch_size)
+
+        Notes
+        -----
+        Calculates
+        .. math:: E(v, h) = -\sum_{i}g_i(v_i) + \sum_{\mu}\mathcal{U}_{\mu}(h_{\mu}) - \sum_{i, \mu}h_{\mu}w_{i,\mu}(v_i)
+        """
         E = torch.zeros((self.N_PT, v.shape[1]), device=self.device)
         for i in range(self.N_PT):
             E[i, :] = self.energy_v(v[i, :, :], remove_init=remove_init) + self.energy_h(h[i, :, :], remove_init=remove_init) - self.bilinear_form(v[i, :, :], h[i, :, :])
@@ -247,6 +375,24 @@ class RBM(LightningModule):
 
     ## Computes term sum(i, u) h_u w_iu(vi)
     def bilinear_form(self, v, h):
+        """ Calculate coupling term of energy for visible and hidden layers
+        Parameters
+        ----------
+        v: torch.tensor
+            visible node configuration, typically of size (batch_size, v_num) with values 0 to self.q-1
+        h: torch.tensor
+            hidden node configuration, typically of size (batch_size, h_num) with float values
+
+        Returns
+        -------
+        coupling_energy: torch.tensor
+            coupling energy of given visible and hidden config, shape (batch_size)
+
+        Notes
+        -----
+        Calculates
+        .. math:: \sum_{i, \mu}h_{\mu}w_{i,\mu}(v_i)
+        """
         output = torch.zeros((v.shape[0], self.h_num), device=self.device)
         vd = v.long()
         for u in range(self.h_num):  # for u in h_num
@@ -272,11 +418,29 @@ class RBM(LightningModule):
 
 
     ## Computes g(si) term of potential
-    def energy_v(self, config, remove_init=False):
-        v = config.long()
+    def energy_v(self, v, remove_init=False):
+        """ Calculate visible bias term in energy function
+        Parameters
+        ----------
+        v: torch.tensor
+            visible node configuration, typically of size (batch_size, v_num) with values 0 to self.q-1
+        remove_init: bool, optional, default=False
+            subtracts the initial bias values from the bias values
+
+        Returns
+        -------
+        visible_bias_energy: torch.tensor
+            energy of visible bias term
+
+        Notes
+        -----
+        Calculates
+        .. math:: \sum_{i}g_i(v_i)
+        """
+        vl = v.long()
         E = torch.zeros(config.shape[0], device=self.device)
         for color in range(self.q):
-            A = torch.where(v == color, 1, 0).double()
+            A = torch.where(vl == color, 1, 0).double()
             if remove_init:
                 E -= A.dot(self.params['fields'][:, color] - self.params['fields0'][:, color])
             else:
@@ -285,7 +449,25 @@ class RBM(LightningModule):
         return E
 
     ## Computes U(h) term of potential
-    def energy_h(self, config, remove_init=False):
+    def energy_h(self, h, remove_init=False):
+        """ Calculate dReLU activation function on hidden layer
+        Parameters
+        ----------
+        h: torch.tensor
+            hidden node configuration, typically of size (batch_size, h_num) with float values
+        remove_init: bool, optional, default=False
+           subtract the initial hidden activation function parameters values from the hidden activation function parameters
+
+        Returns
+       -------
+        hidden_energy: torch.tensor
+           energy of activation function applied to hidden units, size (batch_size, h_num)
+
+        Notes
+        -----
+        Calculates
+        .. math:: \sum_{\mu}\mathcal{U}_{\mu}(h_{\mu})
+        """
         if remove_init:
             a_plus = self.params['gamma+'].sub(self.params['0gamma+'])
             a_minus = self.params['gamma-'].sub(self.params['0gamma-'])
@@ -298,15 +480,30 @@ class RBM(LightningModule):
             theta_minus = self.params['theta-']
 
         # Applies the dReLU activation function
-        zero = torch.zeros_like(config, device=self.device)
-        config_plus = torch.maximum(config, zero)
-        config_minus = torch.maximum(-config, zero)
+        zero = torch.zeros_like(h, device=self.device)
+        config_plus = torch.maximum(h, zero)
+        config_minus = torch.maximum(-h, zero)
 
         return torch.matmul(config_plus.square(), a_plus) / 2 + torch.matmul(config_minus.square(), a_minus) / 2 + torch.matmul(config_plus, theta_plus) + torch.matmul(config_minus, theta_minus)
 
     ## Random Config of Visible Potts States
-    def random_init_config_v(self, custom_size=False, zeros=False):
-        if custom_size:
+    def random_init_config_v(self, custom_size=None, zeros=False):
+        """ Generate random config of visible units
+        Parameters
+        ----------
+        custom_size: None or tuple, optional, default=None
+            controls beginning dimensions of tensor, if None assumes zeroth dimension is batch size
+            if tuple, size of tensor is (*tuple, v_num)
+        zeros: bool, optional, default=False
+           if True, returns tensor of zeros
+           if False, returns random config sampled from zero vector
+
+        Returns
+       -------
+        random_config: torch.tensor
+           either a random config of visible nodes or a tensor of zeroes in the shape determined by the optional parameters
+        """
+        if custom_size is not None:
             size = (*custom_size, self.v_num, self.q)
         else:
             size = (self.batch_size, self.v_num, self.q)
@@ -318,6 +515,21 @@ class RBM(LightningModule):
 
 
     def random_init_config_h(self, zeros=False, custom_size=False):
+        """ Generate random config of hidden units
+        Parameters
+        ----------
+        custom_size: None or tuple, optional, default=None
+            controls beginning dimensions of tensor, if None assumes zeroth dimension is batch size
+            if tuple, size of tensor is (*tuple, h_num)
+        zeros: bool, optional, default=False
+           if True, returns tensor of zeros
+           if False, returns random config sampled from normal distribution
+
+        Returns
+       -------
+        random_config: torch.tensor
+           either a random config of hidden nodes or a tensor of zeroes in the shape determined by the optional parameters
+        """
         if custom_size:
             size = (*custom_size, self.h_num)
         else:
@@ -330,6 +542,32 @@ class RBM(LightningModule):
 
     ## Marginal over hidden units
     def logpartition_h(self, inputs, beta=1):
+        """ Calculate Cumulative Generative Function of hidden units
+
+        Parameters
+        ----------
+        inputs: torch.tensor
+            hidden unit input from weights multiplied by visible nodes
+        beta: flaot, optional, default=1
+           inverse temperature factor, used in annealed importance sampling
+
+        Returns
+       -------
+        output: torch.tensor
+           returns cumulative generative function for each sequence, generally of shape (batch_size)
+
+        Notes
+        -----
+        Calculates and returns:
+        .. math:: \sum_{\mu} \Gamma_{mu} I_{\mu}(v)
+        for each sequence v
+
+        where,
+        .. math:: \Gamma_{\mu} = log[\int dh e^{-\mathcal{U}_{mu}(h) + h I}]
+        and
+        .. math:: I_{\mu}(v) = \sum_{i}w_{i \mu}(v_i)
+
+        """
         if beta == 1:
             a_plus = (self.params['gamma+']).unsqueeze(0)
             a_minus = (self.params['gamma-']).unsqueeze(0)
@@ -342,10 +580,35 @@ class RBM(LightningModule):
             a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
         return torch.logaddexp(self.log_erf_times_gauss((-inputs + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                 1) + 0.5 * np.log(2 * np.pi) * self.h_num
-        # return y
 
     ## Marginal over visible units
     def logpartition_v(self, inputs, beta=1):
+        """ Calculate Cumulative Generative Function of visible units
+
+           Parameters
+           ----------
+           inputs: torch.tensor
+               visible unit input from weights multiplied by hidden nodes
+           beta: flaot, optional, default=1
+              inverse temperature factor, used in annealed importance sampling
+
+           Returns
+          -------
+           output: torch.tensor
+              returns cumulative generative function for each hidden unit, generally of shape (batch_size)
+
+           Notes
+           -----
+           Calculates and returns:
+           .. math:: \sum_{} \Gamma_{mu} I_{\mu}(v)
+           for each sequence v
+
+           where,
+           .. math:: \Gamma_{\mu} = log[\int dh e^{-\mathcal{U}_{mu}(h) + h I}]
+           and
+           .. math:: I_{\mu}(v) = \sum_{i}w_{i \mu}(v_i)
+
+           """
         if beta == 1:
             return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
         else:
@@ -353,6 +616,25 @@ class RBM(LightningModule):
 
     ## Mean of hidden
     def mean_h(self, psi, beta=1):
+        """ Calculate mean from hidden node inputs
+
+        Parameters
+        ----------
+        psi: torch.tensor
+           input values for each hidden unit, shape of tensor should be (input values, h_num)
+        beta: flaot, optional, default=1
+           inverse temperature factor, used in annealed importance sampling
+
+        Returns
+        -------
+        output: torch.tensor
+          returns mean values in tensor of shape (input_tensor.shape[0])
+
+        Notes
+        -----
+        Calculates and returns:
+        .. math:: <h|I> = \int h p(h|I) dh
+       """
         if beta == 1:
             a_plus = (self.params['gamma+']).unsqueeze(0)
             a_minus = (self.params['gamma-']).unsqueeze(0)
@@ -382,35 +664,105 @@ class RBM(LightningModule):
 
     ## Mean of visible
     def mean_v(self, psi, beta=1):
+        """ Calculate mean from visible inputs
+        Parameters
+        ----------
+        psi: torch.tensor
+           input values for each hidden unit, shape of tensor should be (input values, h_num)
+        beta: flaot, optional, default=1
+           inverse temperature factor, used in annealed importance sampling
+
+        Returns
+        -------
+        output: torch.tensor
+          returns mean values in tensor of shape (input_tensor.shape[0])
+
+        Notes
+        -----
+        Calculates and returns:
+        .. math:: <v|I> = p(v|I)
+        .. math:: <v|I> = \frac{e^{I+g(v)}}{\sum_i e^{I+g(v_i)}}
+        """
         if beta == 1:
             return nn.Softmax(psi + self.params["fields"].unsqueeze(0))
         else:
             return nn.Softmax(beta * psi + self.params["fields0"].unsqueeze(0) + beta * (self.params["fields"].unsqueeze(0) - self.params["fields0"].unsqueeze(0)))
 
     ## Compute Input for Hidden Layer from Visible Potts
-    def compute_output_v(self, visible_data):
+    def compute_output_v(self, v):
+        """ Calculate input into hidden layer from visible layer
+        Parameters
+        ----------
+        v: torch.tensor
+           a visible unit configuration, usually of shape (batch_size, v_num) with values 0 to (self.q-1)
+        beta: flaot, optional, default=1
+           inverse temperature factor, used in annealed importance sampling
+
+        Returns
+        -------
+        output: torch.tensor
+          returns hidden unit input as shape (batch_size, h_num)
+
+        Notes
+        -----
+        Calculates and returns:
+        .. math:: I_\mu = \sum_{i} w_{i \mu} v_i
+        """
         # compute_output of visible potts layer
-        vd = visible_data.long()
+        vd = v.long()
 
-        # Newest Version also works, fastest version
+        # Newest and fastest version, does take a lot of memory though...
         indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
-        expandedweights = self.W.unsqueeze(0).expand(visible_data.shape[0], -1, -1, -1)
+        expandedweights = self.W.unsqueeze(0).expand(vd.shape[0], -1, -1, -1)
         output = torch.gather(expandedweights, 3, indexTensor).squeeze(3).sum(2)
-
         return output
 
     ## Compute Input for Visible Layer from Hidden dReLU
-    def compute_output_h(self, config):
-        return torch.tensordot(config, self.W, ([1], [0]))
+    def compute_output_h(self, h):
+        """ Calculate input into visible layer from hidden layer
+        Parameters
+        ----------
+        h: torch.tensor
+           a hidden unit configuration, usually of shape (batch_size, h_num) with float values
+
+        Returns
+        -------
+        output: torch.tensor
+          returns visible unit input, usually of shape (batch_size, v_num) with float values
+
+        Notes
+        -----
+        Calculates and returns:
+        .. math:: I_{v_i} = \sum_{\mu} w_{i \mu} h_{\mu}
+        """
+        return torch.tensordot(h, self.W, ([1], [0]))
 
     ## Gibbs Sampling of Potts Visbile Layer
-    def sample_from_inputs_v(self, psi, beta=1):
-        datasize = psi.shape[0]
+    def sample_from_inputs_v(self, I, beta=1):
+        """ Sample a visible unit configuration from inputs with tower rejection sampling
+        Parameters
+        ----------
+        I: torch.tensor
+           inputs from hidden layer, shape is typically (batch_size, h_num)
+        beta: flaot, optional, default=1
+           inverse temperature factor, used in annealed importance sampling
+
+        Returns
+        -------
+        output: torch.tensor
+          returns sampled visible layer, shape is typically (batch_size, v_num)
+
+        Notes
+        -----
+        Using:
+        .. math:: P(v|I) & \propto \exp{(\sum_{i}g_i(v_i) + v I)}\\
+        """
+        datasize = I.shape[0]
 
         if beta == 1:
-            cum_probas = psi + self.params['fields'].unsqueeze(0)
+            cum_probas = I + self.params['fields'].unsqueeze(0)
         else:
-            cum_probas = beta * psi + beta * self.params['fields'].unsqueeze(0) + (1 - beta) * self.params['fields0'].unsqueeze(0)
+            cum_probas = beta * I + beta * self.params['fields'].unsqueeze(0) + (1 - beta) * self.params['fields0'].unsqueeze(0)
 
         cum_probas = self.cumulative_probabilities(cum_probas)
 
@@ -421,7 +773,6 @@ class RBM(LightningModule):
 
         in_progress = low < high
         while True in in_progress:
-            # Original Method as matrix operation
             middle[in_progress] = torch.floor((low[in_progress] + high[in_progress]) / 2).long()
 
             middle_probs = torch.gather(cum_probas, 2, middle.unsqueeze(2)).squeeze(2)
@@ -437,7 +788,27 @@ class RBM(LightningModule):
         return high
 
     ## Gibbs Sampling of dReLU hidden layer
-    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):
+    def sample_from_inputs_h(self, I, nancheck=False, beta=1):
+        """ Sample a new hidden unit configuration from input
+        Parameters
+        ----------
+        I: torch.tensor
+           inputs from visible layer, shape is typically (batch_size, v_num)
+        beta: flaot, optional, default=1
+           inverse temperature factor, used in annealed importance sampling
+        nancheck: bool, default=False
+           check for nan values in sampled hidden layer
+
+        Returns
+        -------
+        output: torch.tensor
+          returns sampled visible layer, shape is typically (batch_size, h_num)
+
+        Notes
+        -----
+        Using:
+        .. math:: P(h_{\mu}|I_{\mu}) & \propto \exp{(-\mathcal{U}_{\mu} + h_{\mu}I_{\mu})}
+        """
         if beta == 1:
             a_plus = self.params['gamma+'].unsqueeze(0)
             a_minus = self.params['gamma-'].unsqueeze(0)
@@ -448,17 +819,17 @@ class RBM(LightningModule):
             theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
             a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
             a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
-            psi *= beta
+            I *= beta
 
         if nancheck:
-            nans = torch.isnan(psi)
+            nans = torch.isnan(I)
             if nans.max():
                 nan_unit = torch.nonzero(nans.max(0))[0]
                 print('NAN IN INPUT')
                 print('Hidden units', nan_unit)
 
-        psi_plus = (-psi).add(theta_plus).div(torch.sqrt(a_plus))
-        psi_minus = psi.add(theta_minus).div(torch.sqrt(a_minus))
+        psi_plus = (-I).add(theta_plus).div(torch.sqrt(a_plus))
+        psi_minus = I.add(theta_minus).div(torch.sqrt(a_minus))
 
         etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
         etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
@@ -470,7 +841,7 @@ class RBM(LightningModule):
             p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
         p_minus = 1 - p_plus
 
-        is_pos = torch.rand(psi.shape, device=self.device) < p_plus
+        is_pos = torch.rand(I.shape, device=self.device) < p_plus
 
         rmax = torch.zeros(p_plus.shape, device=self.device)
         rmin = torch.zeros(p_plus.shape, device=self.device)
@@ -479,7 +850,7 @@ class RBM(LightningModule):
         rmin[~is_pos] = -1  # neg samples rmin set to -1
         rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).mul(self.invsqrt2))  # Part of Phi(x)
 
-        h = torch.zeros(psi.shape, dtype=torch.float64, device=self.device)
+        h = torch.zeros(I.shape, dtype=torch.float64, device=self.device)
         tmp = (rmax - rmin > 1e-14)
         h = self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
         h[is_pos] -= psi_plus[is_pos]
@@ -490,6 +861,20 @@ class RBM(LightningModule):
 
     ## Visible Potts Supporting Function
     def cumulative_probabilities(self, X, maxi=1e9):
+        """ Returns the stacked probabilities for each visible state (q)
+        Parameters
+        ----------
+        X: torch.tensor
+           input from hidden units + bias for each possible visible unit state, typically of shape (batch_size, h_num, q)
+        maxi: float, optional, default=1e9
+           set max value for numerical stability
+
+        Returns
+        -------
+        output: torch.tensor
+          returns cumulative probabilities of the visible states
+
+        """
         max, max_indices = X.max(-1)
         max.unsqueeze_(2)
         X -= max
@@ -500,6 +885,21 @@ class RBM(LightningModule):
 
     ## Hidden dReLU supporting Function
     def erf_times_gauss(self, X):  # This is the "characteristic" function phi
+        """ The characteristic function of
+        Parameters
+        ----------
+        X: torch.tensor
+           In Progress
+
+        Returns
+        -------
+        output: torch.tensor
+          In Progress
+
+        Notes
+        -----
+        In Progress
+        """
         m = torch.zeros_like(X, dtype=torch.float64)
         tmp1 = X < -6
         m[tmp1] = 2 * torch.exp(X[tmp1] ** 2 / 2)
@@ -688,7 +1088,7 @@ class RBM(LightningModule):
             batch_size=self.batch_size,
             num_workers=self.worker_num,  # Set to 0 if debug = True
             pin_memory=self.pin_mem,
-            shuffle=True
+            shuffle=shuffle
         )
 
     def val_dataloader(self):
