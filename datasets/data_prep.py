@@ -201,7 +201,7 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
 
 # Goal Remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
 # This is especially needed for early rounds of selection
-def standardize_affinities(affs, out_plot=None):
+def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10, 25]):
     """ Generates new affinites as: new aff = 1/(#of_sequences_at_aff)*math.log(aff+0.001)
 
     Parameters
@@ -216,7 +216,6 @@ def standardize_affinities(affs, out_plot=None):
     standardized_affinities: list
         new affinities after being "standardized"
 
-
     Notes
     -----
     Goal of this function is to remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
@@ -224,11 +223,42 @@ def standardize_affinities(affs, out_plot=None):
     # First let's calculate how many sequences of each affinity there are
     aff_num = Counter(affs)
     uniq_aff = list(set(affs))
+    np_uniq_aff = np.asarray(uniq_aff)
+
+    boundaries = [np.percentile(np_uniq_aff, p) for p in percentiles]
+    boundaries.insert(0, 0)
+    boundaries.append(max(uniq_aff)+1)
+    for pid, p in enumerate(percentiles):
+        amount =  len([boundaries[pid] < i < boundaries[pid+1] for i in affs])
+    quarter = np.percentile(np_uniq_aff, 25)
+    half = np.percentile(np_uniq_aff, 50)
+    three_quarters = np.percentile(np_uniq_aff, 75)
+
+    quarter_number = len([i < quarter for i in affs])
+    half_number = len([quarter < i < half for i in affs])
+    three_quarter_number = len([half < i < three_quarters for i in affs])
+    rest = len([three_quarters < i for i in affs])
+
+    def assign_denominator()
+
+
     aff_totals = [aff_num[x] for x in uniq_aff]
 
     # With our affinity totals we can now "standardize" the sequence impact by making the sum of weights of each affinity equal to 1
-    standardization_dict = {x: 1./aff_totals[xid]*math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
+    if scale == "linear":
+        lin_affs = scale_values_np(np.asarray(uniq_aff), min=1e-2, max=1.)
+        la = lin_affs.squeeze(1).tolist()
+        standardization_dict = {x: 1. / aff_totals[xid] * la[xid] for xid, x in enumerate(uniq_aff)}
+    elif scale == "log":
+        standardization_dict = {x: 1./aff_totals[xid]*math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
+    else:
+        print(f"scale option {scale} not supported")
+        exit(1)
+
     stand_affs = list(map(standardization_dict.get, affs))  # Replace each value in affs with the dictionary replacement defined in standardization dict
+    # avoid going too low
+    fix_min = (np.finfo("float32").eps) / min(stand_affs)
+    stand_affs = [x * fix_min for x in stand_affs]
 
     if out_plot is not None:
         fig, axs = plt.subplots(1, 1)
@@ -239,6 +269,7 @@ def standardize_affinities(affs, out_plot=None):
         plt.savefig(out_plot+".png", dpi=400)
 
     return stand_affs
+
 
 def negate_affinites(affs, threshold, out_plot = None, negative_factor = 1.0):
     new_affs = [x if x > threshold else -x*negative_factor for x in affs]
