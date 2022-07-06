@@ -438,7 +438,7 @@ class RBM(LightningModule):
         .. math:: \sum_{i}g_i(v_i)
         """
         vl = v.long()
-        E = torch.zeros(config.shape[0], device=self.device)
+        E = torch.zeros(vl.shape[0], device=self.device)
         for color in range(self.q):
             A = torch.where(vl == color, 1, 0).double()
             if remove_init:
