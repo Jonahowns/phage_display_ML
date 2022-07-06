@@ -1,5 +1,7 @@
 import sys
 from collections import Counter
+from copy import copy
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -8,10 +10,12 @@ import os
 import json
 import pickle
 import math
+from functools import reduce
 
 from rbm_torch.analysis.global_info import supported_datatypes
 from rbm_torch.utils import fasta_read
 from sklearn.preprocessing import MinMaxScaler
+
 
 
 def make_weight_file(filebasename, weights, extension, dir="./"):
@@ -201,7 +205,7 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
 
 # Goal Remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
 # This is especially needed for early rounds of selection
-def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10, 25]):
+def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 25], target_scaling=[5, 10, 100], divider_type="percentile"):
     """ Generates new affinites as: new aff = 1/(#of_sequences_at_aff)*math.log(aff+0.001)
 
     Parameters
@@ -210,7 +214,7 @@ def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10,
         list of affinities/copy numbers to "standardize"
     out_plot: str, optional, default=None
         file where plot of new affinites should be saved, don't include file extension
-    percentiles: list, optional, default=[5, 10, 25]
+    dividers: list, optional, default=[5, 10, 25]
 
 
     Returns
@@ -225,20 +229,40 @@ def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10,
     # First let's calculate how many sequences of each affinity there are
     # aff_num = Counter(affs)
     # aff_totals = [aff_num[x] for x in uniq_aff]
+
     uniq_aff = list(set(affs))
     np_uniq_aff = np.asarray(uniq_aff)
 
-    boundaries = [np.percentile(np_uniq_aff, p) for p in percentiles]
+    if divider_type == "percentile":
+        percentiles = copy(dividers)
+        # boundaries = [np.percentile(np_uniq_aff, p) for p in dividers]
+    elif divider_type == "copynum":
+        percentiles = [np.mean(np_uniq_aff <= q)*100 for q in dividers]
+    boundaries = [np.percentile(np_uniq_aff, p) for p in percentiles]  # convert copynum values to quantiles
+        # boundaries = [np.mean(np_uniq_aff <= q)*1000 for q in dividers]  # convert copynum values to quantiles
+
     boundaries.insert(0, 0)
     boundaries.append(max(uniq_aff)+1)
 
     totals = []
-    for j in range(len(percentiles)+1):
-        totals.append(len([boundaries[j] < i < boundaries[j+1] for i in affs]))
+    for j in range(len(dividers)+1):
+        totals.append(len([i for i in affs if boundaries[j] < i <= boundaries[j+1]]))
+        
+        
+    if out_plots is not None:
+        fig, axs = plt.subplots(1, 1)
+        axs.hist(affs, bins=100)
+        axs.set_yscale('log')
+        axs.set_xlabel("Weight Value")
+        axs.set_ylabel("Number of Sequences")
+        for i in boundaries[1:-1]:
+            plt.axvline(i, c="r")
+        plt.savefig(out_plots+"_pre_transformation.png", dpi=400)
+        
 
     def assign_denominator(x):
-        for j in range(len(percentiles)+1):
-            if boundaries[j] < x < boundaries[j+1]:
+        for j in range(len(dividers)+1):
+            if boundaries[j] < x <= boundaries[j+1]:
                 return totals[j]
 
     # With our affinity totals we can now "standardize" the sequence impact by making the sum of weights of each affinity equal to 1
@@ -247,23 +271,78 @@ def standardize_affinities(affs, out_plot=None, scale="log", percentiles=[5, 10,
         la = lin_affs.squeeze(1).tolist()
         standardization_dict = {x: 1. / assign_denominator(x) * la[xid] for xid, x in enumerate(uniq_aff)}
     elif scale == "log":
-        standardization_dict = {x: 1./ assign_denominator(x) * math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
+        standardization_dict = {x: 1. / assign_denominator(x) * math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new one is value
     else:
         print(f"scale option {scale} not supported")
         exit(1)
 
     stand_affs = list(map(standardization_dict.get, affs))  # Replace each value in affs with the dictionary replacement defined in standardization dict
-    # avoid going too low
-    fix_min = (np.finfo("float32").eps) / min(stand_affs)
-    stand_affs = [x * fix_min for x in stand_affs]
 
-    if out_plot is not None:
+    # avoid going too low
+    single_precision_eps = np.finfo("float32").eps
+    if min(stand_affs) < single_precision_eps:
+        fix_min = single_precision_eps / min(stand_affs)
+        stand_affs = [x * fix_min for x in stand_affs]
+        standardization_dict = {k: v*fix_min for k, v in standardization_dict.items()}
+
+    # Calculate Rough Sums, so we have a general idea of the total weight of each section
+    uniq_stand_affs = list(set(stand_affs))
+
+    new_boundaries = [np.percentile(np.asarray(uniq_stand_affs), p) for p in percentiles]
+    new_boundaries.append(max(uniq_stand_affs)+1)
+
+    percentile_sums = []
+    for nib, nb in enumerate(new_boundaries):
+        if nib != 0:
+            percentile_sums.append(sum([x for x in stand_affs if new_boundaries[nib-1] < x <= nb]))
+        else:
+            percentile_sums.append(sum([x for x in stand_affs if x <= nb]))
+
+
+    multi_factors = []
+    for i in range(1, len(dividers)+1):
+        sum_ratio = percentile_sums[i] / percentile_sums[i-1]
+        multi_factors.append(target_scaling[i-1]/sum_ratio)
+        percentile_sums[i] *= multi_factors[-1]
+
+    def assign_factor(x):
+        for j in range(1, len(new_boundaries)):
+            if new_boundaries[j-1] < x <= new_boundaries[j]:
+                return np.prod(multi_factors[j-1])
+        return 1.
+    
+    stand_affs = [x * assign_factor(x) for x in stand_affs]
+    standardization_dict = {k : v * assign_factor(v) for k, v in standardization_dict.items()}
+    new_boundaries = [x * np.prod(multi_factors[:xid]) for xid, x in enumerate(new_boundaries[:-1])]
+    new_boundaries.append(max(stand_affs)+1)
+    new_boundaries.insert(0, 0.)
+
+    new_percentile_sums = []
+    for nib in range(len(new_boundaries)-1):
+        new_percentile_sums.append(sum([x for x in stand_affs if new_boundaries[nib] < x <= new_boundaries[nib+1]]))
+
+    if out_plots is not None:
+        with open(out_plots+"_affinity_mapping.txt", "w") as o:
+            print(f"Standardization run with options: scale={scale}, dividers={dividers}, divider_type={divider_type}, target_scaling={target_scaling}", file=o)
+            print("Sums of all weights within a given range", file=o)
+            for i in range(len(new_percentile_sums)):
+                if i == 0:
+                    print(f"range {0} to {new_boundaries[i+1]}: sum = {new_percentile_sums[i]}", file=o)
+                else:
+                    print(f"range {new_boundaries[i]} to {new_boundaries[i+1]}: sum = {new_percentile_sums[i]}", file=o)
+            print("Affinity original value to new value mapping", file=o)
+            for key in sorted(standardization_dict):
+                print(f"{key} : {standardization_dict[key]}", file=o)
+
+    if out_plots is not None:
         fig, axs = plt.subplots(1, 1)
         axs.hist(stand_affs, bins=100)
         axs.set_yscale('log')
         axs.set_xlabel("Weight Value")
         axs.set_ylabel("Number of Sequences")
-        plt.savefig(out_plot+".png", dpi=400)
+        for i in new_boundaries[1:-1]:
+            plt.axvline(i, c="r")
+        plt.savefig(out_plots+"_post_transformation.png", dpi=400)
 
     return stand_affs
 
