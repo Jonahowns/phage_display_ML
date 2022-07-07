@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 import math
+import json
 import numpy as np
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
@@ -83,9 +84,9 @@ class CRBM(LightningModule):
 
         # All weights are scaled by this muliplier
         try:
-            self.weight_multiplier = config["weight_multiplier"]
+            self.stratify = config["stratify_datasets"]
         except KeyError:
-            self.weight_multiplier = 1.
+            self.stratify = False
 
         if weights is None:
             self.weights = None
@@ -873,6 +874,11 @@ class CRBM(LightningModule):
 
         self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
 
+    def on_train_start(self):
+        # Log which sequences belong to each dataset
+        with open(self.logger.log_dir + "/dataset_indices.json", "w") as f:
+            json.dump({"test_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}, f)
+
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
         optim = self.optimizer(self.parameters(), lr=self.lr, weight_decay=self.wd)
@@ -895,7 +901,7 @@ class CRBM(LightningModule):
             training_weights = None
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False,
-                                   molecule=self.molecule, device=self.device, one_hot=True, weight_multiplier=self.weight_multiplier)
+                                   molecule=self.molecule, device=self.device, one_hot=True)
 
         # initialize fields from data
         if init_fields:
@@ -920,7 +926,7 @@ class CRBM(LightningModule):
             validation_weights = None
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False,
-                                 molecule=self.molecule, device=self.device, one_hot=True, weight_multiplier=self.weight_multiplier)
+                                 molecule=self.molecule, device=self.device, one_hot=True)
 
         return torch.utils.data.DataLoader(
             val_reader,

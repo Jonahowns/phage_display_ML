@@ -240,7 +240,6 @@ cov_sw_default_config = {"fasta_file": "",
           "lf": 5,
           "ld": 10,
           "data_worker_num": 4,
-          "weight_multiplier": 1.
           }
 
 

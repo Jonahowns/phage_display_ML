@@ -117,9 +117,9 @@ class RBM(LightningModule):
 
         # All weights are scaled by this muliplier
         try:
-            self.weight_multiplier = config["weight_multiplier"]
+            self.stratify = config["stratify_datasets"]
         except KeyError:
-            self.weight_multiplier = 1.
+            self.stratify = False
 
         if weights is None:
             self.weights = None
@@ -1048,7 +1048,7 @@ class RBM(LightningModule):
             all_data["seq_count"] = self.weights
 
         # For Stratified sampling
-        if all_data["seq_count"].max() != all_data["seq_count"].min(): # not equally weighted
+        if all_data["seq_count"].max() != all_data["seq_count"].min() and self.stratify is True: # not equally weighted
             counts = all_data["seq_count"].to_list()
             seq_c = list(set(counts))
             cutoff = np.percentile(np.asarray(seq_c), 70)
@@ -1058,13 +1058,12 @@ class RBM(LightningModule):
                 else:
                     return "H"
             labels = list(map(assign_label, counts))
-            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.1, stratify=labels, random_state=self.seed)
+            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.15, stratify=labels, random_state=self.seed)
         else:
-            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.1, random_state=self.seed)
+            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.15, random_state=self.seed)
 
+    def on_train_start(self):
         # Log which sequences belong to each dataset
-        if not os.path.isdir(self.logger.log_dir):
-            os.mkdir(self.logger.log_dir)
         with open(self.logger.log_dir + "/dataset_indices.json", "w") as f:
             json.dump({"test_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}, f)
 
@@ -1088,7 +1087,7 @@ class RBM(LightningModule):
             training_weights = None
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                    shuffle=False, molecule=self.molecule, device=self.device, weight_multiplier=self.weight_multiplier)
+                                    shuffle=False, molecule=self.molecule, device=self.device)
 
         # initialize fields from data
         if init_fields:
@@ -1119,7 +1118,7 @@ class RBM(LightningModule):
             validation_weights = None
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                    shuffle=False, molecule=self.molecule, device=self.device, weight_multiplier=self.weight_multiplier)
+                                    shuffle=False, molecule=self.molecule, device=self.device)
 
         return DataLoader(
             val_reader,
