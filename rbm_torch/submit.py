@@ -1,6 +1,6 @@
 #!/bin/python
 import argparse
-from analysis.global_info import get_global_info
+from rbm_torch.global_info import get_global_info
 import json
 import os
 

@@ -4,10 +4,8 @@ import argparse
 import json
 import numpy as np
 import os
-import sys
 from rbm import RBM
 import rbm_configs
-sys.path.insert(1, './analysis/')
 from global_info import get_global_info
 
 if __name__ == '__main__':

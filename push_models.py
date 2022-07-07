@@ -1,8 +1,7 @@
 import globus_sdk
 from glob import glob
 import argparse
-import sys
-import rbm_torch.analysis.global_info
+import rbm_torch.global_info
 
 # Should be run on Agave, Pushes latest models to our Work Dell
 # Goal is to Transfer the most recent version of each RBM automatically to our local computer for analysis
@@ -42,7 +41,7 @@ def model_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
     for x in rounds:
         # Find the
         version_dir = find_version(x, source_dir, endpoint_dir=source_endpoint_dir)
-        # Destination of our Trained Models
+        # Destination of our Trained Models RIP
         final_destination = dest_dir + x + "/" + version_dir.split("/")[-2] + "/"
 
         task_data.add_item(
@@ -58,21 +57,38 @@ def model_transfer(rounds, source_dir, source_endpoint_dir, dest_dir):
 
 
 if __name__=='__main__':
-    parser = argparse.ArgumentParser(description="RBM Training on Phage Display Dataset")
+    parser = argparse.ArgumentParser(description="Transfer trained rbm or crbm models from Agave Scratch Endpoint to Target Endpoint")
     requiredNamed = parser.add_argument_group('required named arguments')
     requiredNamed.add_argument('ml_model', type=str, help="Which model? rbm or crbm?")
     requiredNamed.add_argument('datatype_str', type=str, help="Which dataset to transfer")
     requiredNamed.add_argument('model_string', type=str, nargs="+", help="Which models to transfer, c1")
     args = parser.parse_args()
 
-    info = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, dir="./datasets/dataset_files/")
-    # info_w = rbm_torch.analysis.global_info.get_global_info(args.datatype_str, cluster="all", weights=True, model=args.ml_model)
+    info = rbm_torch.global_info.get_global_info(args.datatype_str, dir="./datasets/dataset_files/")
 
     destination_dir = info["local_model_dir"][args.ml_model]
+
+    ###################################################################################################
+    ####### Change what's within the pound sign lines
 
     source_dir = f"/scratch/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir'][args.ml_model]}"
 
     source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{info['server_model_dir'][args.ml_model]}"
+
+    # Globus Transfer Information
+    # Configured "App" for Globus Transfers
+    app_client_id = "fc83d632-e246-4a03-99ed-78e18f215bd1"
+
+    # Agave Scratch Endpoint
+    source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
+
+    # Work Dell Endpoint (my globus personal endpoint)
+    dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
+
+    # Additional data access scope Needed by Agave Scratch endpoint since it is a V5 globus endpoint
+    source_scope = f"urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/{source_endpoint_id}/data_access]"
+
+    ########################################################################################################
 
     # MAKE MORE GENERAL
     clusters = info["clusters"] # number of clusters
@@ -93,21 +109,9 @@ if __name__=='__main__':
         else:
             individual.append(specifier)
 
+
     # Now we setup the Globus transfer
-
-    # Configured "App" for Globus Transfers
-    piggy_client_id = "fc83d632-e246-4a03-99ed-78e18f215bd1"
-
-    # Agave Scratch Endpoint
-    source_endpoint_id = "e42349b0-ceff-44a5-bfb6-c0b5a19c32c7"
-
-    # Work Dell Endpoint
-    dest_endpoint_id = "493bcdda-f6fd-11eb-b46a-eb47ba14b5cc"
-
-    # Additional data access scope Needed by Agave Scratch endpoint since it is a V5 globus endpoint
-    source_scope = f"urn:globus:auth:scope:transfer.api.globus.org:all[*https://auth.globus.org/scopes/{source_endpoint_id}/data_access]"
-
-    client = globus_sdk.NativeAppAuthClient(piggy_client_id)
+    client = globus_sdk.NativeAppAuthClient(app_client_id)
     # Authorization
     client.oauth2_start_flow(refresh_tokens=True, requested_scopes=[source_scope])
     authorize_url = client.oauth2_get_authorize_url()

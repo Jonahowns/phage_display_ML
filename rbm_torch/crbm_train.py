@@ -8,7 +8,6 @@ import numpy as np
 # Local imports
 from crbm import CRBM
 import crbm_configs
-sys.path.insert(1, './analysis/')
 from global_info import get_global_info
 
 if __name__ == '__main__':

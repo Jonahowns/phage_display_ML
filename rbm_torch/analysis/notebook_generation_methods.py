@@ -1,4 +1,4 @@
-from rbm_torch.analysis.global_info import get_global_info
+from rbm_torch.global_info import get_global_info
 
 # datatype_str = "pig_ge2.json"
 # mfolder = '/mnt/D1/phage_display_analysis/' # Folder on My local computer where I transfer all the RBMS

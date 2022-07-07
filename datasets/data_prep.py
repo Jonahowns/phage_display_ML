@@ -10,9 +10,8 @@ import os
 import json
 import pickle
 import math
-from functools import reduce
 
-from rbm_torch.analysis.global_info import supported_datatypes
+from rbm_torch.global_info import supported_datatypes
 from rbm_torch.utils import fasta_read
 from sklearn.preprocessing import MinMaxScaler
 

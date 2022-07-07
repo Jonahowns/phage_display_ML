@@ -131,6 +131,9 @@ class BinaryCRBM(CRBM):
             self.train_reader = MNIST(PATH_DATASETS, train=True, download=True, transform=transforms.ToTensor())
             self.val_reader = MNIST(PATH_DATASETS, train=False, download=True, transform=transforms.ToTensor())
 
+    def on_train_start(self):
+        pass
+
     def train_dataloader(self, init_fields=True):
         if init_fields:
             with torch.no_grad():
