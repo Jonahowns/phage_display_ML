@@ -2,6 +2,7 @@ import math
 import os
 import time
 from multiprocessing import cpu_count, Pool  # Just to set the worker number
+import json
 
 import numpy as np
 import pandas as pd
@@ -1046,7 +1047,26 @@ class RBM(LightningModule):
         if self.weights is not None and self.weights != "fasta":
             all_data["seq_count"] = self.weights
 
-        self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
+        # For Stratified sampling
+        if all_data["seq_count"].max() != all_data["seq_count"].min(): # not equally weighted
+            counts = all_data["seq_count"].to_list()
+            seq_c = list(set(counts))
+            cutoff = np.percentile(np.asarray(seq_c), 70)
+            def assign_label(x):
+                if x < cutoff:
+                    return "L"
+                else:
+                    return "H"
+            labels = list(map(assign_label, counts))
+            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.1, stratify=labels, random_state=self.seed)
+        else:
+            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.1, random_state=self.seed)
+
+        # Log which sequences belong to each dataset
+        if not os.path.isdir(self.logger.log_dir):
+            os.mkdir(self.logger.log_dir)
+        with open(self.logger.log_dir + "/dataset_indices.json", "w") as f:
+            json.dump({"test_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}, f)
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
