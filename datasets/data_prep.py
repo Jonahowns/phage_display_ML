@@ -204,7 +204,7 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
 
 # Goal Remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
 # This is especially needed for early rounds of selection
-def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 25], target_scaling=[5, 10, 100], divider_type="percentile"):
+def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 25], target_scaling=[5, 10, 100], divider_type="percentile", negate_index=None):
     """ Generates new affinites as: new aff = 1/(#of_sequences_at_aff)*math.log(aff+0.001)
 
     Parameters
@@ -319,6 +319,9 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
     new_percentile_sums = []
     for nib in range(len(new_boundaries)-1):
         new_percentile_sums.append(sum([x for x in stand_affs if new_boundaries[nib] < x <= new_boundaries[nib+1]]))
+
+    if negate_index is not None:
+        stand_affs = [x if x > new_boundaries[negate_index + 1] else -x for x in stand_affs]
 
     if out_plots is not None:
         with open(out_plots+"_affinity_mapping.txt", "w") as o:
