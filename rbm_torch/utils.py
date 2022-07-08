@@ -164,7 +164,8 @@ class Categorical(Dataset):
         else:
             cat_tensor = self.train_data
         for b in range(self.total):
-            out[position_index, cat_tensor[b]] += self.train_weights[b]
+            # out[position_index, cat_tensor[b]] += self.train_weights[b]
+            out[position_index, cat_tensor[b]] += 1
         out.div_(self.total)  # in place
 
         # invert softmax
