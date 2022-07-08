@@ -1315,15 +1315,18 @@ class RBM(LightningModule):
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.abs().sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights.abs()).sum() / weights.abs().sum()  # free energy of gibbs sampled visible states
+        # F_v = (self.free_energy(V_pos) * weights).sum() / weights.abs().sum()  # free energy of training data
+        F_v = (self.free_energy(V_pos) * weights).sum()  # free energy of training data
+        # F_vp = (self.free_energy(V_neg) * weights.abs()).sum() / weights.abs().sum()  # free energy of gibbs sampled visible states
+        F_vp = (self.free_energy(V_neg) * weights.abs()).sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         # Reconstruction Loss, Did not work very well
         # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
         # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
-        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
+        # pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
+        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum()
 
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))

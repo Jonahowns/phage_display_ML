@@ -1003,8 +1003,10 @@ class CRBM(LightningModule):
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
         # Calculate CD loss
-        E_p = (self.energy(V_pos_oh, h_pos) * weights).sum() / weights.sum()  # energy of training data
-        E_n = (self.energy(V_neg_oh, h_neg) * weights).sum() / weights.sum()  # energy of gibbs sampled visible states
+        # E_p = (self.energy(V_pos_oh, h_pos) * weights).sum() / weights.sum()  # energy of training data
+        E_p = (self.energy(V_pos_oh, h_pos) * weights).sum()  # energy of training data
+        # E_n = (self.energy(V_neg_oh, h_neg) * weights).sum() / weights.sum()  # energy of gibbs sampled visible states
+        E_n = (self.energy(V_neg_oh, h_neg) * weights).sum()  # energy of gibbs sampled visible states
         cd_loss = E_p - E_n
 
         # Regularization Terms
