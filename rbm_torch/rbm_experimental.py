@@ -119,15 +119,16 @@ if __name__ == '__main__':
     config["seed"] = 38
 
     # Training Code
-    rbm = ExpRBM(config, debug=False)
-    logger = TensorBoardLogger('./tb_logs/', name="lattice_rbm")
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(rbm)
+    # rbm = ExpRBM(config, debug=False)
+    # logger = TensorBoardLogger('./tb_logs/', name="lattice_rbm")
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(rbm)
 
-    # checkp = "./tb_logs/lattice_rbm/version_5/checkpoints/epoch=99-step=199.ckpt"
-    # rbm = RBM.load_from_checkpoint(checkp)
-    #
-    # all_weights(rbm, name="./tb_logs/lattice_rbm/version_5/affine_batch_norm")
+    checkp = "./tb_logs/lattice_rbm/version_11/checkpoints/epoch=99-step=199.ckpt"
+    rbm = ExpRBM.load_from_checkpoint(checkp)
+
+    all_weights(rbm, name="./tb_logs/lattice_rbm/version_11/affine_batch_norm")
+
     #
     # # results = gen_data_lowT(rbm, which="marginal")
     # results = gen_data_zeroT(rbm, which="joint")
