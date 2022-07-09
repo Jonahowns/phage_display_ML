@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # Project Dependencies
-from utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT
+from utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
 import rbm_configs
 
 
@@ -182,6 +182,8 @@ class RBM(LightningModule):
         except:
             print(f"Precision {precision} not supported.")
             exit(-1)
+
+        # self.batch_norm = BatchNorm(affine=True, momentum=0.1)
 
         self.params = nn.ParameterDict({
             # weights
@@ -716,6 +718,7 @@ class RBM(LightningModule):
         indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
         expandedweights = self.W.unsqueeze(0).expand(vd.shape[0], -1, -1, -1)
         output = torch.gather(expandedweights, 3, indexTensor).squeeze(3).sum(2)
+        # return self.batch_norm(output)
         return output
 
     ## Compute Input for Visible Layer from Hidden dReLU
@@ -1048,7 +1051,7 @@ class RBM(LightningModule):
             all_data["seq_count"] = self.weights
 
         # For Stratified sampling
-        if all_data["seq_count"].max() != all_data["seq_count"].min() and self.stratify is True: # not equally weighted
+        if self.stratify is True: # not equally weighted
             counts = all_data["seq_count"].to_list()
             seq_c = list(set(counts))
             cutoff = np.percentile(np.asarray(seq_c), 70)
@@ -1315,10 +1318,10 @@ class RBM(LightningModule):
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        # F_v = (self.free_energy(V_pos) * weights).sum() / weights.abs().sum()  # free energy of training data
-        F_v = (self.free_energy(V_pos) * weights).sum()  # free energy of training data
-        # F_vp = (self.free_energy(V_neg) * weights.abs()).sum() / weights.abs().sum()  # free energy of gibbs sampled visible states
-        F_vp = (self.free_energy(V_neg) * weights.abs()).sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos) * weights).sum() / weights.abs().sum()  # free energy of training data
+        # F_v = (self.free_energy(V_pos) * weights).sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg) * weights.abs()).sum() / weights.abs().sum()  # free energy of gibbs sampled visible states
+        # F_vp = (self.free_energy(V_neg) * weights.abs()).sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         # Reconstruction Loss, Did not work very well
@@ -1773,7 +1776,7 @@ class RBM(LightningModule):
 if __name__ == '__main__':
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
-    lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    lattice_data = '../datasets/lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
     # b3_c1 = "../pig/b3_c1.fasta"
     # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
@@ -1781,16 +1784,19 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 50
+    config["epochs"] = 100
+    config["l12"] = 15
 
     # Training Code
-    # rbm = RBM(config, debug=True)
-    # logger = TensorBoardLogger('./lattice_proteins_verification/', name="lattice_rbm")
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(rbm)
+    rbm = RBM(config, debug=False)
+    logger = TensorBoardLogger('./tb_logs/', name="lattice_rbm")
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt.fit(rbm)
 
-    # checkp = "./lattice_proteins_verification/lattice_rbm/version_8/checkpoints/epoch=49-step=99.ckpt"
+    # checkp = "./tb_logs/lattice_rbm/version_5/checkpoints/epoch=99-step=199.ckpt"
     # rbm = RBM.load_from_checkpoint(checkp)
+    #
+    # all_weights(rbm, name="./tb_logs/lattice_rbm/version_5/affine_batch_norm")
     #
     # # results = gen_data_lowT(rbm, which="marginal")
     # results = gen_data_zeroT(rbm, which="joint")
@@ -1799,13 +1805,17 @@ if __name__ == '__main__':
     # E = rbm.energy(visible, hiddens)
     # print("E", E.shape)
 
-    import analysis.analysis_methods as am
+
+
+
+
+    # import analysis.analysis_methods as am
     # Directory of Stored RBMs
-    mdir = "/mnt/D1/globus/exo_trained_rbms/"
-    rounds = ["exosome_st"]
-    data = ["exosome"]
-
-    checkp, v_dir = am.get_checkpoint_path(rounds[0], rbmdir=mdir)
-    exo_rbm = RBM.load_from_checkpoint(checkp)
-
-    exo_rbm.AIS()
+    # mdir = "/mnt/D1/globus/exo_trained_rbms/"
+    # rounds = ["exosome_st"]
+    # data = ["exosome"]
+    #
+    # checkp, v_dir = am.get_checkpoint_path(rounds[0], rbmdir=mdir)
+    # exo_rbm = RBM.load_from_checkpoint(checkp)
+    #
+    # exo_rbm.AIS()
