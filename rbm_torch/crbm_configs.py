@@ -317,7 +317,7 @@ exo_default_config = {"fasta_file": "",
           "molecule": "dna",
           "epochs": 100, # get's overwritten by training script anyway
           "seed": seed, # this is defined in the config file
-          "batch_size": 6000, # can be raised or lowered depending on memory usage
+          "batch_size": 400, # can be raised or lowered depending on memory usage
           "mc_moves": 4,
           "lr": 0.006,
           "lr_final": None, # automatically set as lr * 1e-2
@@ -327,7 +327,7 @@ exo_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 25.0,
+          "l1_2": 15.0,
           "lf": 5.0,
           "ld": 10.0,
           "data_worker_num": 4

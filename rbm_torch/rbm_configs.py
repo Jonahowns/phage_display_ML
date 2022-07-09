@@ -174,7 +174,7 @@ exo_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 1.2,
+          "l1_2": 5.0,
           "lf": 0.004,
           "data_worker_num": 4
           }

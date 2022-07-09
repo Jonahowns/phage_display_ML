@@ -1328,8 +1328,8 @@ class RBM(LightningModule):
         # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
         # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
-        # pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
-        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum()
+        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
+        # pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum()
 
         # Regularization Terms
         reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
@@ -1786,6 +1786,7 @@ if __name__ == '__main__':
     config["sequence_weights"] = None
     config["epochs"] = 100
     config["l12"] = 15
+    config["seed"] = 38
 
     # Training Code
     rbm = RBM(config, debug=False)
