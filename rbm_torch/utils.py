@@ -579,7 +579,7 @@ def markov_step_zeroT_marginal(self, v,beta=1):
 #     return checkpoint_file
 
 def get_beta_and_W(model, hidden_key=None, include_gaps=False):
-    if model._get_name() == "RBM":
+    if model._get_name() == "RBM" or model._get_name() == "ExpRBM":
         W = model.get_param("W")
         if include_gaps:
             return np.sqrt((W ** 2).sum(-1).sum(-1)), W
@@ -599,7 +599,7 @@ def get_beta_and_W(model, hidden_key=None, include_gaps=False):
 def all_weights(model, name=None, rows=5):
     if name is None:
         name = model._get_name()
-    if model._get_name() == "RBM":
+    if model._get_name() == "RBM" or model._get_name() == "ExpRBM":
         beta, W = get_beta_and_W(model)
         order = np.argsort(beta)[::-1]
         wdim = W.shape[1]
