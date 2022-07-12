@@ -4,9 +4,9 @@ import argparse
 import json
 import numpy as np
 import os
-from rbm import RBM
-import rbm_configs
-from global_info import get_global_info
+from rbm_torch.rbm import RBM
+from rbm_torch import rbm_configs
+from rbm_torch.global_info import get_global_info
 
 if __name__ == '__main__':
     # Example Usage
