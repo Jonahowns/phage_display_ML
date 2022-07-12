@@ -8,9 +8,9 @@ import math
 import argparse
 
 # local files
-from rbm import RBM
-import rbm_configs
-import rbm_hyper_configs
+from rbm_torch.rbm import RBM
+from rbm_torch import rbm_configs
+from rbm_torch import rbm_hyper_configs
 
 
 def tune_asha_search(config, hyperparams_of_interest, num_samples=10, num_epochs=10, gpus_per_trial=0, cpus_per_trial=1):

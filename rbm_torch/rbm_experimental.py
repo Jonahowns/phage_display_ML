@@ -18,9 +18,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # Project Dependencies
-from utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
-import rbm_configs
-from rbm import RBM
+from rbm_torch.utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
+from rbm_torch import rbm_configs
+from rbm_torch.rbm import RBM
 
 
 class ExpRBM(RBM):

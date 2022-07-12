@@ -1,9 +1,11 @@
-import sys
-sys.path.append("../")
+# import sys
+# sys.path.append("../")
 
-import utils
-from crbm import CRBM
-from rbm import RBM
+from rbm_torch import utils
+from rbm_torch.crbm import CRBM
+from rbm_torch.rbm import RBM
+# from crbm import CRBM
+# from rbm import RBM
 
 import math
 import pandas as pd
@@ -46,7 +48,7 @@ def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molec
     Returns
     -------
     pandas dataframe:
-        contains data from provided fasta files with columns "sequence", "round", "assignment", and "copynum"
+        contains data from provided fasta files with columns "sequence", "round", "assignment", and "copy_num"
     """
     for xid, x in enumerate(fasta_names):
         seqs, counts, all_chars, q_data = utils.fasta_read(dir + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
@@ -56,9 +58,9 @@ def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molec
         else:
             assignment = ["N/A" for i in counts]
         if xid == 0:
-            data_df = pd.DataFrame({"sequence": seqs, "copynum": counts, "round": round_label, "assignment": assignment})
+            data_df = pd.DataFrame({"sequence": seqs, "copy_num": counts, "round": round_label, "assignment": assignment})
         else:
-            data_df = pd.concat([data_df, pd.DataFrame({"sequence": seqs, "copynum": counts, "round": round_label, "assignment": assignment})])
+            data_df = pd.concat([data_df, pd.DataFrame({"sequence": seqs, "copy_num": counts, "round": round_label, "assignment": assignment})])
 
     return data_df
 
@@ -222,15 +224,15 @@ def compare_likelihood_correlation(likeli1, likeli2, title, rounds):
 def data_subset(data_df, likelihood_dict, target, lmin, lmax):
     tdf = data_df[data_df["round"] == target]
     all_seqs = tdf.sequence.tolist()
-    all_counts = tdf.copynum.tolist()
+    all_counts = tdf.copy_num.tolist()
     likelihood = likelihood_dict[target]
     seqs, counts, ls = zip(*[(all_seqs[xid], all_counts[xid], x) for xid, x in enumerate(likelihood) if lmin < x < lmax])
-    return pd.DataFrame({"sequence": seqs, "copynum": counts, "likelihood": ls})
+    return pd.DataFrame({"sequence": seqs, "copy_num": counts, "likelihood": ls})
 
 # Returns path to generated seq logo png file
 def seq_logo(dataframe, output_file, weight=False, outdir=""):
     out = outdir + output_file
-    df = dataframe[["sequence", "copynum"]]
+    df = dataframe[["sequence", "copy_num"]]
     if df.empty:
         print("No sequences found in provided dataframe")
         exit(-1)
@@ -270,7 +272,7 @@ def dataframe_to_input(dataframe, base_to_id, v_num, weights=False):
         for n, base in enumerate(seq):
             cat_ten[iid, n] = base_to_id[base]
     if weights:
-        weights = dataframe["copynum"].tolist()
+        weights = dataframe["copy_num"].tolist()
         return cat_ten, weights
     else:
         return cat_ten

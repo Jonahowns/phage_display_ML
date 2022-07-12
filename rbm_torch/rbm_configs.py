@@ -3,14 +3,14 @@ from numpy.random import randint
 seed = randint(0, 10000, 1)[0]
 
 pig_c1_2_default_config = {"fasta_file": "",
-          "h_num": 20,  # number of hidden units, can be variable
+          "h_num": 40,  # number of hidden units, can be variable
           "v_num": 22,
           "q": 21,
           "molecule": "protein",
           "epochs": 200,
           "seed": seed,
           "data_worker_num": 6,
-          "batch_size": 10000,
+          "batch_size": 60000,
           "mc_moves": 8,
           "lr": 0.006,
           "lr_final": None,

@@ -1,8 +1,8 @@
 import sys
-sys.path.append("../")
-from rbm import RBM
-import utils
-from crbm import CRBM
+# sys.path.append("../")
+from rbm_torch.rbm import RBM
+from rbm_torch import utils
+from rbm_torch.crbm import CRBM
 
 import math
 import pandas as pd

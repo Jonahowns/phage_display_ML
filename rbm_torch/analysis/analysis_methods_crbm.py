@@ -1,10 +1,12 @@
 import sys
-sys.path.append("../")
+# sys.path.append("../")
 
-import utils
-from crbm import CRBM
+from rbm_torch import utils
+from rbm_torch.crbm import CRBM
+from rbm_torch.analysis import analysis_methods as am
+
 import numpy as np
-import analysis_methods as am
+
 
 import math
 import torch

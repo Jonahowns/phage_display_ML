@@ -1,4 +1,4 @@
-from crbm import CRBM
+from rbm_torch.crbm import CRBM
 
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler

@@ -6,9 +6,9 @@ import sys
 import json
 import numpy as np
 # Local imports
-from crbm import CRBM
-import crbm_configs
-from global_info import get_global_info
+from rbm_torch.crbm import CRBM
+from rbm_torch import crbm_configs
+from rbm_torch.global_info import get_global_info
 
 if __name__ == '__main__':
     # Example Usage

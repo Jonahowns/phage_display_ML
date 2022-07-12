@@ -361,6 +361,18 @@ def seq_to_cat(seqs, molecule="protein"):
 # ACGPTTACDKLLE
 # Fasta File Reader
 def fasta_read(fastafile, molecule, threads=1, drop_duplicates=False):
+    """
+    Parameters
+    ----------
+    fastafile: str,
+        fasta file name and path
+    molecule: str,
+        type of data can be {"dna", "rna", or "protein"}
+    threads: int, optional,
+        number of cpu processes to use to read file
+    drop_duplicates: bool,
+
+    """
     o = open(fastafile)
     all_content = o.readlines()
     o.close()
@@ -596,12 +608,15 @@ def get_beta_and_W(model, hidden_key=None, include_gaps=False):
             else:
                 return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
 
-def all_weights(model, name=None, rows=5):
+def all_weights(model, name=None, rows=5, order_weights=True):
     if name is None:
         name = model._get_name()
     if model._get_name() == "RBM" or model._get_name() == "ExpRBM":
         beta, W = get_beta_and_W(model)
-        order = np.argsort(beta)[::-1]
+        if order_weights:
+            order = np.argsort(beta)[::-1]
+        else:
+            order = np.arange(0, beta.shape[0], 1)
         wdim = W.shape[1]
         if wdim <= 20:
             ncols = 2
@@ -616,12 +631,15 @@ def all_weights(model, name=None, rows=5):
                 ncols = 2
             else:
                 ncols = 1
-            conv_weights(model, key, name+"_"+key, rows, ncols, 11, 9)
+            conv_weights(model, key, name+"_"+key, rows, ncols, 11, 9, order_weights=order_weights)
     plt.close() # close all open figures
 
-def conv_weights(crbm, hidden_key, name, rows, columns, h, w):
+def conv_weights(crbm, hidden_key, name, rows, columns, h, w, order_weights=True):
     beta, W = get_beta_and_W(crbm, hidden_key)
-    order = np.argsort(beta)[::-1]
+    if order_weights:
+        order = np.argsort(beta)[::-1]
+    else:
+        order = np.arange(0, beta.shape[0], 1)
     fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=400, molecule=crbm.molecule)
 
 

@@ -18,9 +18,9 @@ pig_c1_2_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 20,
+          "l1_2": 2,
           "lf": 5,
-          "ld": 10,
+          "ld": 2,
           "data_worker_num": 4,
           }
 
@@ -140,9 +140,9 @@ pig_c4_4_default_config = {"fasta_file": "",
 #                                                   "hidden3": {"number": 5, "kernel": (7, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
 #                                                   "hidden4": {"number": 5, "kernel": (pig_c1_2_default_config["v_num"], pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
 #                                                  }
-pig_c1_2_default_config["convolution_topology"] = {"hidden1": {"number": 20, "kernel": (7, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden2": {"number": 30, "kernel": (13, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
-                                                  "hidden3": {"number": 30, "kernel": (17, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+pig_c1_2_default_config["convolution_topology"] = {"hidden3": {"number": 15, "kernel": (3, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden7": {"number": 15, "kernel": (7, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
+                                                  "hidden9": {"number": 15, "kernel": (9, pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1},
                                                   # "hidden4": {"number": 5, "kernel": (pig_c1_2_default_config["v_num"], pig_c1_2_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
                                                  }
 
@@ -327,16 +327,17 @@ exo_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 1.5,
+          "l1_2": 15.0,  # 0.5 for weighted
           "lf": 5.0,
-          "ld": 2.0,
+          "ld": 5.0,  # 0.5 for weighted
           "data_worker_num": 4
           }
 
 exo_default_config["convolution_topology"] = {"hidden7": {"number": 20, "kernel": (8, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                             "hidden13": {"number": 20, "kernel": (13, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
                                             "hidden19": {"number": 20, "kernel": (19, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
-                                            "hidden25": {"number": 15, "kernel": (25, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
+                                            "hidden25": {"number": 15, "kernel": (25, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0},
+                                            "hidden29": {"number": 10, "kernel": (29, exo_default_config["q"]), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
                                              }
 
 

@@ -13,8 +13,11 @@ import math
 
 from rbm_torch.global_info import supported_datatypes
 from rbm_torch.utils import fasta_read
-from sklearn.preprocessing import MinMaxScaler
 
+from sklearn.preprocessing import MinMaxScaler
+from multiprocessing import Pool
+import time
+from itertools import repeat
 
 
 def make_weight_file(filebasename, weights, extension, dir="./"):
@@ -563,6 +566,92 @@ def process_raw_fasta_files(*files, in_dir="./", out_dir="./", violin_out=None, 
         plt.savefig(violin_out+".png", dpi=300)
     print("Observed Characters:", all_chars)
     return master_df
+
+def copynum_topology(dataframe, rounds):
+    # get all seqs
+    all_uniq_seqs = list(set(dataframe["sequence"].tolist()))
+    # make a copy number array to store copy number of each round
+    copynums = np.empty((len(all_uniq_seqs), len(rounds)))
+    copynums[:] = np.nan
+
+    # replace round identifiers with their index in the rounds
+    # rdict = {r: rounds.index(r) for r in rounds}
+    # dataframe.replace({"round": rdict}, inplace=True)
+
+    progress_bar_divisor = len(all_uniq_seqs) // 50
+
+    for sid, seq in enumerate(all_uniq_seqs):
+        matching = dataframe[dataframe["sequence"] == seq]
+        for index, row in matching.iterrows():
+            copynums[sid][rounds.index(row["round"])] = row["copy_num"]
+        if sid % progress_bar_divisor == 0:
+            print(f"{sid / len(all_uniq_seqs) * 100 }% complete")
+
+    copynum_dict = {r: copynums[:, rid] for rid, r in enumerate(rounds)}
+    ndf = pd.DataFrame({"sequence": all_uniq_seqs, **copynum_dict})
+    # ndf["mean"] = ndf.apply(lambda row : np.nanmean(np.asarray([row[x] for x in rounds])), axis=1)
+    return ndf
+
+
+def copynum_topology_faster(dataframe, rounds):
+    dfs = []
+    for r in rounds:
+        dfs.append(dataframe[dataframe["round"] == r])
+        
+    merged_df_pairs = []
+    for i in range(0, len(rounds)):
+        for j in range(1, len(rounds)):
+            if i >= j:
+                continue
+            merged = pd.merge(dfs[i], dfs[j], how='inner', left_on='sequence', right_on='sequence')
+            merged_df_pairs.append(merged)
+
+    # Get sequences that appear in more than 1 dataset
+    all_seqs_lists = [x["sequence"].tolist() for x in merged_df_pairs]
+    seqs_to_query = list(set([j for i in all_seqs_lists for j in i]))
+
+    threads = len(rounds)
+    p = Pool(threads)
+
+    start = time.time()
+    results = p.starmap(query_seq_in_dataframe, zip(repeat(seqs_to_query), dfs))
+    end = time.time()
+
+    print("Process Time", end - start)
+
+    copynums = np.empty((len(seqs_to_query), len(rounds)))
+
+    for i in range(threads):
+        copynums[:, i] = results[i]
+
+    # copynums[:] = np.nan
+    #
+    # rdict = {r: rounds.index(r) for r in rounds}
+    #
+    # for sid, seq in enumerate(seqs_to_query):
+    #     matching = dataframe[dataframe["sequence"] == seq]
+    #     for index, row in matching.iterrows():
+    #         copynums[sid][rdict[row["round"]]] = row["copy_num"]
+
+    copynum_dict = {r: copynums[:, rid] for rid, r in enumerate(rounds)}
+    ndf = pd.DataFrame({"sequence": seqs_to_query, **copynum_dict})
+    return ndf
+
+def query_seq_in_dataframe(seqs_to_query, dataframe):
+    query_results = []
+    dataframe_seqs = list(dataframe["sequence"].values)
+    for s in seqs_to_query:
+        if s in dataframe_seqs:
+            row = dataframe.iloc[dataframe_seqs.index(s)]
+            query_results.append(row["copy_num"])
+        else:
+            query_results.append(np.nan)
+    return np.asarray(query_results)
+
+def dataframe_to_fasta(df, out, count_key="copy_num"):
+    write_fasta(df["sequence"].tolist(), df[count_key].tolist(), out)
+
+
 
 # Prepares data and puts it into a fasta file
 # Datatype must be defined in global_info.py to work properly
