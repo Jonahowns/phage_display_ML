@@ -17,8 +17,8 @@ import multiprocessing  # Just to set the worker number
 from torch.autograd import Variable
 
 
-import crbm_configs
-from utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, conv2d_dim
+
+from rbm_torch.utils.utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, conv2d_dim
 
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
@@ -1004,10 +1004,10 @@ class CRBM(LightningModule):
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
         # Calculate CD loss
-        # E_p = (self.energy(V_pos_oh, h_pos) * weights).sum() / weights.sum()  # energy of training data
-        E_p = (self.energy(V_pos_oh, h_pos) * weights).sum()  # energy of training data
-        # E_n = (self.energy(V_neg_oh, h_neg) * weights).sum() / weights.sum()  # energy of gibbs sampled visible states
-        E_n = (self.energy(V_neg_oh, h_neg) * weights).sum()  # energy of gibbs sampled visible states
+        E_p = (self.energy(V_pos_oh, h_pos) * weights).sum() / weights.sum()  # energy of training data
+        # E_p = (self.energy(V_pos_oh, h_pos) * weights).sum()  # energy of training data
+        E_n = (self.energy(V_neg_oh, h_neg) * weights).sum() / weights.sum()  # energy of gibbs sampled visible states
+        # E_n = (self.energy(V_neg_oh, h_neg) * weights).sum()  # energy of gibbs sampled visible states
         cd_loss = E_p - E_n
 
         # Regularization Terms
@@ -1080,8 +1080,8 @@ class CRBM(LightningModule):
         weights = seq_weights.clone()
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
-        F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum() # free energy of training data
+        F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() / weights.sum() # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
 
         # Regularization Terms
@@ -1575,6 +1575,7 @@ if __name__ == '__main__':
     large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
     lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
 
+    import crbm_configs
     config = crbm_configs.lattice_default_config
     # config["l1_2"] = 0.8
     # config["ld"] = 40.0

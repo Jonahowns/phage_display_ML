@@ -18,8 +18,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # Project Dependencies
-from utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
-import rbm_configs
+from rbm_torch.utils.utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
+
 
 
 
@@ -1780,6 +1780,7 @@ if __name__ == '__main__':
     # b3_c1 = "../pig/b3_c1.fasta"
     # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
+    import rbm_configs
     config = rbm_configs.lattice_default_config
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data

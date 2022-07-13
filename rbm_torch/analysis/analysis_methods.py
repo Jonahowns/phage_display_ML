@@ -1,7 +1,7 @@
 # import sys
 # sys.path.append("../")
 
-from rbm_torch import utils
+from rbm_torch.utils import utils
 from rbm_torch.crbm import CRBM
 from rbm_torch.rbm import RBM
 # from crbm import CRBM

@@ -17,7 +17,7 @@ from rbm_torch.utils import fasta_read
 from sklearn.preprocessing import MinMaxScaler
 from multiprocessing import Pool
 import time
-from itertools import repeat
+from itertools import repeat, chain
 
 
 def make_weight_file(filebasename, weights, extension, dir="./"):
@@ -593,7 +593,7 @@ def copynum_topology(dataframe, rounds):
     return ndf
 
 
-def copynum_topology_faster(dataframe, rounds):
+def copynum_topology_faster(dataframe, rounds, threads_per_task=1):
     dfs = []
     for r in rounds:
         dfs.append(dataframe[dataframe["round"] == r])
@@ -611,27 +611,39 @@ def copynum_topology_faster(dataframe, rounds):
     seqs_to_query = list(set([j for i in all_seqs_lists for j in i]))
 
     threads = len(rounds)
-    p = Pool(threads)
 
-    start = time.time()
-    results = p.starmap(query_seq_in_dataframe, zip(repeat(seqs_to_query), dfs))
-    end = time.time()
+    if threads_per_task > 1:
+        queries_per_task = math.ceil(len(seqs_to_query)/threads_per_task)
+        split_query = [seqs_to_query[i*queries_per_task:(i+1)*queries_per_task] for i in range(threads_per_task)]
+        all_seq_queries = split_query * len(rounds)
+        ndfs = []
+        for i in range(threads):
+            for j in range(threads_per_task):
+                ndfs.append(dfs[i])
 
-    print("Process Time", end - start)
+        p = Pool(threads * threads_per_task)
+        start = time.time()
+        results = p.starmap(query_seq_in_dataframe, zip(all_seq_queries, ndfs))
+        end = time.time()
 
-    copynums = np.empty((len(seqs_to_query), len(rounds)))
+        print("Process Time", end - start)
 
-    for i in range(threads):
-        copynums[:, i] = results[i]
+        copynums = np.empty((len(seqs_to_query), len(rounds)))
+        for i in range(threads):
+            single_df_results = results[i*threads_per_task:(i+1)*threads_per_task]
+            copynums[:, i] = list(chain(*single_df_results))
 
-    # copynums[:] = np.nan
-    #
-    # rdict = {r: rounds.index(r) for r in rounds}
-    #
-    # for sid, seq in enumerate(seqs_to_query):
-    #     matching = dataframe[dataframe["sequence"] == seq]
-    #     for index, row in matching.iterrows():
-    #         copynums[sid][rdict[row["round"]]] = row["copy_num"]
+    else:
+        p = Pool(threads)
+        start = time.time()
+        results = p.starmap(query_seq_in_dataframe, zip(repeat(seqs_to_query), dfs))
+        end = time.time()
+
+        print("Process Time", end - start)
+
+        copynums = np.empty((len(seqs_to_query), len(rounds)))
+        for i in range(threads):
+            copynums[:, i] = results[i]
 
     copynum_dict = {r: copynums[:, rid] for rid, r in enumerate(rounds)}
     ndf = pd.DataFrame({"sequence": seqs_to_query, **copynum_dict})

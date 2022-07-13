@@ -18,9 +18,9 @@ pig_c1_2_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 2,
-          "lf": 5,
-          "ld": 2,
+          "l1_2": 15,
+          "lf": 10,
+          "ld": 1,
           "data_worker_num": 4,
           }
 
@@ -327,7 +327,7 @@ exo_default_config = {"fasta_file": "",
           "sequence_weights": None,
           "optimizer": "AdamW",
           "weight_decay": 0.001,  # l2 norm on all parameters
-          "l1_2": 15.0,  # 0.5 for weighted
+          "l1_2": 20.0,  # 0.5 for weighted
           "lf": 5.0,
           "ld": 5.0,  # 0.5 for weighted
           "data_worker_num": 4
