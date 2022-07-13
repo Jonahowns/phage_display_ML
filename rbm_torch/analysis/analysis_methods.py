@@ -17,6 +17,7 @@ import subprocess as sp
 import numpy as np
 import torch
 import matplotlib.image as mpimg
+import tbparse
 import nbformat as nbf
 # from notebook_generation_methods import generate_notebook
 
@@ -614,8 +615,42 @@ class Motif_Finder():
     #         print(i, file=o)
     #     o.close()
 
+def parse_tb_files_crbm(model_str, model_dir="./", version=None):
+    """parses the log directory of a given model, and optionally version. Extracts data to a pandas dataframe for
+    easy graphing of our model"""
+    checkp, version_dir = get_checkpoint_path(model_str, rbmdir=model_dir, version=version)
 
+    # Read in all scalar event files and extract info
+    scalars = ["Weight Reg", "Field Reg", "Distance Reg", "CD_Loss", "Loss", "Train Free Energy"]
+    dfs = []
+    for scalar in scalars:
+        reader = tbparse.SummaryReader(f"{version_dir}/All Scalars_{scalar}")
+        df = reader.scalars
+        rename = {"All Scalars": scalar}
+        df.replace({"tag": rename}, inplace=True)
+        dfs.append(df)
 
+    # Read in the main event file and drop almost all the information in it
+    reader = tbparse.SummaryReader(version_dir)
+    df = reader.scalars
+    removal_tags = ["All Scalars", "hp_metric", "train_free_energy_epoch", "val_free_energy_epoch",
+                    "val_free_energy_step", "train_free_energy_step", "train_loss_step", "epoch", "train_loss_epoch"]
+    rename_tags = {"ptl/train_free_energy_epoch": "train_free_energy_epoch",
+                   "ptl/val_free_energy_epoch": "val_free_energy_epoch"}
+
+    # Everything is Removed except for the Validation Free Energy
+    for rtag in removal_tags:
+        df.drop(df[df['tag'].str.contains(rtag)].index, inplace = True)
+
+    df.replace({"tag": rename_tags}, inplace=True)
+
+    df = df.iloc[1: , :] # Removes a false 0 step value for the Validation Free Energy
+    dfs.append(df)
+
+    df = pd.concat(dfs)  # Join all dfs together
+    df.rename(columns={"step": "Epoch", "tag": "Scalar", "value": "Value"}, inplace=True)  # rename columns to epoch
+    df.reset_index(inplace=True, drop=True)
+    return df
 
 if __name__ == '__main__':
     mdir = "/mnt/D1/globus/pig_trained_rbms/"

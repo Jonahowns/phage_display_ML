@@ -1080,8 +1080,10 @@ class CRBM(LightningModule):
         weights = seq_weights.clone()
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
-        F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum() # free energy of training data
-        F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() / weights.sum() # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
+        # F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum() # free energy of training data
+        F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
+        # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() / weights.sum() # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
 
         # Regularization Terms
