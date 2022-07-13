@@ -12,7 +12,7 @@ import pickle
 import math
 
 from rbm_torch.global_info import supported_datatypes
-from rbm_torch.utils import fasta_read
+from rbm_torch.utils.utils import fasta_read
 
 from sklearn.preprocessing import MinMaxScaler
 from multiprocessing import Pool
@@ -88,7 +88,7 @@ def log_scale(listofnumbers, base=1):
     """
     return np.asarray([math.log(x + base) for x in listofnumbers])
 
-def quick_hist(x, outfile, yscale="log", bins=100):
+def quick_hist(x, outfile=None, yscale="log", bins=100):
     """ Make histogram of values, and save to file
 
     Parameters
@@ -106,7 +106,10 @@ def quick_hist(x, outfile, yscale="log", bins=100):
     fig, axs = plt.subplots(1, 1)
     axs.hist(x, bins=bins)
     axs.set_yscale(yscale)
-    plt.savefig(outfile + ".png")
+    if outfile is not None:
+        plt.savefig(outfile + ".png")
+    else:
+        plt.show()
     plt.close()
 
 def scale_values_np(vals, min=0.05, max=0.95):
