@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # Project Dependencies
-from rbm_torch.utils.utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
+from utils.utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
 
 
 

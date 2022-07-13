@@ -18,7 +18,7 @@ from torch.autograd import Variable
 
 
 
-from rbm_torch.utils.utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, conv2d_dim
+from utils.utils import Categorical, Sequence_logo_all, fasta_read, Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, conv2d_dim
 
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
