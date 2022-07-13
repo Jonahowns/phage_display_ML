@@ -1,7 +1,7 @@
 from sklearn.metrics import pairwise_distances_chunked
 import sys
 sys.path.append("../rbm_torch/")
-import utils
+from utils import utils
 import numpy as np
 import pickle
 import argparse
@@ -21,7 +21,7 @@ ffile = args.dataset_file
 molecule = args.molecule
 threads = args.threads
 
-seqs, affs, all_chars, q = utils.fasta_read(dataset_dir + ffile, molecule, threads=threads, drop_duplicates=False)
+seqs, affs, all_chars, q = utils.fasta_read(dataset_dir + "/" + ffile, molecule, threads=threads, drop_duplicates=False)
 
 r6_cat = utils.seq_to_cat(seqs, molecule=molecule)
 
