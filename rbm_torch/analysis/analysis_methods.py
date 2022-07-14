@@ -18,6 +18,7 @@ import numpy as np
 import torch
 import matplotlib.image as mpimg
 import tbparse
+from copy import copy
 import nbformat as nbf
 # from notebook_generation_methods import generate_notebook
 
@@ -247,24 +248,63 @@ def seq_logo(dataframe, output_file, weight=False, outdir=""):
         return out
 
 
-def view_weights(rbm, type="max", selected=None, molecule="protein", title=None):
+def view_weights(rbm, type="top", selected=None, molecule="protein", title=None, view="full"):
     beta, W = utils.get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
-    W = W[order]
-    assert type in ["max", "select"]
+    assert type in ["top", "unordered"]
     assert molecule in ["protein", "dna", "rna"]
-    if type == "max":
-        assert isinstance(selected, int)
-        selected_weights = W[:selected]
-    elif type == "select":
-        selected_weights = W[:len(selected)] # make array of correct size
-        assert isinstance(selected, list)
-        for id, i in enumerate(selected):
-            selected_weights[id] = W[i]  # Overwrite with weights we are interested in
+    if type == "top":
+        W = W[order]
+        if isinstance(selected, int):
+            selected_weights = W[:selected]
+        elif isinstance(selected, list):
+            selected_weights = copy(W[:len(selected)]) # make array of correct size
+            for id, i in enumerate(selected):
+                selected_weights[id] = W[i]  # Overwrite with weights we are interested in
+    elif type == "unordered":
+        if isinstance(selected, int):
+            selected_weights = W[:selected]
+        elif isinstance(selected, list):
+            selected_weights = copy(W[:len(selected)]) # make array of correct size
+            for id, i in enumerate(selected):
+                selected_weights[id] = W[i]  # Overwrite with weights we are interested in
 
+    if view == "positive":
+        selected_weights = np.maximum(selected_weights, 0.)
+    elif view == "negative":
+        selected_weights = np.minimum(selected_weights, 0.)
     # Assume we want weights
     fig = utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
 
+
+def view_weights_crbm(crbm, hidden_key, sort="top", selected=None, molecule="protein", title=None, view="full"):
+    beta, W = utils.get_beta_and_W(crbm, hidden_key=hidden_key)
+    order = np.argsort(beta)[::-1]
+    assert sort in ["top", "unordered"]
+    assert molecule in ["protein", "dna", "rna"]
+    if sort == "top":
+        W = W[order]
+        if isinstance(selected, int):
+            selected_weights = W[:selected]
+        elif isinstance(selected, list):
+            selected_weights = copy(W[:len(selected)]) # make array of correct size
+            for id, i in enumerate(selected):
+                selected_weights[id] = W[i]  # Overwrite with weights we are interested in
+    elif sort == "unordered":
+        if isinstance(selected, int):
+            selected_weights = W[:selected]
+        elif isinstance(selected, list):
+            selected_weights = copy(W[:len(selected)]) # make array of correct size
+            for id, i in enumerate(selected):
+                selected_weights[id] = W[i]  # Overwrite with weights we are interested in
+
+    if view == "positive":
+        selected_weights = np.maximum(selected_weights, 0.)
+    elif view == "negative":
+        selected_weights = np.minimum(selected_weights, 0.)
+
+    # Assume we want weights
+    fig = utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
 
 def dataframe_to_input(dataframe, base_to_id, v_num, weights=False):
     seqs = dataframe["sequence"].tolist()

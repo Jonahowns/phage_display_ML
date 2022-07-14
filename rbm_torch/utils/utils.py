@@ -622,7 +622,7 @@ def all_weights(model, name=None, rows=5, order_weights=True):
             ncols = 2
         else:
             ncols = 1
-        fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=ncols, figsize=(7, 9), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=400, molecule=model.molecule)
+        fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=ncols, figsize=(7, 5), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=200, molecule=model.molecule)
     elif model._get_name() == "CRBM":
         for key in model.hidden_convolution_keys:
             wdim = model.convolution_topology[key]["weight_dims"]
@@ -631,7 +631,7 @@ def all_weights(model, name=None, rows=5, order_weights=True):
                 ncols = 2
             else:
                 ncols = 1
-            conv_weights(model, key, name+"_"+key, rows, ncols, 11, 9, order_weights=order_weights)
+            conv_weights(model, key, name+"_"+key, rows, ncols, 7, 5, order_weights=order_weights)
     plt.close() # close all open figures
 
 def conv_weights(crbm, hidden_key, name, rows, columns, h, w, order_weights=True):
@@ -640,7 +640,7 @@ def conv_weights(crbm, hidden_key, name, rows, columns, h, w, order_weights=True
         order = np.argsort(beta)[::-1]
     else:
         order = np.arange(0, beta.shape[0], 1)
-    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=400, molecule=crbm.molecule)
+    fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=200, molecule=crbm.molecule)
 
 
 ## Implementation inspired from https://stackoverflow.com/questions/42615527/sequence-logos-in-matplotlib-aligning-xticks

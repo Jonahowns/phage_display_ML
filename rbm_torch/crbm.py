@@ -1080,10 +1080,10 @@ class CRBM(LightningModule):
         weights = seq_weights.clone()
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
-        F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
-        # F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum() # free energy of training data
-        F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
-        # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() / weights.sum() # free energy of gibbs sampled visible states
+        # F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
+        F_v = (self.free_energy(V_pos_oh) * weights).sum() / weights.sum() # free energy of training data
+        # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
+        F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() / weights.sum() # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
 
         # Regularization Terms
@@ -1216,6 +1216,16 @@ class CRBM(LightningModule):
             saliency_maps.append(one_hot_v.grad.data.detach())
 
         return torch.cat(saliency_maps, dim=0)
+
+    def fill_gaps_in_parameters(self, fill=1e-6):
+        with torch.no_grad():
+            fields = getattr(self, "fields")
+            fields[:, -1].fill_(fill)
+
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                W = getattr(self, f"{i}_W")
+                W[:, :, :, -1].fill_(fill)
+
     # disabled until I figure out pseudo likelihood function
     # def predict_psuedo(self, X):
     #     reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
