@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py exo ../datasets/exo/m1c.fasta 400 1 m1c_st.json single
+python crbm_train.py exo ../datasets/exo/m1c.fasta 1000 1 m1c_st.json single
 
