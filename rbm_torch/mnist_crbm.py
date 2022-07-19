@@ -123,7 +123,7 @@ class BinaryCRBM(CRBM):
             return torch.special.expit(beta * psi + getattr(self, "fields0").unsqueeze(0).squeeze(-1) + beta * (getattr(self, "fields").unsqueeze(0).squeeze(-1) - getattr(self, "fields0").unsqueeze(0).squeeze(-1)))
 
     def sample_from_inputs_v(self, psi, beta=1):
-        return torch.randn(psi.shape, device=self.device) < self.mean_v(psi, beta=beta)
+        return (torch.randn(psi.shape, device=self.device) < self.mean_v(psi, beta=beta)).double()
 
     def setup(self, stage=None):
         if self.dataset == "mnist":
@@ -428,9 +428,9 @@ class BinaryClassifier(LightningModule):
 
 
 
-mnist_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "classifier_epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 4, "lr": 0.0001,
+mnist_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "classifier_epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 4, "lr": 0.00001,
                         "lr_final": None, "decay_after": 0.75, "sequence_weights": None, "optimizer": "AdamW", "weight_decay": 0.02, "data_worker_num": 4, "fasta_file": "", "molecule": "dna",
-                        "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 1000000.0, "lf": 5000.0, "ld": 10.0, "classifier_lr": 0.005, "classifier_lr_final": 0.0005, "classifier_decay_after": 0.75,
+                        "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 800.0, "lf": 50.0, "ld": 10.0, "classifier_lr": 0.005, "classifier_lr_final": 0.0005, "classifier_decay_after": 0.75,
                         "classifier_weight_decay": 0.02, "classifier_optimizer": "AdamW",
                         "convolution_topology": {
                             "hidden20x20": {"number": 30, "kernel": (20, 20), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
@@ -443,8 +443,8 @@ if __name__ == "__main__":
     config["epochs"] = 100
     config["classifier_epochs"] = 50
 
-    binary_classifier = BinaryClassifier(mnist_default_config, dataset="mnist", train_crbm=False, debug=True)
-    binary_classifier.train_crbm(1)
+    # binary_classifier = BinaryClassifier(mnist_default_config, dataset="mnist", train_crbm=False, debug=True)
+    # binary_classifier.train_crbm(0)
 
     # binary_classifier.load_crbm("./tb_logs/mnist_crbm/version_7/checkpoints/epoch=9-step=599.ckpt")
 
@@ -461,6 +461,8 @@ if __name__ == "__main__":
     #     out = binary_crbm.training_step(batch, i)
     #     print("hi")
 
-    # logger = TensorBoardLogger('./tb_logs/', name="mnist_crbm")
-    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    # plt.fit(binary_crbm)
+    binary_crbm = BinaryCRBM(mnist_default_config, dataset="mnist", debug=True)
+
+    logger = TensorBoardLogger('./tb_logs/', name="mnist_crbm")
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt.fit(binary_crbm)
