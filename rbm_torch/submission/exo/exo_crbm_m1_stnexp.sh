@@ -6,8 +6,8 @@
 #SBATCH -t 7-00:00
 #SBATCH -p wzhengpu1
 #SBATCH -q wildfire
-#SBATCH --gres=gpu:1
-#SBATCH -o ./submission/exo/out/exo_crbm_m1c_st.%j.out
+#SBATCH --gres=gpu:2
+#SBATCH -o ./submission/exo/out/exo_crbm_m1_stnexp.%j.out
 #SBATCH -e ./submission/exo/err/slurm.%j.err
 #SBATCH --mail-type=BEGIN,END,FAIL     # notifications for job done & fail
 #SBATCH --mail-user=jprocyk@asu.edu     #send to my email
@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py exo ../datasets/exo/m1c.fasta 2000 1 m1c_st.json single
+python crbm_train.py exo ../datasets/exo/m1.fasta 2000 2 m1_stnexp.json single
 

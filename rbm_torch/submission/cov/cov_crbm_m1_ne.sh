@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py cov ../datasets/cov/m1.fasta 200 2 m1_ne.json double
+python crbm_train.py cov ../datasets/cov/m1.fasta 2000 2 m1_ne.json single
 

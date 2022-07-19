@@ -1,16 +1,18 @@
 import torch
+import torch.nn.functional as F
 
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # Project Dependencies
-from rbm_torch.utils.utils import BatchNorm1D, all_weights
-from rbm_torch import rbm_configs
-from rbm_torch.rbm import RBM
+from rbm_torch.utils.utils import BatchNorm2D, all_weights
+from rbm_torch import crbm_configs
+from rbm_torch.crbm import CRBM
 
 
-class ExpRBM(RBM):
-    """ Pytorch Lightning Module of Restricted Boltzmann Machine
+
+class ExpCRBM(CRBM):
+    """ Pytorch Lightning Module of Cnvolutional Restricted Boltzmann Machine
 
     Parameters
     ----------
@@ -55,37 +57,26 @@ class ExpRBM(RBM):
 
     def __init__(self, config, precision="double", debug=False):
         super().__init__(config, precision=precision, debug=debug)
-        self.batch_norm = BatchNorm1D(affine=True, momentum=0.1)
+        
+        for key in self.hidden_convolution_keys:
+            setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=True, momentum=0.1))
+        
 
     ## Compute Input for Hidden Layer from Visible Potts
-    def compute_output_v(self, v):
-        """ Calculate input into hidden layer from visible layer
-        Parameters
-        ----------
-        v: torch.tensor
-           a visible unit configuration, usually of shape (batch_size, v_num) with values 0 to (self.q-1)
-        beta: flaot, optional, default=1
-           inverse temperature factor, used in annealed importance sampling
-
-        Returns
-        -------
-        output: torch.tensor
-          returns hidden unit input as shape (batch_size, h_num)
-
-        Notes
-        -----
-        Calculates and returns:
-        .. math:: I_\mu = \sum_{i} w_{i \mu} v_i
-        """
-        # compute_output of visible potts layer
-        vd = v.long()
-
-        # Newest and fastest version, does take a lot of memory though...
-        indexTensor = vd.unsqueeze(1).unsqueeze(-1).expand(-1, self.h_num, -1, -1)
-        expandedweights = self.W.unsqueeze(0).expand(vd.shape[0], -1, -1, -1)
-        output = torch.gather(expandedweights, 3, indexTensor).squeeze(3).sum(2)
-        return self.batch_norm(output)
-        # return output
+    def compute_output_v(self, X):  # X is the one hot vector
+        outputs = []
+        hidden_layer_W = getattr(self, "hidden_layer_W")
+        total_weights = hidden_layer_W.sum()
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            # convx = self.convolution_topology[i]["convolution_dims"][2]
+            outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+                                    padding=self.convolution_topology[i]["padding"],
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+            outputs[-1] *= hidden_layer_W[iid] / total_weights
+            batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+            outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
+            # outputs[-1] *= convx
+        return outputs
 
 
 
@@ -96,24 +87,27 @@ if __name__ == '__main__':
     # b3_c1 = "../pig/b3_c1.fasta"
     # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
 
-    config = rbm_configs.lattice_default_config
+    config = crbm_configs.lattice_default_config
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 100
-    config["l12"] = 30
+    config["epochs"] = 200
+    config["l12"] = 10
+    config["lf"] = 6
+    config["ld"] = 5
+    config["lr"] = 0.005
     config["seed"] = 38
 
     # Training Code
-    rbm = ExpRBM(config, debug=False)
-    logger = TensorBoardLogger('./tb_logs/', name="lattice_rbm")
+    rbm = ExpCRBM(config, debug=False)
+    logger = TensorBoardLogger('./tb_logs/', name="lattice_crbm_exp")
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm)
 
-    checkp = "./tb_logs/lattice_rbm/version_12/checkpoints/epoch=99-step=199.ckpt"
-    rbm = ExpRBM.load_from_checkpoint(checkp)
-
-    all_weights(rbm, name="./tb_logs/lattice_rbm/version_12/affine_batch_norm")
+    # checkp = "./tb_logs/lattice_crbm_exp/version_0/checkpoints/epoch=99-step=199.ckpt"
+    # rbm = ExpCRBM.load_from_checkpoint(checkp)
+    #
+    # all_weights(rbm, name="./tb_logs/lattice_rbm/version_12/affine_batch_norm")
 
     #
     # # results = gen_data_lowT(rbm, which="marginal")

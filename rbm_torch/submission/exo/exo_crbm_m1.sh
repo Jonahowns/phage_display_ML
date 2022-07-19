@@ -15,5 +15,5 @@
 
 source activate exmachina3
 
-python crbm_train.py exo ../datasets/exo/m1.fasta 200 2 None double
+python crbm_train.py exo ../datasets/exo/m1.fasta 2000 2 None single
 

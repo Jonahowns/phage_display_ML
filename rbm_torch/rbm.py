@@ -18,7 +18,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 
 # Project Dependencies
-from utils.utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, BatchNorm, all_weights
+from utils.utils import Categorical, Sequence_logo_all, fasta_read, gen_data_lowT, gen_data_zeroT, all_weights
 
 
 
@@ -183,26 +183,39 @@ class RBM(LightningModule):
             print(f"Precision {precision} not supported.")
             exit(-1)
 
-        # self.batch_norm = BatchNorm(affine=True, momentum=0.1)
+        self.register_parameter(f"W_raw", nn.Parameter(self.weight_intial_amplitude * torch.randn((self.h_num, self.v_num, self.q), device=self.device)))
+        # hidden layer parameters
+        self.register_parameter(f"theta+", nn.Parameter(torch.zeros(self.h_num, device=self.device)))
+        self.register_parameter(f"theta-", nn.Parameter(torch.zeros(self.h_num, device=self.device)))
+        self.register_parameter(f"gamma+", nn.Parameter(torch.ones(self.h_num, device=self.device)))
+        self.register_parameter(f"gamma-", nn.Parameter(torch.ones(self.h_num, device=self.device)))
 
-        self.params = nn.ParameterDict({
-            # weights
-            'W_raw': nn.Parameter(self.weight_intial_amplitude * torch.randn((self.h_num, self.v_num, self.q), device=self.device)),
-            # hidden layer parameters
-            'theta+': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            'theta-': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            'gamma+': nn.Parameter(torch.ones(self.h_num, device=self.device)),
-            'gamma-': nn.Parameter(torch.ones(self.h_num, device=self.device)),
+        self.register_parameter(f"0theta+", nn.Parameter(torch.zeros(self.h_num, device=self.device), requires_grad=False))
+        self.register_parameter(f"0theta-", nn.Parameter(torch.zeros(self.h_num, device=self.device), requires_grad=False))
+        self.register_parameter(f"0gamma+", nn.Parameter(torch.ones(self.h_num, device=self.device), requires_grad=False))
+        self.register_parameter(f"0gamma-", nn.Parameter(torch.ones(self.h_num, device=self.device), requires_grad=False))
 
-            # Used in PT Sampling / AIS
-            '0theta+': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            '0theta-': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
-            '0gamma+': nn.Parameter(torch.ones(self.h_num, device=self.device)),
-            '0gamma-': nn.Parameter(torch.ones(self.h_num, device=self.device)),
-            # visible layer parameters
-            'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
-            'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False),
-        })
+        self.register_parameter(f"fields", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
+        self.register_parameter(f"fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False))
+
+        # self.params = nn.ParameterDict({
+        #     # weights
+        #     'W_raw': nn.Parameter(self.weight_intial_amplitude * torch.randn((self.h_num, self.v_num, self.q), device=self.device)),
+        #     # hidden layer parameters
+        #     'theta+': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
+        #     'theta-': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
+        #     'gamma+': nn.Parameter(torch.ones(self.h_num, device=self.device)),
+        #     'gamma-': nn.Parameter(torch.ones(self.h_num, device=self.device)),
+        #
+        #     # Used in PT Sampling / AIS
+        #     '0theta+': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
+        #     '0theta-': nn.Parameter(torch.zeros(self.h_num, device=self.device)),
+        #     '0gamma+': nn.Parameter(torch.ones(self.h_num, device=self.device)),
+        #     '0gamma-': nn.Parameter(torch.ones(self.h_num, device=self.device)),
+        #     # visible layer parameters
+        #     'fields': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)),
+        #     'fields0': nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device), requires_grad=False),
+        # })
 
         self.W = torch.zeros((self.h_num, self.v_num, self.q), device=self.device, requires_grad=False)
 
@@ -257,7 +270,7 @@ class RBM(LightningModule):
     def prep_W(self): # enforces zero-sum gauge on the weights
         """ Sets weight matrix (self.W) as a zero-sum version of 'W_raw' parameter
         """
-        self.W = self.params['W_raw'] - self.params['W_raw'].sum(-1).unsqueeze(2) / self.q
+        self.W = getattr(self, 'W_raw') - getattr(self, 'W_raw').sum(-1).unsqueeze(2) / self.q
 
     ############################################################# RBM Functions
     ## Compute Psudeo likelihood of given visible config
@@ -280,12 +293,12 @@ class RBM(LightningModule):
         config = v.long()
         ind_x = torch.arange(config.shape[0], dtype=torch.long, device=self.device)
         ind_y = torch.randint(self.v_num, (config.shape[0],), dtype=torch.long, device=self.device)  # high, shape tuple, needs size, low=0 by default
-        E_vlayer_ref = self.energy_v(config) + self.params['fields'][ind_y, config[ind_x, ind_y]]
+        E_vlayer_ref = self.energy_v(config) + getattr(self, 'fields')[ind_y, config[ind_x, ind_y]]
         output_ref = self.compute_output_v(config) - self.W[:, ind_y, config[ind_x, ind_y]].T
         fe = torch.zeros([config.shape[0], self.q], device=self.device)
         for c in range(self.q):
             output = output_ref + self.W[:, ind_y, c].T
-            E_vlayer = E_vlayer_ref - self.params['fields'][ind_y, c]
+            E_vlayer = E_vlayer_ref - getattr(self, 'fields')[ind_y, c]
             fe[:, c] = E_vlayer - self.logpartition_h(output)
         return - fe[ind_x, config[ind_x, ind_y]] - torch.logsumexp(- fe, 1)
 
@@ -407,13 +420,13 @@ class RBM(LightningModule):
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
-        return torch.argmax(I + self.params["fields"], dim=-1)
+        return torch.argmax(I + getattr(self, 'fields'), dim=-1)
 
     def transform_h(self, I):
-        a_plus = (self.params[f'gamma+']).unsqueeze(0)
-        a_minus = (self.params[f'gamma-']).unsqueeze(0)
-        theta_plus = (self.params[f'theta+']).unsqueeze(0)
-        theta_minus = (self.params[f'theta-']).unsqueeze(0)
+        a_plus = (getattr(self, 'gamma+')).unsqueeze(0)
+        a_minus = (getattr(self, 'gamma-')).unsqueeze(0)
+        theta_plus = (getattr(self, 'theta+')).unsqueeze(0)
+        theta_minus = (getattr(self, 'theta-')).unsqueeze(0)
         return ((I + theta_minus) * (I <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
                 theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
                 a_minus + ((I - theta_plus) * (I >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
@@ -445,9 +458,9 @@ class RBM(LightningModule):
         for color in range(self.q):
             A = torch.where(vl == color, 1, 0).double()
             if remove_init:
-                E -= A.dot(self.params['fields'][:, color] - self.params['fields0'][:, color])
+                E -= A.dot(getattr(self, 'fields')[:, color] - getattr(self, 'fields0')[:, color])
             else:
-                E -= A.matmul(self.params['fields'][:, color])
+                E -= A.matmul(getattr(self, 'fields')[:, color])
 
         return E
 
@@ -472,15 +485,15 @@ class RBM(LightningModule):
         .. math:: \sum_{\mu}\mathcal{U}_{\mu}(h_{\mu})
         """
         if remove_init:
-            a_plus = self.params['gamma+'].sub(self.params['0gamma+'])
-            a_minus = self.params['gamma-'].sub(self.params['0gamma-'])
-            theta_plus = self.params['theta+'].sub(self.params['0theta+'])
-            theta_minus = self.params['theta-'].sub(self.params['0theta-'])
+            a_plus = getattr(self, 'gamma+').sub(getattr(self, '0gamma+'))
+            a_minus = getattr(self, 'gamma-').sub(getattr(self, '0gamma-'))
+            theta_plus = getattr(self, 'theta+').sub(getattr(self, '0theta+'))
+            theta_minus = getattr(self, 'theta-').sub(getattr(self, '0theta-'))
         else:
-            a_plus = self.params['gamma+']
-            a_minus = self.params['gamma-']
-            theta_plus = self.params['theta+']
-            theta_minus = self.params['theta-']
+            a_plus = getattr(self, 'gamma+')
+            a_minus = getattr(self, 'gamma-')
+            theta_plus = getattr(self, 'theta+')
+            theta_minus = getattr(self, 'theta-')
 
         # Applies the dReLU activation function
         zero = torch.zeros_like(h, device=self.device)
@@ -572,15 +585,15 @@ class RBM(LightningModule):
 
         """
         if beta == 1:
-            a_plus = (self.params['gamma+']).unsqueeze(0)
-            a_minus = (self.params['gamma-']).unsqueeze(0)
-            theta_plus = (self.params['theta+']).unsqueeze(0)
-            theta_minus = (self.params['theta-']).unsqueeze(0)
+            a_plus = (getattr(self, 'gamma+')).unsqueeze(0)
+            a_minus = (getattr(self, 'gamma-')).unsqueeze(0)
+            theta_plus = (getattr(self, 'theta+')).unsqueeze(0)
+            theta_minus = (getattr(self, 'theta-')).unsqueeze(0)
         else:
-            theta_plus = (beta * self.params['theta+'] + (1 - beta) * self.params['0theta+']).unsqueeze(0)
-            theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
-            a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
-            a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
+            theta_plus = (beta * getattr(self, 'theta+') + (1 - beta) * getattr(self, '0theta+')).unsqueeze(0)
+            theta_minus = (beta * getattr(self, 'theta-') + (1 - beta) * getattr(self, '0theta-')).unsqueeze(0)
+            a_plus = (beta * getattr(self, 'gamma+') + (1 - beta) * getattr(self, '0gamma+')).unsqueeze(0)
+            a_minus = (beta * getattr(self, 'gamma-') + (1 - beta) * getattr(self, '0gamma-')).unsqueeze(0)
         return torch.logaddexp(self.log_erf_times_gauss((-inputs + theta_plus) / torch.sqrt(a_plus)) - 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                 1) + 0.5 * np.log(2 * np.pi) * self.h_num
 
@@ -613,9 +626,9 @@ class RBM(LightningModule):
 
            """
         if beta == 1:
-            return torch.logsumexp(self.params['fields'][None, :, :] + inputs, 2).sum(1)
+            return torch.logsumexp(getattr(self, 'fields')[None, :, :] + inputs, 2).sum(1)
         else:
-            return torch.logsumexp((beta * self.params['fields'] + (1 - beta) * self.params['fields0'])[None, :] + beta * inputs, 2).sum(1)
+            return torch.logsumexp((beta * getattr(self, 'fields') + (1 - beta) * getattr(self, 'fields0'))[None, :] + beta * inputs, 2).sum(1)
 
     ## Mean of hidden
     def mean_h(self, psi, beta=1):
@@ -639,15 +652,15 @@ class RBM(LightningModule):
         .. math:: <h|I> = \int h p(h|I) dh
        """
         if beta == 1:
-            a_plus = (self.params['gamma+']).unsqueeze(0)
-            a_minus = (self.params['gamma-']).unsqueeze(0)
-            theta_plus = (self.params['theta+']).unsqueeze(0)
-            theta_minus = (self.params['theta-']).unsqueeze(0)
+            a_plus = (getattr(self, 'gamma+')).unsqueeze(0)
+            a_minus = (getattr(self, 'gamma-')).unsqueeze(0)
+            theta_plus = (getattr(self, 'theta+')).unsqueeze(0)
+            theta_minus = (getattr(self, 'theta-')).unsqueeze(0)
         else:
-            theta_plus = (beta * self.params['theta+'] + (1 - beta) * self.params['0theta+']).unsqueeze(0)
-            theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
-            a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
-            a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
+            theta_plus = (beta * getattr(self, 'theta+') + (1 - beta) * getattr(self, '0theta+')).unsqueeze(0)
+            theta_minus = (beta * getattr(self, 'theta-') + (1 - beta) * getattr(self, '0theta-')).unsqueeze(0)
+            a_plus = (beta * getattr(self, 'gamma+') + (1 - beta) * getattr(self, '0gamma+')).unsqueeze(0)
+            a_minus = (beta * getattr(self, 'gamma-') + (1 - beta) * getattr(self, '0gamma-')).unsqueeze(0)
             psi *= beta
 
         psi_plus = (-psi + theta_plus) / torch.sqrt(a_plus)
@@ -687,9 +700,9 @@ class RBM(LightningModule):
         .. math:: <v|I> = \frac{e^{I+g(v)}}{\sum_i e^{I+g(v_i)}}
         """
         if beta == 1:
-            return nn.Softmax(psi + self.params["fields"].unsqueeze(0))
+            return nn.Softmax(psi + getattr(self, 'fields').unsqueeze(0))
         else:
-            return nn.Softmax(beta * psi + self.params["fields0"].unsqueeze(0) + beta * (self.params["fields"].unsqueeze(0) - self.params["fields0"].unsqueeze(0)))
+            return nn.Softmax(beta * psi + getattr(self, 'fields0').unsqueeze(0) + beta * (getattr(self, 'fields').unsqueeze(0) - getattr(self, 'fields0').unsqueeze(0)))
 
     ## Compute Input for Hidden Layer from Visible Potts
     def compute_output_v(self, v):
@@ -764,9 +777,9 @@ class RBM(LightningModule):
         datasize = I.shape[0]
 
         if beta == 1:
-            cum_probas = I + self.params['fields'].unsqueeze(0)
+            cum_probas = I + getattr(self, 'fields').unsqueeze(0)
         else:
-            cum_probas = beta * I + beta * self.params['fields'].unsqueeze(0) + (1 - beta) * self.params['fields0'].unsqueeze(0)
+            cum_probas = beta * I + beta * getattr(self, 'fields').unsqueeze(0) + (1 - beta) * getattr(self, 'fields0').unsqueeze(0)
 
         cum_probas = self.cumulative_probabilities(cum_probas)
 
@@ -814,15 +827,15 @@ class RBM(LightningModule):
         .. math:: P(h_{\mu}|I_{\mu}) & \propto \exp{(-\mathcal{U}_{\mu} + h_{\mu}I_{\mu})}
         """
         if beta == 1:
-            a_plus = self.params['gamma+'].unsqueeze(0)
-            a_minus = self.params['gamma-'].unsqueeze(0)
-            theta_plus = self.params['theta+'].unsqueeze(0)
-            theta_minus = self.params['theta-'].unsqueeze(0)
+            a_plus = getattr(self, 'gamma+').unsqueeze(0)
+            a_minus = getattr(self, 'gamma-').unsqueeze(0)
+            theta_plus = getattr(self, 'theta+').unsqueeze(0)
+            theta_minus = getattr(self, 'theta-').unsqueeze(0)
         else:
-            theta_plus = (beta * self.params['theta+'] + (1 - beta) * self.params['0theta+']).unsqueeze(0)
-            theta_minus = (beta * self.params['theta-'] + (1 - beta) * self.params['0theta-']).unsqueeze(0)
-            a_plus = (beta * self.params['gamma+'] + (1 - beta) * self.params['0gamma+']).unsqueeze(0)
-            a_minus = (beta * self.params['gamma-'] + (1 - beta) * self.params['0gamma-']).unsqueeze(0)
+            theta_plus = (beta * getattr(self, 'theta+') + (1 - beta) * getattr(self, '0theta+')).unsqueeze(0)
+            theta_minus = (beta * getattr(self, 'theta-') + (1 - beta) * getattr(self, '0theta-')).unsqueeze(0)
+            a_plus = (beta * getattr(self, 'gamma+') + (1 - beta) * getattr(self, '0gamma+')).unsqueeze(0)
+            a_minus = (beta * getattr(self, 'gamma-') + (1 - beta) * getattr(self, '0gamma-')).unsqueeze(0)
             I *= beta
 
         if nancheck:
@@ -1096,8 +1109,10 @@ class RBM(LightningModule):
         if init_fields:
             with torch.no_grad():
                 initial_fields = train_reader.field_init()
-                self.params['fields'] += initial_fields
-                self.params['fields0'] += initial_fields
+                fields = getattr(self, 'fields')
+                fields0 = getattr(self, 'fields0')
+                fields += initial_fields
+                fields0 += initial_fields
 
         # Performance was almost identical whether shuffling or not
         if self.sample_type == "pcd":
@@ -1188,8 +1203,9 @@ class RBM(LightningModule):
                                                            }, self.current_epoch)
 
         self.logger.experiment.add_histogram("Weights", self.W.detach(), self.current_epoch)
-        for name, p in self.params.items():
-            self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+
+        for name in ["W_raw", "theta+", "theta-", "gamma+", "gamma-", "fields", "0theta+", "0theta-", "0gamma+", "0gamma-", "fields0"]:
+            self.logger.experiment.add_histogram(name, getattr(self, name).detach(), self.current_epoch)
 
     ## This works but not the exact quantity we want to maximize
     def training_step_CD_energy(self, batch, batch_idx):
@@ -1205,7 +1221,7 @@ class RBM(LightningModule):
 
         pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
 
-        reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf / 2 * getattr(self, 'fields').square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
 
@@ -1262,7 +1278,7 @@ class RBM(LightningModule):
         pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
 
         # Regularization Terms
-        reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf / 2 * getattr(self, 'fields').square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / (2 * self.q * self.v_num) * tmp.sum()
 
@@ -1293,7 +1309,7 @@ class RBM(LightningModule):
 
         pseudo_likelihood = (self.pseudo_likelihood(V_pos).clone().detach() * weights).sum() / weights.sum()
 
-        reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf / 2 * getattr(self, 'fields').square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / (2 * self.q * self.v_num * self.h_num) * tmp.sum()
 
@@ -1332,7 +1348,7 @@ class RBM(LightningModule):
         # pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum()
 
         # Regularization Terms
-        reg1 = self.lf/2 * self.params['fields'].square().sum((0, 1))
+        reg1 = self.lf/2 * getattr(self, 'fields').square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
         reg2 = self.l1_2 / (2 * self.q * self.v_num) * tmp.sum()
 
@@ -1429,17 +1445,11 @@ class RBM(LightningModule):
             # free_energy = F_v.detach()
 
             # Regularization Terms
-            reg1 = self.lf / 2 * self.params['fields'].square().sum((0, 1))
-            reg2 = torch.zeros((1,), device=self.device)
-            reg3 = torch.zeros((1,), device=self.device)
-            for iid, i in enumerate(self.hidden_convolution_keys):
-                W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-                x = torch.sum(torch.abs(self.params[f"{i}_W"]), (3, 2, 1)).square()
-                reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-                # Size of Convolution Filters weight_size = (h_num, input_channels, kernel[0], kernel[1])
-                reg3 += self.ld / ((self.params[f"{i}_W"].abs() - self.params[f"{i}_W"].squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            reg1 = self.lf / 2 * getattr(self, 'fields').square().sum((0, 1))
+            tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
+            reg2 = self.l1_2 / (2 * self.q * self.v_num) * tmp.sum()
 
-            loss = cd_loss + reg1 + reg2 + reg3
+            loss = cd_loss + reg1 + reg2
             loss.backward()
 
             saliency_maps.append(variable_pos.grad.data.detach())
@@ -1468,12 +1478,12 @@ class RBM(LightningModule):
     # Return param as a numpy array
     def get_param(self, param_name):
         if param_name == "W":
-            W_raw = self.params['W_raw'].clone()
+            W_raw = getattr(self, 'W_raw').clone()
             tensor = W_raw - W_raw.sum(-1).unsqueeze(2) / self.q
             return tensor.detach().numpy()
         else:
             try:
-                tensor = self.params[param_name].clone()
+                tensor = getattr(self, param_name).clone()
                 return tensor.detach.numpy()
             except KeyError:
                 print(f"Key {param_name} not found")
@@ -1558,13 +1568,13 @@ class RBM(LightningModule):
         with torch.no_grad():
             B = I.shape[0]
             out = torch.zeros(I.shape, device=self.device)
-            sqrt_gamma_plus = torch.sqrt(self.params["gamma+"]).expand(B, -1)
-            sqrt_gamma_minus = torch.sqrt(self.params["gamma-"]).expand(B, -1)
-            log_gamma_plus = torch.log(self.params["gamma+"]).expand(B, -1)
-            log_gamma_minus = torch.log(self.params["gamma-"]).expand(B, -1)
+            sqrt_gamma_plus = torch.sqrt(getattr(self, 'gamma+')).expand(B, -1)
+            sqrt_gamma_minus = torch.sqrt(getattr(self, 'gamma-')).expand(B, -1)
+            log_gamma_plus = torch.log(getattr(self, 'gamma+')).expand(B, -1)
+            log_gamma_minus = torch.log(getattr(self, 'gamma-')).expand(B, -1)
 
-            Z_plus = -self.log_erf_times_gauss((-I + self.params['theta+'].expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-            Z_minus = self.log_erf_times_gauss((I + self.params['theta-'].expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
+            Z_plus = -self.log_erf_times_gauss((-I + getattr(self, 'theta+').expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
+            Z_minus = self.log_erf_times_gauss((I + getattr(self, 'theta-').expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
             map = Z_plus > Z_minus
             out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
             out[~map] = Z_minus[~map] + torch.log(1 + torch.exp(Z_plus[~map] - Z_minus[~map]))

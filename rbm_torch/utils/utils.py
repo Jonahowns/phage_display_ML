@@ -216,7 +216,7 @@ class Categorical(Dataset):
         if self.shuffle:
             self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
 
-class BatchNorm(torch.nn.Module):
+class BatchNorm1D(torch.nn.Module):
     def __init__(self, eps=1e-5, affine=True, momentum=None):
         super().__init__()
         self.num_batches_tracked = 0
@@ -254,6 +254,50 @@ class BatchNorm(torch.nn.Module):
             var = self.running_var
 
         input = (input - mean) / (math.sqrt(var + self.eps))
+
+        if self.affine:
+            input = input * self.weight + self.bias
+
+        return input
+
+class BatchNorm2D(torch.nn.Module):
+    def __init__(self, eps=1e-5, affine=True, momentum=None):
+        super().__init__()
+        self.num_batches_tracked = 0
+        self.running_mean = 0.
+        self.running_var = 0.
+        self.eps = eps
+        self.momentum = momentum
+        self.affine = affine
+        if self.affine:
+            self.weight = torch.nn.Parameter(torch.tensor(1.), requires_grad=True)
+            self.bias = torch.nn.Parameter(torch.tensor(1.), requires_grad=True)
+
+    def forward(self, input):
+        exponential_average_factor = 0.0
+
+        if self.training:
+            if self.momentum is None:  # use cumulative moving average
+                self.num_batches_tracked += 1
+                exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+            else:  # use exponential moving average
+                exponential_average_factor = self.momentum
+
+        # calculate running estimates
+        if self.training:
+            mean = input.mean([0, 1, 2])
+            # use biased var in train
+            var = input.var([0, 1, 2], unbiased=False)
+            n = input.shape[0]
+            with torch.no_grad():
+                self.running_mean = exponential_average_factor * mean + (1 - exponential_average_factor) * self.running_mean
+                # update running_var with unbiased var
+                self.running_var = exponential_average_factor * var * n / (n - 1) + (1 - exponential_average_factor) * self.running_var
+        else:
+            mean = self.running_mean
+            var = self.running_var
+
+        input = (input.sub(mean)) / (math.sqrt(var + self.eps))
 
         if self.affine:
             input = input * self.weight + self.bias

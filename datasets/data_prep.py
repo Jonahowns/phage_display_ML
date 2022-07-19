@@ -241,7 +241,7 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
     if divider_type == "percentile":
         percentiles = copy(dividers)
         # boundaries = [np.percentile(np_uniq_aff, p) for p in dividers]
-    elif divider_type == "copynum":
+    elif divider_type == "copy_num":
         percentiles = [np.mean(np_uniq_aff <= q)*100 for q in dividers]
     boundaries = [np.percentile(np_uniq_aff, p) for p in percentiles]  # convert copynum values to quantiles
         # boundaries = [np.mean(np_uniq_aff <= q)*1000 for q in dividers]  # convert copynum values to quantiles
