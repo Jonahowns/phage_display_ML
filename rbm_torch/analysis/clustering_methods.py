@@ -130,3 +130,18 @@ def cluster_seqs(input, cluster_method="db", min_samples=120, eps=0.5):
     print('Estimated number of noise points: %d' % n_noise_)
 
     return labels
+
+def hierarchy_dendrogram(input):
+    from matplotlib import pyplot as mtp
+    import scipy.cluster.hierarchy as shc
+    dendro = shc.dendrogram(shc.linkage(input, method="ward", metric="hamming"))
+    plt.title("Dendrogram Plot")
+    plt.ylabel("Hamming Distances")
+    mtp.xlabel("Sequences")
+    mtp.show()
+
+def hierarchy_clustering(input, n_clusters):
+    from sklearn.cluster import AgglomerativeClustering
+    hc = AgglomerativeClustering(n_clusters=n_clusters, affinity='hamming', linkage='ward')
+    y_pred = hc.fit_predict(input)
+    return y_pred
