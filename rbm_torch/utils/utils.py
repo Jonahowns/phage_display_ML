@@ -391,10 +391,19 @@ def cat_to_seq(categorical_tensor, molecule="protein"):
         seqs.append(seq)
     return seqs
 
+
 def seq_to_cat(seqs, molecule="protein"):
     base_to_id = letter_to_int_dicts[molecule]
     return torch.tensor(list(map(lambda x: [base_to_id[y] for y in x], seqs)), dtype=torch.long)
 
+
+def cat_to_one_hot(cat_seqs, q):
+    """ takes a categorical vector and returns its one hot encoded representation"""
+    one_hot = np.zeros((cat_seqs.shape[0], cat_seqs.shape[1]*q))
+    for i in range(cat_seqs.shape[0]):
+        for j in range(cat_seqs.shape[1]):
+            one_hot[i, j*q:(j+1)*q][cat_seqs[i, j]] = 1
+    return one_hot
 
 ######### Data Reading Methods #########
 

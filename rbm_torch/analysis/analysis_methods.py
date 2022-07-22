@@ -306,6 +306,7 @@ def view_weights_crbm(crbm, hidden_key, sort="top", selected=None, molecule="pro
     # Assume we want weights
     fig = utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
 
+
 def dataframe_to_input(dataframe, base_to_id, v_num, weights=False):
     seqs = dataframe["sequence"].tolist()
     cat_ten = torch.zeros((len(seqs), v_num), dtype=torch.long)

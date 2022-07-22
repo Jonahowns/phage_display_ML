@@ -107,7 +107,7 @@ class CRBM(LightningModule):
         # Switches How the training of the RBM is performed
 
         assert loss_type in ['energy', 'free_energy']
-        assert sample_type in ['gibbs', 'pt']
+        assert sample_type in ['gibbs', 'pt', 'pcd']
 
         self.loss_type = loss_type
         self.sample_type = sample_type
@@ -911,12 +911,18 @@ class CRBM(LightningModule):
                 self.fields += initial_fields
                 self.fields0 += initial_fields
 
+            # Performance was almost identical whether shuffling or not
+        if self.sample_type == "pcd":
+            shuffle = False
+        else:
+            shuffle = True
+
         return torch.utils.data.DataLoader(
             train_reader,
             batch_size=self.batch_size,
             num_workers=self.worker_num,  # Set to 0 if debug = True
             pin_memory=self.pin_mem,
-            shuffle=True
+            shuffle=shuffle
         )
 
     def val_dataloader(self):
@@ -945,6 +951,8 @@ class CRBM(LightningModule):
                 return self.training_step_CD_free_energy(batch, batch_idx)
             elif self.sample_type == "pt":
                 return self.training_step_PT_free_energy(batch, batch_idx)
+            elif self.sample_type == "pcd":
+                return self.training_step_PCD_free_energy(batch, batch_idx)
         elif self.loss_type == "energy":
             if self.sample_type == "gibbs":
                 return self.training_step_CD_energy(batch, batch_idx)
@@ -1112,10 +1120,69 @@ class CRBM(LightningModule):
 
         return logs
 
+    def training_step_PCD_free_energy(self, batch, batch_idx):
+        # seqs, V_pos, one_hot, seq_weights = batch
+        seqs, one_hot, seq_weights = batch
+        weights = seq_weights.clone()
+
+        if self.current_epoch == 0 and batch_idx == 0:
+            self.chain = [one_hot.detach()]
+        elif self.current_epoch == 0:
+            self.chain.append(one_hot.detach())
+
+        V_oh_neg, h_neg = self.forward_PCD(batch_idx)
+
+        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
+        F_v = (self.free_energy(one_hot) * weights).sum() / weights.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_oh_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+
+        # Regularization Terms
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+        # Calculate Loss
+        loss = cd_loss + reg1 + reg2 + reg3
+
+        logs = {"loss": loss,
+                "free_energy_diff": cd_loss.detach(),
+                "train_free_energy": F_v.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
+                }
+
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return logs
     ## Gradient Clipping for poor behavior, have no need for it yet
     # def on_after_backward(self):
     #     self.grad_norm_clip_value = 100
     #     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip_value)
+
+    def forward_PCD(self, batch_idx):
+        # Gibbs sampling with Persistent Contrastive Divergence
+        # pytorch lightning handles the device
+        fantasy_v = self.chain[batch_idx]  # Last sample that was saved to self.chain variable, initialized in training step
+        # h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
+        # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
+        for _ in range(self.mc_moves - 1):
+            fantasy_v, fantasy_h = self.markov_step(fantasy_v)
+
+        V_neg, fantasy_h = self.markov_step(fantasy_v)
+        h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
+
+        self.chain[batch_idx] = V_neg.detach()
+
+        return V_neg, h_neg
+
 
     def forward(self, V_pos_ohe):
 
@@ -1585,7 +1652,7 @@ if __name__ == '__main__':
     # pytorch lightning loop
     data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
-    lattice_data = './lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    lattice_data = '../datasets/lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
 
     import crbm_configs
     config = crbm_configs.lattice_default_config
@@ -1599,6 +1666,7 @@ if __name__ == '__main__':
     config["l1_2"] = 25.
     config["ld"] = 10.
     config["lf"] = 5.
+    config["sample_type"] == "pcd"
     # config["convolution_topology"] = {
     #     "hidden1": {"number": 5, "kernel": (9, config["q"]), "stride": (3, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
     #     "hidden2": {"number": 5, "kernel": (9, config["q"]), "stride": (6, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0)},
@@ -1612,18 +1680,18 @@ if __name__ == '__main__':
     # 5: Other stuff I'm sure
 
     # Training Code
-    crbm = CRBM(config, debug=True, precision="single")
+    crbm = CRBM(config, debug=False, precision="single")
     # crbm.setup()
     # crbm.train_dataloader()
 
 
-    # logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
-    # # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
+    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
     # # # profiler = SimpleProfiler(profiler_memory=True)
     # # # profiler = torch.profiler.profile(profile_memory=True)
     # # # profiler = PyTorchProfiler()
     # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1
-    # plt.fit(crbm)
+    plt.fit(crbm)
 
     # Debugging Code1
     # checkpoint = "./tb_logs/conv_lattice_trial/version_16/checkpoints/epoch=99-step=199.ckpt"
@@ -1634,7 +1702,7 @@ if __name__ == '__main__':
     #
     # # results = gen_data_lowT(crbm, which="marginal")
     # # results = gen_data_zeroT(crbm, which="joint")
-    crbm.AIS(verbose=True)
+    # crbm.AIS(verbose=True)
     # results = gen_data_lowT(crbm, beta=2, which='marginal', Nchains=100, Lchains=500, Nthermalize=200, Nstep=10, N_PT=2, reshape=True, update_betas=False)
     # visible, hiddens = results
     #

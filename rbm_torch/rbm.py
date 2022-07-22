@@ -139,12 +139,8 @@ class RBM(LightningModule):
         # sample types control whether gibbs sampling from the data points or parallel tempering from random configs are used
         # Switches How the training of the RBM is performed
 
-        if loss_type not in ['energy', 'free_energy']:
-            print(f"Loss Type {loss_type} not supported")
-            exit(1)
-        if sample_type not in ['gibbs', 'pt', 'pcd']:
-            print(f"Sample Type {sample_type} not supported")
-            exit(1)
+        assert loss_type in ['energy', 'free_energy']
+        assert sample_type in ['gibbs', 'pt', 'pcd']
 
         self.loss_type = loss_type
         self.sample_type = sample_type

@@ -91,16 +91,17 @@ if __name__ == '__main__':
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = lattice_data
     config["sequence_weights"] = None
-    config["epochs"] = 200
-    config["l12"] = 10
-    config["lf"] = 6
+    config["epochs"] = 100
+    config["sample_type"] = "gibbs"
+    config["l12"] = 25
+    config["lf"] = 10
     config["ld"] = 5
-    config["lr"] = 0.005
+    # config["lr"] = 0.006
     config["seed"] = 38
 
     # Training Code
     rbm = ExpCRBM(config, debug=False)
-    logger = TensorBoardLogger('./tb_logs/', name="lattice_crbm_exp")
+    logger = TensorBoardLogger('./tb_logs/', name="conv_lattice_trial_bn")
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm)
 
