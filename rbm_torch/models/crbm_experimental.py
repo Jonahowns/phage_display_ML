@@ -5,9 +5,9 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # Project Dependencies
-from rbm_torch.utils.utils import BatchNorm2D
-from rbm_torch import crbm_configs
-from rbm_torch.models.crbm import CRBM
+from utils.utils import BatchNorm2D
+# from rbm_torch import crbm_configs
+from models.crbm import CRBM
 
 
 
@@ -80,30 +80,30 @@ class ExpCRBM(CRBM):
 
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
-    lattice_data = '../datasets/lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
-    # b3_c1 = "../pig/b3_c1.fasta"
-    # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
-
-    config = crbm_configs.lattice_default_config
-    # Edit config for dataset specific hyperparameters
-    config["fasta_file"] = lattice_data
-    config["sequence_weights"] = None
-    config["epochs"] = 100
-    config["sample_type"] = "gibbs"
-    config["l12"] = 25
-    config["lf"] = 10
-    config["ld"] = 5
-    # config["lr"] = 0.006
-    config["seed"] = 38
-
-    # Training Code
-    rbm = ExpCRBM(config, debug=False)
-    logger = TensorBoardLogger('../tb_logs/', name="conv_lattice_trial_bn")
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(rbm)
+    # lattice_data = '../datasets/lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    # # b3_c1 = "../pig/b3_c1.fasta"
+    # # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
+    #
+    # config = crbm_configs.lattice_default_config
+    # # Edit config for dataset specific hyperparameters
+    # config["fasta_file"] = lattice_data
+    # config["sequence_weights"] = None
+    # config["epochs"] = 100
+    # config["sample_type"] = "gibbs"
+    # config["l12"] = 25
+    # config["lf"] = 10
+    # config["ld"] = 5
+    # # config["lr"] = 0.006
+    # config["seed"] = 38
+    #
+    # # Training Code
+    # rbm = ExpCRBM(config, debug=False)
+    # logger = TensorBoardLogger('../tb_logs/', name="conv_lattice_trial_bn")
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(rbm)
 
     # checkp = "./tb_logs/lattice_crbm_exp/version_0/checkpoints/epoch=99-step=199.ckpt"
     # rbm = ExpCRBM.load_from_checkpoint(checkp)

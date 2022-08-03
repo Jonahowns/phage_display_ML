@@ -15,5 +15,5 @@
 
 source activate PYTHONENV
 
-python MODEL_train.py RUNFILE
+python train.py RUNFILE
 

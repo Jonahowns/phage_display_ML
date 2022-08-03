@@ -4,9 +4,9 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # Project Dependencies
-from rbm_torch.utils.utils import BatchNorm1D, all_weights
-from rbm_torch import rbm_configs
-from rbm_torch.models.rbm import RBM
+from utils.utils import BatchNorm1D, all_weights
+
+from models.rbm import RBM
 
 
 class ExpRBM(RBM):
@@ -89,31 +89,31 @@ class ExpRBM(RBM):
 
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
     # large_data_file = '../invivo/chronic1_spleen_c1.fasta' # gpu is faster
-    lattice_data = '../datasets/lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
-    # b3_c1 = "../pig/b3_c1.fasta"
-    # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
-
-    config = rbm_configs.lattice_default_config
-    # Edit config for dataset specific hyperparameters
-    config["fasta_file"] = lattice_data
-    config["sequence_weights"] = None
-    config["epochs"] = 100
-    config["l12"] = 30
-    config["seed"] = 38
-
-    # Training Code
-    rbm = ExpRBM(config, debug=False)
-    logger = TensorBoardLogger('../tb_logs/', name="lattice_rbm")
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
-    plt.fit(rbm)
-
-    checkp = "./tb_logs/lattice_rbm/version_12/checkpoints/epoch=99-step=199.ckpt"
-    rbm = ExpRBM.load_from_checkpoint(checkp)
-
-    all_weights(rbm, name="./tb_logs/lattice_rbm/version_12/affine_batch_norm")
+    # lattice_data = '../datasets/lattice_proteins_verification/Lattice_Proteins_MSA.fasta'
+    # # b3_c1 = "../pig/b3_c1.fasta"
+    # # bivalent_data = "./bivalent_aptamers_verification/s100_8th.fasta"
+    #
+    # config = rbm_configs.lattice_default_config
+    # # Edit config for dataset specific hyperparameters
+    # config["fasta_file"] = lattice_data
+    # config["sequence_weights"] = None
+    # config["epochs"] = 100
+    # config["l12"] = 30
+    # config["seed"] = 38
+    #
+    # # Training Code
+    # rbm = ExpRBM(config, debug=False)
+    # logger = TensorBoardLogger('../tb_logs/', name="lattice_rbm")
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    # plt.fit(rbm)
+    #
+    # checkp = "./tb_logs/lattice_rbm/version_12/checkpoints/epoch=99-step=199.ckpt"
+    # rbm = ExpRBM.load_from_checkpoint(checkp)
+    #
+    # all_weights(rbm, name="./tb_logs/lattice_rbm/version_12/affine_batch_norm")
 
     #
     # # results = gen_data_lowT(rbm, which="marginal")
