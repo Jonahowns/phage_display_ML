@@ -4,7 +4,7 @@
   "data_dir": "../datasets/cov/",
   "server_model_dir": "datasets/cov/trained_crbms/",
   "weights": "comp_st.json",
-  "model_type": "crbm_exp",
+  "model_type": "exp_crbm",
   "gpus": 1,
   "config": {"fasta_file": "",
           "v_num": 40,
@@ -27,6 +27,6 @@
           "lf": 5,
           "ld": 10,
           "data_worker_num": 4,
-          "convolution_topology": {"hidden_20": {"number": 20, "kernelx": 20, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
+          "convolution_topology": {"hidden_20": {"number": 40, "kernelx": 20, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
             "output_paddingx": 0, "output_paddingy": 0, "weight": 1.0}}
           }}

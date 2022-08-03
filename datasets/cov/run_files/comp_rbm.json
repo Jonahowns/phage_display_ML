@@ -8,6 +8,7 @@
   "gpus": 1,
   "config": {"fasta_file": "",
           "v_num": 40,
+          "h_num": 40,
           "q": 5,
           "molecule": "dna",
           "epochs": 200,
