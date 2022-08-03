@@ -1685,7 +1685,7 @@ if __name__ == '__main__':
     # crbm.train_dataloader()
 
 
-    logger = TensorBoardLogger('tb_logs', name='conv_lattice_trial')
+    logger = TensorBoardLogger('../tb_logs', name='conv_lattice_trial')
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="ddp")  # gpus=1,
     # # # profiler = SimpleProfiler(profiler_memory=True)
     # # # profiler = torch.profiler.profile(profile_memory=True)

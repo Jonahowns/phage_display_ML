@@ -1,18 +1,12 @@
 import sys
 # sys.path.append("../")
 
-from rbm_torch import utils
-from rbm_torch.crbm import CRBM
+from rbm_torch.utils import utils
 from rbm_torch.analysis import analysis_methods as am
 
 import numpy as np
 
-
-import math
 import torch
-import pandas as pd
-from glob import glob
-import seaborn as sns
 import matplotlib.pyplot as plt
 
 
@@ -23,7 +17,7 @@ def dataframe_to_input(dataframe, base_to_id, v_num, q, weights=False):
         for n, base in enumerate(seq):
             oh_ten[iid, n, base_to_id[base]] = 1
     if weights:
-        weights = dataframe["copynum"].tolist()
+        weights = dataframe["copy_num"].tolist()
         return oh_ten, weights
     else:
         return oh_ten

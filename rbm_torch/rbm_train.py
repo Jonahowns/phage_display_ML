@@ -5,7 +5,7 @@ import json
 import numpy as np
 import os
 
-from rbm import RBM
+from models.rbm import RBM
 import rbm_configs
 from global_info import get_global_info
 
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     config["epochs"] = args.epochs
 
     # Training Code
-    rbm = RBM(config, debug=False)
+    rbm = RBM(config, debug=False, precision=args.precision)
     logger = TensorBoardLogger('../' + info["server_model_dir"][model], name=name)
     if args.gpus > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines

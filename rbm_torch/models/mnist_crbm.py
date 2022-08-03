@@ -1,9 +1,7 @@
-from rbm_torch.crbm import CRBM
+from rbm_torch.models.crbm import CRBM
 
 from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
-from sklearn.model_selection import train_test_split
 from torch.optim import SGD, AdamW
 from sklearn.metrics import balanced_accuracy_score
 
@@ -16,10 +14,10 @@ import numpy as np
 
 from torchvision import transforms
 from torchvision.datasets import MNIST
-import torchmetrics
 import math
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
+
 
 # q should be 1 on config
 class BinaryCRBM(CRBM):
@@ -127,7 +125,7 @@ class BinaryCRBM(CRBM):
 
     def setup(self, stage=None):
         if self.dataset == "mnist":
-            PATH_DATASETS = os.environ.get("PATH_DATASETS", ".")
+            PATH_DATASETS = os.environ.get("PATH_DATASETS", "..")
             self.train_reader = MNIST(PATH_DATASETS, train=True, download=True, transform=transforms.ToTensor())
             self.val_reader = MNIST(PATH_DATASETS, train=False, download=True, transform=transforms.ToTensor())
 
@@ -463,6 +461,6 @@ if __name__ == "__main__":
 
     binary_crbm = BinaryCRBM(mnist_default_config, dataset="mnist", debug=True)
 
-    logger = TensorBoardLogger('./tb_logs/', name="mnist_crbm")
+    logger = TensorBoardLogger('../tb_logs/', name="mnist_crbm")
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(binary_crbm)

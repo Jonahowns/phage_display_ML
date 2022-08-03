@@ -1,5 +1,5 @@
 import ray.tune as tune
-from ray.tune.integration.pytorch_lightning import TuneReportCallback, TuneReportCheckpointCallback
+from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
@@ -8,7 +8,7 @@ import math
 import argparse
 
 # local files
-from rbm_torch.rbm import RBM
+from rbm_torch.models.rbm import RBM
 from rbm_torch import rbm_configs
 from rbm_torch import rbm_hyper_configs
 

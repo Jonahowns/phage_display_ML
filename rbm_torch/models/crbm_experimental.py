@@ -1,13 +1,13 @@
 import torch
 import torch.nn.functional as F
 
-from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # Project Dependencies
-from rbm_torch.utils.utils import BatchNorm2D, all_weights
+from rbm_torch.utils.utils import BatchNorm2D
 from rbm_torch import crbm_configs
-from rbm_torch.crbm import CRBM
+from rbm_torch.models.crbm import CRBM
 
 
 
@@ -101,7 +101,7 @@ if __name__ == '__main__':
 
     # Training Code
     rbm = ExpCRBM(config, debug=False)
-    logger = TensorBoardLogger('./tb_logs/', name="conv_lattice_trial_bn")
+    logger = TensorBoardLogger('../tb_logs/', name="conv_lattice_trial_bn")
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm)
 

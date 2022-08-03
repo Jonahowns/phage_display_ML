@@ -1,12 +1,12 @@
 import torch
 
-from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # Project Dependencies
 from rbm_torch.utils.utils import BatchNorm1D, all_weights
 from rbm_torch import rbm_configs
-from rbm_torch.rbm import RBM
+from rbm_torch.models.rbm import RBM
 
 
 class ExpRBM(RBM):
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
     # Training Code
     rbm = ExpRBM(config, debug=False)
-    logger = TensorBoardLogger('./tb_logs/', name="lattice_rbm")
+    logger = TensorBoardLogger('../tb_logs/', name="lattice_rbm")
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm)
 

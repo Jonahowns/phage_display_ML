@@ -1,29 +1,32 @@
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import Trainer
+from numpy.random import randint
+
 import argparse
 import os
-import sys
 import json
 import numpy as np
 # Local imports
-from crbm import CRBM
+from models.crbm import CRBM
 import crbm_configs
 from global_info import get_global_info
 
 if __name__ == '__main__':
     # Example Usage
-    # rbm_train.py pig ../pig/b3_c1.fasta protein 200 1 False
+    # crbm_train.py pig ../pig/b3_c1.fasta protein 200 1 False
+    # or
+    # crbm_train.py train.json
     parser = argparse.ArgumentParser(description="CRBM Training on Phage Display Dataset")
     parser.add_argument('datatype_str', type=str, help="Which Datset? pig, invivo, rod, or cov? Used to Set default config")
     parser.add_argument('dataset', type=str, help="Location of Data File")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of gpus available")
-    parser.add_argument('weights', type=str, help="Must provide Weight File or be 'fasta' to use weight in fasta file")
+    parser.add_argument('weights', type=str, default="None", help="Must provide Weight File or be 'fasta' to use weight in fasta file")
     parser.add_argument('precision', type=str, help="single or double precision", default="double")
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
 
     file = os.path.basename(args.dataset)
     name = file.split(".")[0]   # short specifier of round etc.
@@ -76,7 +79,7 @@ if __name__ == '__main__':
     config["epochs"] = args.epochs
 
     # Training Code
-    crbm = CRBM(config, debug=False)
+    crbm = CRBM(config, debug=False, precision=args.precision)
     logger = TensorBoardLogger('../' + info["server_model_dir"][model], name=name)
     if args.gpus > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines

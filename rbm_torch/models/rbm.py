@@ -1797,7 +1797,7 @@ if __name__ == '__main__':
 
     # Training Code
     rbm = RBM(config, debug=False)
-    logger = TensorBoardLogger('./tb_logs/', name="lattice_rbm")
+    logger = TensorBoardLogger('../tb_logs/', name="lattice_rbm")
     plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
     plt.fit(rbm)
 

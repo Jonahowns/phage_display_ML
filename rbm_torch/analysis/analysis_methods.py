@@ -2,12 +2,10 @@
 # sys.path.append("../")
 
 from rbm_torch.utils import utils
-from rbm_torch.crbm import CRBM
-from rbm_torch.rbm import RBM
+from rbm_torch.models.rbm import RBM
 # from crbm import CRBM
 # from rbm import RBM
 
-import math
 import pandas as pd
 from glob import glob
 import seaborn as sns
@@ -19,7 +17,7 @@ import torch
 import matplotlib.image as mpimg
 import tbparse
 from copy import copy
-import nbformat as nbf
+
 # from notebook_generation_methods import generate_notebook
 
 # Clusters are 1 indexed
