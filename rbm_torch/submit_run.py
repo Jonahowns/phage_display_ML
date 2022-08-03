@@ -84,5 +84,5 @@ if __name__ == "__main__":
     filedata = filedata.replace("CORES", args.c)
     filedata = filedata.replace("WALLTIME", args.walltime)
 
-    with open(os.path.join(datatype_folder, f"{out}.sh"), 'w+') as file:
+    with open(os.path.join(datatype_folder, f"{run_data['model_type']}_{out}.sh"), 'w+') as file:
         file.write(filedata)
