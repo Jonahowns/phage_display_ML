@@ -452,7 +452,7 @@ class RBM(LightningModule):
         vl = v.long()
         E = torch.zeros(vl.shape[0], device=self.device)
         for color in range(self.q):
-            A = torch.where(vl == color, 1, 0).double()
+            A = torch.where(v == color, 1, 0).to(torch.get_default_dtype())  # set to default tensor type
             if remove_init:
                 E -= A.dot(getattr(self, 'fields')[:, color] - getattr(self, 'fields0')[:, color])
             else:
@@ -913,7 +913,7 @@ class RBM(LightningModule):
         -----
         In Progress
         """
-        m = torch.zeros_like(X, dtype=torch.float64)
+        m = torch.zeros_like(X, dtype=torch.get_default_dtype())
         tmp1 = X < -6
         m[tmp1] = 2 * torch.exp(X[tmp1] ** 2 / 2)
 
@@ -928,7 +928,7 @@ class RBM(LightningModule):
 
     ## Hidden dReLU supporting Function
     def log_erf_times_gauss(self, X):
-        m = torch.zeros_like(X)
+        m = torch.zeros_like(X, dtype=torch.get_default_dtype())
         tmp = X < 4
         m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / np.sqrt(2))) + self.logsqrtpiover2
         m[~tmp] = - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4)
