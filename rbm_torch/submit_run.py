@@ -33,7 +33,6 @@ if __name__ == "__main__":
     else:
         wdir = args.wdir
 
-
     with open(args.runfile, "r") as f:
         run_data = json.load(f)
 
@@ -47,7 +46,6 @@ if __name__ == "__main__":
         os.mkdir(out_folder)
     if not os.path.exists(err_folder):
         os.mkdir(err_folder)
-
 
     extension = ""
     if run_data["weights"] == "fasta":
