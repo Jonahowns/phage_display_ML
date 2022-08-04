@@ -1,7 +1,7 @@
 {"fasta_file": "comp.fasta",
   "model_name": "comp_st",
   "local_model_dir": "/mnt/D1/globus/cov_trained_rbms/",
-  "data_dir": "../datasets/cov/",
+  "data_dir": "./datasets/cov/",
   "server_model_dir": "datasets/cov/trained_rbms/",
   "weights": "comp_st.json",
   "model_type": "rbm",
