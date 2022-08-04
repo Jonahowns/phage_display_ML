@@ -47,19 +47,19 @@ if __name__ == "__main__":
     if not os.path.exists(err_folder):
         os.mkdir(err_folder)
 
-    extension = ""
-    if run_data["weights"] == "fasta":
-        extension = "_f"
-    elif run_data["weights"] != "None":
-        try:
-            with open(run_data["data_dir"] + run_data["weights"]) as f:
-                data = json.load(f)
-        except IOError:
-            print(f"Could not load provided weight file {run_data['data_dir'] + run_data['weights']}")
-            exit(-1)
-        extension = "_" + data["extension"]
+    # extension = ""
+    # if run_data["weights"] == "fasta":
+    #     extension = "_f"
+    # elif run_data["weights"] != "None":
+    #     try:
+    #         with open(run_data["data_dir"] + run_data["weights"]) as f:
+    #             data = json.load(f)
+    #     except IOError:
+    #         print(f"Could not load provided weight file {run_data['data_dir'] + run_data['weights']}")
+    #         exit(-1)
+    #     extension = "_" + data["extension"]
 
-    out = run_data["model_name"] + extension
+    out = run_data["model_name"]
 
     o = open(f'./submission_templates/sbatch_run_template.sh', 'r')
     filedata = o.read()

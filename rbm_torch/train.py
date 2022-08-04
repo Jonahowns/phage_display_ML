@@ -36,7 +36,7 @@ if __name__ == '__main__':
     weights = None
     if run_data["weights"] == "fasta":
         weights = "fasta"  # All weights are already in the processed fasta files
-        model_name += "_f"
+        # model_name += "_f"
     elif run_data["weights"] is None or run_data["weights"] == "None":
         pass
     else:
@@ -45,7 +45,7 @@ if __name__ == '__main__':
             with open(data_dir + run_data["weights"]) as f:
                 data = json.load(f)
             weights = np.asarray(data["weights"])
-            model_name += f"_{data['extension']}"
+            # model_name += f"_{data['extension']}"
         except IOError:
             print(f"Could not load provided weight file {data_dir + run_data['weights']}")
             exit(-1)
