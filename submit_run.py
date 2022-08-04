@@ -3,7 +3,7 @@ import argparse
 import json
 import os
 
-default_wdir = "/scratch/jprocyk/machine_learning/phage_display_ML/rbm_torch/"
+default_wdir = "/scratch/jprocyk/machine_learning/phage_display_ML/"
 default_acc = "jprocyk"
 default_email = "jprocyk@asu.edu"
 default_partition = "wzhengpu1"
