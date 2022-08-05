@@ -15,6 +15,7 @@ from rbm_torch.models.rbm_experimental import ExpRBM
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Training from json run file")
     parser.add_argument('runfile', type=str, help="json file containing all info needed to run models")
+    parser.add_argument('-d', type=str, nargs="?", help="json file containing all info needed to run models", default="False")
     args = parser.parse_args()
 
     try:
@@ -68,16 +69,20 @@ if __name__ == '__main__':
             for attribute in ["kernel", "dilation", "padding", "stride", "output_padding"]:
                 val[f"{attribute}"] = (val[f"{attribute}x"], val[f"{attribute}y"])
 
+    debug_flag = False
+    if args.d in ["true", "True"]:
+        debug_flag = True
+        run_data["gpus"] = 0
 
     # Training Code
     if model_type == "rbm":
-        model = RBM(config, debug=False, precision=config["precision"])
+        model = RBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "exp_rbm":
-        model = ExpRBM(config, debug=False, precision=config["precision"])
+        model = ExpRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "crbm":
-        model = CRBM(config, debug=False, precision=config["precision"])
+        model = CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "exp_crbm":
-        model = ExpCRBM(config, debug=False, precision=config["precision"])
+        model = ExpCRBM(config, debug=debug_flag, precision=config["precision"])
 
     logger = TensorBoardLogger(server_model_dir, name=model_name)
     if run_data["gpus"] > 1:

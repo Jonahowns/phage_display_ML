@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
-import multiprocessing  # Just to set the worker number
+from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
 from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
@@ -48,13 +48,14 @@ class CRBM(LightningModule):
         self.molecule = config['molecule'] # can be protein, rna or dna currently
         assert self.molecule in ["dna", "rna", "protein"]
 
-        try:
-            self.worker_num = config["data_worker_num"]
-        except KeyError:
-            if debug:
-                self.worker_num = 0
-            else:
-                self.worker_num = multiprocessing.cpu_count()
+        # Sets worker number for both dataloaders
+        if debug:
+            self.worker_num = 0
+        else:
+            try:
+                self.worker_num = config["data_worker_num"]
+            except KeyError:
+                self.worker_num = cpu_count()
 
         # Sets Pim Memory when GPU is being used
         if hasattr(self, "trainer"):
@@ -363,7 +364,7 @@ class CRBM(LightningModule):
         if E.shape[0] > 1:
             return E.sum(0)
         else:
-            return E
+            return E.squeeze(0)
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
@@ -430,9 +431,9 @@ class CRBM(LightningModule):
             E[iid] = ((config_plus.square() * a_plus) / 2 + (config_minus.square() * a_minus) / 2 + (config_plus * theta_plus) + (config_minus * theta_minus)).sum((2, 1))
             # E[iid] *= (10/self.convolution_topology[i]["convolution_dims"][2]) # Normalize across different convolution sizes
         if E.shape[0] > 1:
-            E = E.sum(0)
-
-        return E
+            return E.sum(0)
+        else:
+            return E.squeeze(0)
 
     ## Random Config of Visible Potts States
     def random_init_config_v(self, custom_size=False, zeros=False):

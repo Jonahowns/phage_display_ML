@@ -53,6 +53,7 @@ def find_nearest(sequence, dataframe, hamming_threshold=0, molecule="protein"):
 def prune_similar_sequences(dataframe, hamming_threshold=0, molecule="protein"):
     """generate subset of sequences that are at least x mutations away from one another,
     first occurrence is kept so make sure to sort dataframe prior"""
+    dataframe.reset_index(drop=True, inplace=True)
     seqs = dataframe["sequence"].tolist()
     index = dataframe.index.tolist()
 
@@ -61,7 +62,6 @@ def prune_similar_sequences(dataframe, hamming_threshold=0, molecule="protein"):
 
     seq_len = len(seqs[0])
     selected_seqs, selected_indices, selected_cat = [], [], []
-    hamming_threshold = 15
     total_seqs = len(seqs)
     for i in range(total_seqs):  # len(m1_seqs)
         if i == 0:
@@ -78,6 +78,6 @@ def prune_similar_sequences(dataframe, hamming_threshold=0, molecule="protein"):
 
     print(f"Kept {len(selected_seqs)} of {total_seqs}")
 
-    dataframe = dataframe[selected_indices]
+    dataframe = dataframe.iloc[selected_indices, :]
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe
