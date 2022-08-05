@@ -172,12 +172,19 @@ def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="lo
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
     for xid, x in enumerate(order): # each subplots likelihood dictionary labels
         if xlim is not None:
-            axs[xid].set_xlim(*xlim)
+            if plot_num == 1:
+                axs.set_xlim(*xlim)
+            else:
+                axs[xid].set_xlim(*xlim)
 
         plot_ymax = 0.
         for yid, y in enumerate(x): # each label in the subplot labels
-            z = sns.kdeplot(likeli[y], shade=False, alpha=0.5, color=colors[yid], ax=axs[xid], label=labels[xid][yid], cumulative=cdf)
-            kdeplot = axs[xid].lines[-1]
+            if plot_num == 1:
+                z = sns.kdeplot(likeli[y], shade=False, alpha=0.5, color=colors[yid], ax=axs, label=labels[xid][yid], cumulative=cdf)
+                kdeplot = axs.lines[-1]
+            else:
+                z = sns.kdeplot(likeli[y], shade=False, alpha=0.5, color=colors[yid], ax=axs[xid], label=labels[xid][yid], cumulative=cdf)
+                kdeplot = axs[xid].lines[-1]
             ydata = kdeplot.get_ydata()
             ymax = round(ydata.max(), 3)
             if ymax > plot_ymax:
@@ -186,10 +193,16 @@ def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="lo
         if xid == len(order) - 1:
             z.set(xlabel=xaxislabel)
         # axs[xid].legend()
-        axs[xid].legend(loc=2, prop={'size': legend_font_size})
-        axs[xid].tick_params(axis='x', labelsize=12)
-        axs[xid].tick_params(axis='y', labelsize=8)
-        axs[xid].set_yticks([0., plot_ymax])
+        if plot_num == 1:
+            axs.legend(loc=2, prop={'size': legend_font_size})
+            axs.tick_params(axis='x', labelsize=12)
+            axs.tick_params(axis='y', labelsize=8)
+            axs.set_yticks([0., plot_ymax])
+        else:
+            axs[xid].legend(loc=2, prop={'size': legend_font_size})
+            axs[xid].tick_params(axis='x', labelsize=12)
+            axs[xid].tick_params(axis='y', labelsize=8)
+            axs[xid].set_yticks([0., plot_ymax])
     if title:
         fig.suptitle(title)
     else:
