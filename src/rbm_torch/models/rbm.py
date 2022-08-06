@@ -1257,7 +1257,6 @@ class RBM(LightningModule):
     def training_step_PCD_free_energy(self, batch, batch_idx):
         # seqs, V_pos, one_hot, seq_weights = batch
         seqs, V_pos, seq_weights = batch
-        weights = seq_weights.clone()
 
         if self.current_epoch == 0 and batch_idx == 0:
             self.chain = [V_pos.detach()]
@@ -1266,12 +1265,17 @@ class RBM(LightningModule):
 
         V_neg, h_neg = self.forward_PCD(batch_idx)
 
+        # delete tensors not involved in loss calculation
+        # pytorch garbage collection does not catch these
+        del h_neg
+        del seqs
+
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg) * seq_weights).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
-        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
+        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * seq_weights).sum() / seq_weights.sum()
 
         # Regularization Terms
         reg1 = self.lf / 2 * getattr(self, 'fields').square().sum((0, 1))
@@ -1294,16 +1298,20 @@ class RBM(LightningModule):
 
     def training_step_PT_free_energy(self, batch, batch_idx):
         seqs, V_pos, seq_weights = batch
-        V_pos = V_pos.clone().detach()
         V_neg, h_neg, V_pos, h_pos = self.forward(V_pos)
-        weights = seq_weights.clone().detach()
+
+        # delete tensors not involved in loss calculation
+        # pytorch garbage collection does not catch these
+        del h_neg
+        del h_pos
+        del seqs
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(V_pos) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg) * seq_weights).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit act
 
-        pseudo_likelihood = (self.pseudo_likelihood(V_pos).clone().detach() * weights).sum() / weights.sum()
+        pseudo_likelihood = (self.pseudo_likelihood(V_pos).clone().detach() * seq_weights).sum() / seq_weights.sum()
 
         reg1 = self.lf / 2 * getattr(self, 'fields').square().sum((0, 1))
         tmp = torch.sum(torch.abs(self.W), (1, 2)).square()
@@ -1326,13 +1334,19 @@ class RBM(LightningModule):
     def training_step_CD_free_energy(self, batch, batch_idx):
         # seqs, V_pos, one_hot, seq_weights = batch
         seqs, V_pos, seq_weights = batch
-        weights = seq_weights.clone()
+
         V_neg, h_neg, V_pos, h_pos = self(V_pos)
 
+        # delete tensors not involved in loss calculation
+        # pytorch garbage collection does not catch these
+        del h_neg
+        del h_pos
+        del seqs
+
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(V_pos) * weights).sum() / weights.abs().sum()  # free energy of training data
+        F_v = (self.free_energy(V_pos) * seq_weights).sum() / seq_weights.abs().sum()  # free energy of training data
         # F_v = (self.free_energy(V_pos) * weights).sum()  # free energy of training data
-        F_vp = (self.free_energy(V_neg) * weights.abs()).sum() / weights.abs().sum()  # free energy of gibbs sampled visible states
+        F_vp = (self.free_energy(V_neg) * seq_weights.abs()).sum() / seq_weights.abs().sum()  # free energy of gibbs sampled visible states
         # F_vp = (self.free_energy(V_neg) * weights.abs()).sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
@@ -1340,7 +1354,7 @@ class RBM(LightningModule):
         # V_neg_oh = F.one_hot(V_neg, num_classes=self.q)
         # reconstruction_loss = self.reconstruction_loss(V_neg_oh.double(), one_hot.double())*self.q  # not ideal Loss counts matching zeros as t
 
-        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum() / weights.sum()
+        pseudo_likelihood = (self.pseudo_likelihood(V_pos) * seq_weights).sum() / seq_weights.sum()
         # pseudo_likelihood = (self.pseudo_likelihood(V_pos) * weights).sum()
 
         # Regularization Terms
