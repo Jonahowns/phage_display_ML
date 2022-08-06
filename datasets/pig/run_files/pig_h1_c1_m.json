@@ -27,6 +27,6 @@
           "lf": 5,
           "ld": 10,
           "data_worker_num": 4,
-          "convolution_topology": {"hidden_9": {"number": 40, "kernelx": 9, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
+          "convolution_topology": {"hidden_9": {"number": 40, "kernelx": 9, "kernely": 21, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
             "output_paddingx": 0, "output_paddingy": 0, "weight": 1.0}}
           }}
