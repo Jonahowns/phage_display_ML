@@ -1057,6 +1057,8 @@ class RBM(LightningModule):
         if type(self.weights) is np.array:
             all_data["seq_count"] = self.weights
 
+        assert len(all_data["sequence"][0]) == self.v_num
+
         # For Stratified sampling
         if self.stratify is True: # not equally weighted
             counts = all_data["seq_count"].to_list()

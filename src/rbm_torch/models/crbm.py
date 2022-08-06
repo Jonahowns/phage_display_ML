@@ -872,6 +872,8 @@ class CRBM(LightningModule):
         if type(self.weights) is np.array:
             all_data["seq_count"] = self.weights
 
+        assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
+
         self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
 
     def on_train_start(self):

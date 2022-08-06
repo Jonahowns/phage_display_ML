@@ -5,7 +5,7 @@
   "server_model_dir": "datasets/exo/trained_crbms/",
   "weights": "pelp_st.json",
   "model_type": "crbm",
-  "gpus": 2,
+  "gpus": 1,
   "config": {"fasta_file": "",
           "v_num": 38,
           "q": 5,

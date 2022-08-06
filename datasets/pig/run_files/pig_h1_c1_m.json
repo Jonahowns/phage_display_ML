@@ -5,7 +5,7 @@
   "server_model_dir": "datasets/pig/trained_crbms/",
   "weights": "h1_c1_m.json",
   "model_type": "crbm",
-  "gpus": 2,
+  "gpus": 1,
   "config": {"fasta_file": "",
           "v_num": 22,
           "q": 21,
