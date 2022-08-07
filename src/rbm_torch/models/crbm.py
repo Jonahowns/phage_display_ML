@@ -32,7 +32,7 @@ from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim  #Sequence
 
 
 class CRBM(LightningModule):
-    def __init__(self, config, debug=False, precision="double", memtest=False):
+    def __init__(self, config, debug=False, precision="double", meminfo=False):
         super().__init__()
         # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
         self.v_num = config['v_num']   # Number of visible nodes
@@ -205,8 +205,7 @@ class CRBM(LightningModule):
                 exit(-1)
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
-        if memtest:
-            pass
+        self.meminfo = meminfo
 
 
     @property
@@ -972,9 +971,9 @@ class CRBM(LightningModule):
              "val_free_energy": free_energy_avg.detach()
         }
 
-        # self.log("ptl/val_pseudo_likelihood", pseudo_likelihood, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/val_free_energy", free_energy_avg, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
+        # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
+        self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        #
         return batch_out
 
     def validation_epoch_end(self, outputs):
@@ -1006,15 +1005,15 @@ class CRBM(LightningModule):
         for name, p in self.named_parameters():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
 
+        if self.meminfo:
+            # print("GPU Reserved:", torch.cuda.memory_reserved(0))
+            print(f"GPU Allocated Mem Epcoh {self.current_epoch}:", torch.cuda.memory_allocated(0))
+
     ## Not yet rewritten for crbm
     def training_step_CD_energy(self, batch, batch_idx):
         seqs, one_hot, seq_weights = batch
 
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
-
-        # delete tensors not involved in loss calculation
-        # pytorch garbage collection does not catch these
-        del seqs
 
         # Calculate CD loss
         E_p = (self.energy(V_pos_oh, h_pos) * seq_weights).sum() / seq_weights.sum()  # energy of training data
@@ -1059,7 +1058,6 @@ class CRBM(LightningModule):
         # pytorch garbage collection does not catch these
         del h_neg
         del h_pos
-        del seqs
 
         # Calculate CD loss
         F_v = (self.free_energy(V_pos_oh) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
@@ -1095,20 +1093,26 @@ class CRBM(LightningModule):
 
     def training_step_CD_free_energy(self, batch, batch_idx):
         seqs, one_hot, seq_weights = batch
+        # if self.meminfo:
+        #     print("GPU Allocated Training Step Start:", torch.cuda.memory_allocated(0))
 
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
+
+        # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
 
         # delete tensors not involved in loss calculation
         # pytorch garbage collection does not catch these
         del h_neg
         del h_pos
-        del seqs
 
         # F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
         F_v = (self.free_energy(V_pos_oh) * seq_weights).sum() / seq_weights.sum() # free energy of training data
         # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
         F_vp = (self.free_energy(V_neg_oh) * seq_weights.abs()).sum() / seq_weights.sum() # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
+
+        # if self.meminfo:
+        #     print("GPU Allocated After CD_Loss:", torch.cuda.memory_allocated(0))
 
         # Regularization Terms
         reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
@@ -1132,7 +1136,10 @@ class CRBM(LightningModule):
                 }
 
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        # if self.meminfo:
+        #     print("GPU Allocated Final:", torch.cuda.memory_allocated(0))
 
         return logs
 
@@ -1150,7 +1157,6 @@ class CRBM(LightningModule):
         # delete tensors not involved in loss calculation
         # pytorch garbage collection does not catch these
         del h_neg
-        del seqs
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
         F_v = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
