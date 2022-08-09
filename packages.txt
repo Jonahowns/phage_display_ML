@@ -1,0 +1,22 @@
+Packages Needed to use the models and use all analysis functions:
+In Python 3.10.0
+
+conda install
+PyTorch w/ cuda 11.3
+Scikit-learn
+Pandas
+numpy
+Scipy
+Tensor board
+PyTorch lightning
+seaborn
+Matplotlib
+Glob
+Collections
+Itertools
+Pickle
+Argparse
+PIL
+
+pip install
+Tbparse

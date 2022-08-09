@@ -8,7 +8,7 @@ default_acc = "jprocyk"
 default_email = "jprocyk@asu.edu"
 default_partition = "wzhengpu1"
 default_queue = "wildfire"
-default_python_env = "exmachina3"
+default_python_env = "aptamer"
 
 
 if __name__ == "__main__":
