@@ -58,11 +58,8 @@ class CRBM(LightningModule):
                 self.worker_num = cpu_count()
 
         # Sets Pim Memory when GPU is being used
-        if hasattr(self, "trainer"):
-            if hasattr(self.trainer, "on_gpu"):
-                self.pin_mem = self.trainer.on_gpu
-            else:
-                self.pin_mem = False
+        if config["gpus"] > 0:
+            self.pin_mem = True
         else:
             self.pin_mem = False
 

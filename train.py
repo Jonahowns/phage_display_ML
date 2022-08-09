@@ -74,6 +74,8 @@ if __name__ == '__main__':
         debug_flag = True
         run_data["gpus"] = 0
 
+    config["gpus"] = run_data["gpus"]
+
     # Training Code
     if model_type == "rbm":
         model = RBM(config, debug=debug_flag, precision=config["precision"])
