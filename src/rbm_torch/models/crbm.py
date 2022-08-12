@@ -628,7 +628,8 @@ class CRBM(LightningModule):
         rng = torch.rand((datasize, self.v_num), dtype=torch.float64, device=self.device)
         low = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
         middle = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        high = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device).fill(self.q)
+        high = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
+        high.fill_(self.q)
 
         in_progress = low < high
         while True in in_progress:
