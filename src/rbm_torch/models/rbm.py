@@ -90,9 +90,12 @@ class RBM(LightningModule):
             except KeyError:
                 self.worker_num = cpu_count()
 
-        if config["gpus"] > 0:
-            self.pin_mem = True
-        else:
+        try:
+            if config["gpus"] > 0:
+                self.pin_mem = True
+            else:
+                self.pin_mem = False
+        except KeyError:
             self.pin_mem = False
 
         # Sequence Weighting Weights
@@ -1018,6 +1021,14 @@ class RBM(LightningModule):
         return v, h, e
 
     ######################################################### Pytorch Lightning Functions
+    # Clamps hidden potential values to acceptable range
+    def on_before_zero_grad(self, optimizer):
+        with torch.no_grad():
+            for param in ["gamma+", "gamma-"]:
+                getattr(self, f"{param}").data.clamp_(0.05, 1.0)
+            for param in ["theta+", "theta-"]:
+                getattr(self, f"{param}").data.clamp_(0.0, 1.0)
+
     ## Loads Data to be trained from provided fasta file
     def setup(self, stage=None):
         if type(self.fasta_file) is str:
@@ -1052,7 +1063,7 @@ class RBM(LightningModule):
             data_pds.append(data)
 
         all_data = pd.concat(data_pds)
-        if type(self.weights) is np.array:
+        if type(self.weights) is np.ndarray:
             all_data["seq_count"] = self.weights
 
         assert len(all_data["sequence"][0]) == self.v_num
@@ -1097,7 +1108,7 @@ class RBM(LightningModule):
             training_weights = None
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                    shuffle=False, molecule=self.molecule, device=self.device)
+                                   molecule=self.molecule, device=self.device)
 
         # initialize fields from data
         if init_fields:
@@ -1130,7 +1141,7 @@ class RBM(LightningModule):
             validation_weights = None
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                    shuffle=False, molecule=self.molecule, device=self.device)
+                                    molecule=self.molecule, device=self.device)
 
         return DataLoader(
             val_reader,
@@ -1416,7 +1427,7 @@ class RBM(LightningModule):
         # X must be a pandas dataframe
         # Needs to be set
         self.prep_W()
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1433,7 +1444,7 @@ class RBM(LightningModule):
         return X.sequence.tolist(), likelihood
 
     def saliency_map(self, X):
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1467,7 +1478,7 @@ class RBM(LightningModule):
     # Don't use this
     def predict_psuedo(self, X):
         self.prep_W()
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,

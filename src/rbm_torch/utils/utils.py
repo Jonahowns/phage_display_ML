@@ -96,14 +96,11 @@ class Categorical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, shuffle=True, molecule='protein', device='cpu', one_hot=False):
+    def __init__(self, dataset, q, weights=None, max_length=20, molecule='protein', device='cpu', one_hot=False):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
         self.dataset = dataset.reset_index(drop=True)
-
-        self.shuffle = shuffle
-        self.on_epoch_end()
 
         # dictionaries mapping One letter code to integer for all macro molecule types
         try:
@@ -137,9 +134,9 @@ class Categorical(Dataset):
 
     def __getitem__(self, index):
 
-        self.count += 1
-        if (self.count % self.dataset.shape[0] == 0):
-            self.on_epoch_end()
+        # self.count += 1
+        # if (self.count % self.dataset.shape[0] == 0):
+        #     self.on_epoch_end()
 
         seq = self.seq_data[index]  # str of sequence
         model_input = self.train_data[index]  # either vector of integers for categorical or one hot vector
@@ -211,10 +208,10 @@ class Categorical(Dataset):
     def __len__(self):
         return self.train_data.shape[0]
 
-    def on_epoch_end(self):
-        self.count = 0
-        if self.shuffle:
-            self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
+    # def on_epoch_end(self):
+    #     self.count = 0
+    #     if self.shuffle:
+    #         self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
 
 class BatchNorm1D(torch.nn.Module):
     def __init__(self, eps=1e-5, affine=True, momentum=None):

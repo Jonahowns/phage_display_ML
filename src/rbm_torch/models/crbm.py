@@ -58,9 +58,12 @@ class CRBM(LightningModule):
                 self.worker_num = cpu_count()
 
         # Sets Pim Memory when GPU is being used
-        if config["gpus"] > 0:
-            self.pin_mem = True
-        else:
+        try:
+            if config["gpus"] > 0:
+                self.pin_mem = True
+            else:
+                self.pin_mem = False
+        except KeyError:
             self.pin_mem = False
 
         # Sequence Weighting Weights
@@ -733,7 +736,7 @@ class CRBM(LightningModule):
     def log_erf_times_gauss(self, X):
         m = torch.zeros_like(X, device=self.device)
         tmp = X < 4
-        m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / np.sqrt(2))) + self.logsqrtpiover2
+        m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / self.sqrt2)) + self.logsqrtpiover2
         m[~tmp] = - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4)
         return m
 
@@ -832,6 +835,15 @@ class CRBM(LightningModule):
         return v, h, e
 
     ######################################################### Pytorch Lightning Functions
+    # Clamps hidden potential values to acceptable range
+    def on_before_zero_grad(self, optimizer):
+        with torch.no_grad():
+            for key in self.hidden_convolution_keys:
+                for param in ["gamma+", "gamma-"]:
+                    getattr(self, f"{key}_{param}").data.clamp_(0.05, 1.0)
+                for param in ["theta+", "theta-"]:
+                    getattr(self, f"{key}_{param}").data.clamp_(0.0, 1.0)
+
     ## Loads Data to be trained from provided fasta file
     def setup(self, stage=None):
         if type(self.fasta_file) is str:
@@ -866,7 +878,7 @@ class CRBM(LightningModule):
             data_pds.append(data)
 
         all_data = pd.concat(data_pds)
-        if type(self.weights) is np.array:
+        if type(self.weights) is np.ndarray:
             all_data["seq_count"] = self.weights
 
         assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
@@ -899,7 +911,7 @@ class CRBM(LightningModule):
         else:
             training_weights = None
 
-        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num, shuffle=False,
+        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
                                    molecule=self.molecule, device=self.device, one_hot=True)
 
         # initialize fields from data
@@ -930,7 +942,7 @@ class CRBM(LightningModule):
         else:
             validation_weights = None
 
-        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num, shuffle=False,
+        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
                                  molecule=self.molecule, device=self.device, one_hot=True)
 
         return torch.utils.data.DataLoader(
@@ -1122,6 +1134,15 @@ class CRBM(LightningModule):
             reg2 += x.mean() * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
             reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
+        # Debugging
+        # nancheck = torch.isnan(torch.tensor([cd_loss, F_v, F_vp, reg1, reg2, reg3], device=self.device))
+        # if True in nancheck:
+        #     print(nancheck)
+        #     torch.save(V_pos_oh, "vpos_err.pt")
+        #     torch.save(V_neg_oh, "vneg_err.pt")
+        #     torch.save(one_hot, "oh_err.pt")
+        #     torch.save(seq_weights, "seq_weights_err.pt")
+
         # Calculate Loss
         loss = cd_loss + reg1 + reg2 + reg3
 
@@ -1251,7 +1272,7 @@ class CRBM(LightningModule):
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
         # Read in data
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1271,7 +1292,7 @@ class CRBM(LightningModule):
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the saliency map for all sequences in X
     def saliency_map(self, X):
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, shuffle=False, molecule=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1319,7 +1340,7 @@ class CRBM(LightningModule):
 
     # disabled until I figure out pseudo likelihood function
     # def predict_psuedo(self, X):
-    #     reader = RBMCaterogical(X, weights=None, max_length=self.v_num, shuffle=False, base_to_id=self.molecule, device=self.device)
+    #     reader = RBMCaterogical(X, weights=None, max_length=self.v_num, base_to_id=self.molecule, device=self.device)
     #     data_loader = torch.utils.data.DataLoader(
     #         reader,
     #         batch_size=self.batch_size,

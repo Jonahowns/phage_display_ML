@@ -5,6 +5,7 @@ import argparse
 import json
 import numpy as np
 from numpy.random import randint
+import os
 
 from rbm_torch.models.rbm import RBM
 from rbm_torch.models.crbm import CRBM
@@ -17,6 +18,9 @@ if __name__ == '__main__':
     parser.add_argument('runfile', type=str, help="json file containing all info needed to run models")
     parser.add_argument('-d', type=str, nargs="?", help="json file containing all info needed to run models", default="False")
     args = parser.parse_args()
+
+    os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
 
     try:
         with open(args.runfile, "r") as f:
