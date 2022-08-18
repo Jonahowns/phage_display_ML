@@ -8,6 +8,7 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--partition', nargs="?", type=str, help="Which Partition should the job be submitted on?", default="wzhengpu1")
     parser.add_argument('-q', '--queue', type=str, nargs="?", help="Which Queue should the job be submitted on?", default="wildfire")
     parser.add_argument('-d', nargs="?", type=str, help="delete all existing slurm sbatch files", default="False")
+    parser.add_argument('-c', nargs="?", help="Number of CPU cores to use. Default is 6.", default="6", type=str)
     args = parser.parse_args()
 
     # delete all existing submission scripts in submission sub directories
@@ -22,6 +23,6 @@ if __name__ == '__main__':
     for root, dirs, files in os.walk("./datasets/"):
         if "run_files" in root:
             for file in files:
-                sp.check_call(f"python submit_run.py -r {os.path.join(root, file)} -p {args.partition} -q {args.queue}", shell=True)
+                sp.check_call(f"python submit_run.py -r {os.path.join(root, file)} -p {args.partition} -q {args.queue} -c {args.c}", shell=True)
 
 
