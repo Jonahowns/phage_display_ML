@@ -1,4 +1,4 @@
-{"fasta_file": "enrich.fasta",
+{"fasta_file": "enriched.fasta",
   "model_name": "exp_enrich_1c_st",
   "local_model_dir": "/mnt/D1/globus/cov_trained_crbms/",
   "data_dir": "./datasets/cov/",
