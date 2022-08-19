@@ -210,7 +210,7 @@ def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="
 
 # Goal Remove huge impact of large number of nonspecific/non-binding sequences with copy number of 1.
 # This is especially needed for early rounds of selection
-def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 25], target_scaling=[5, 10, 100], divider_type="percentile", negate_index=None, splitter=None):
+def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 25], target_scaling=[5, 10, 100], divider_type="percentile", negate_index=None, splitter=None, negative_affs=None, base=0.001):
     """ Generates new affinites as: new aff = 1/(#of_sequences_at_aff)*math.log(aff+0.001)
 
     Parameters
@@ -236,6 +236,9 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
     # aff_totals = [aff_num[x] for x in uniq_aff]
 
     # ex . 1, 2, 3, 4, 5
+
+    # negative affs should be positive affinities that will be scaled as normal, but the sign flipped at the end
+
     uniq_aff = list(set(affs))
     np_uniq_aff = np.asarray(uniq_aff)
 
@@ -275,12 +278,16 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
                 return totals[j]
 
     # With our affinity totals we can now "standardize" the sequence impact by making the sum of weights of each affinity equal to 1
+
+    if negative_affs is not None:
+        uniq_aff = list(set(uniq_aff + negative_affs))
+
     if scale == "linear":
         lin_affs = scale_values_np(np.asarray(uniq_aff), min=1e-2, max=1.)
         la = lin_affs.squeeze(1).tolist()
         standardization_dict = {x: 1. / assign_denominator(x) * la[xid] for xid, x in enumerate(uniq_aff)}
     elif scale == "log":
-        standardization_dict = {x: 1. / assign_denominator(x) * math.log(x + 0.001) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new
+        standardization_dict = {x: 1. / assign_denominator(x) * math.log(x + base) for xid, x in enumerate(uniq_aff)}  # format: old_aff is key and new
     elif scale == "None":
         standardization_dict = {x: 1. / assign_denominator(x) * x for xid, x in enumerate(uniq_aff)}
     else:
@@ -295,6 +302,13 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
         fix_min = single_precision_eps / min(stand_affs)
         stand_affs = [x * fix_min for x in stand_affs]
         standardization_dict = {k: v * fix_min for k, v in standardization_dict.items()}
+
+    if negative_affs is not None:
+        nstand_affs = list(map(standardization_dict.get, negative_affs))
+        if min(nstand_affs) < single_precision_eps:
+            fix_min = single_precision_eps / min(nstand_affs)
+            nstand_affs = [x * fix_min for x in nstand_affs]
+            standardization_dict = {k: v * fix_min for k, v in standardization_dict.items()}
 
     # Calculate Rough Sums, so we have a general idea of the total weight of each section
     uniq_stand_affs = list(set(stand_affs))
@@ -329,6 +343,9 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
     stand_affs = [x * assign_factor(x) for x in stand_affs]
     standardization_dict = {k: v * assign_factor(v) for k, v in standardization_dict.items()}
 
+    if negative_affs is not None:
+        nstand_affs = [x * assign_factor(x) for x in nstand_affs]
+
     new_boundaries = [x * np.prod(multi_factors[xid]) for xid, x in enumerate(new_boundaries[:-1])]
     new_boundaries.append(max(stand_affs) + 1)
     new_boundaries.insert(0, 0.)
@@ -336,6 +353,10 @@ def standardize_affinities(affs, out_plots=None, scale="log", dividers=[5, 10, 2
     new_percentile_sums = []
     for nib in range(len(new_boundaries) - 1):
         new_percentile_sums.append(sum([x for x in stand_affs if new_boundaries[nib] < x <= new_boundaries[nib + 1]]))
+
+    if negative_affs is not None:
+        nstand_affs = [-x for x in nstand_affs]
+        stand_affs += nstand_affs
 
     if negate_index is not None:
         stand_affs = [x if x > new_boundaries[negate_index + 1] else -x for x in stand_affs]
