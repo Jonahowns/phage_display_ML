@@ -14,9 +14,9 @@ from rbm_torch.models.rbm_experimental import ExpRBM
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Training from json run file")
+    parser = argparse.ArgumentParser(description="Runs Training Procedure from a json run file")
     parser.add_argument('runfile', type=str, help="json file containing all info needed to run models")
-    parser.add_argument('-d', type=str, nargs="?", help="json file containing all info needed to run models", default="False")
+    parser.add_argument('-d', type=str, nargs="?", help="debug flag, pass true to be able to inspect tensor values", default="False")
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
@@ -89,6 +89,9 @@ if __name__ == '__main__':
         model = CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "exp_crbm":
         model = ExpCRBM(config, debug=debug_flag, precision=config["precision"])
+    else:
+        print(f"Model Type {model_type} is not supported")
+        exit(1)
 
     logger = TensorBoardLogger(server_model_dir, name=model_name)
     if run_data["gpus"] > 1:
