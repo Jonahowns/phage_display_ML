@@ -1,4 +1,4 @@
-{"fasta_file": "enrich_c1.fasta",
+{"fasta_file": "enriched_c1.fasta",
   "model_name": "enrich_c1_st",
   "local_model_dir": "/mnt/D1/globus/pig_trained_crbms/",
   "data_dir": "./datasets/pig/",
