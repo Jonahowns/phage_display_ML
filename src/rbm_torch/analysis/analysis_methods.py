@@ -30,7 +30,7 @@ supported_colors = ["r", "orange", "y", "g", "b", "indigo", "violet", "m", "c", 
                     "chartreuse", "violet", "coral", "turqoise", "crimson", "tomato", "darkblue", "darkgreen", "teal", "fuchsia",
                     "gold", "silver", "sienna", "grey", "indigo", "salmon", "plum", "lavender", "orchid", "lime", "magenta", "navy"]
 
-def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molecule="protein"):
+def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molecule="protein", normalize_counts=False, normalization_denominator=1e6):
     """ Reads fasta files and returns pandas dataframe with their information
 
     Parameters
@@ -57,6 +57,11 @@ def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molec
             assignment = [assignment_function(i) for i in counts]
         else:
             assignment = ["N/A" for i in counts]
+
+        if normalize_counts:
+            counts_denom = sum(counts)/normalization_denominator
+            counts = [x/counts_denom for x in counts]
+
         if xid == 0:
             data_df = pd.DataFrame({"sequence": seqs, "copy_num": counts, "round": round_label, "assignment": assignment})
         else:
