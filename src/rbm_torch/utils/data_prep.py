@@ -701,17 +701,14 @@ def dataframe_to_fasta(df, out, count_key="copy_num"):
 
 
 # Prepares data and puts it into a fasta file
-# Datatype must be defined in global_info.py to work properly
+# Datatype must be provided, to see example look at pig_prep_example_updated
 # target_dir is where the files should be saved to
 # master_df is what we get from process_raw_fasta_files
 # Character Conversion will replace characters of strings. Must be dict. ex. {"T": "U"} will replace all Ts with Us
 # Remove chars deletes sequences with the provided chars. Must be a list
-def prepare_data_files(datatype_str, master_df, target_dir, character_conversion=None, remove_chars=None):
-    try:
-        dt = supported_datatypes[datatype_str]
-    except KeyError:
-        print(f"No datatype of specifier {datatype_str} found. Please add to global_info.py")
-        exit(-1)
+def prepare_data_files(datatype, master_df, target_dir, character_conversion=None, remove_chars=None):
+
+    dt = datatype
 
     # Add
     # if dt["id"] is not None:
