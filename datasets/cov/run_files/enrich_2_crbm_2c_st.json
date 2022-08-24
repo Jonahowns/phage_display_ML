@@ -1,5 +1,5 @@
 {"fasta_file": "enriched2.fasta",
-  "model_name": "enrich2_1c_st",
+  "model_name": "enrich2_2c_st",
   "local_model_dir": "/mnt/D1/globus/cov_trained_crbms/",
   "data_dir": "./datasets/cov/",
   "server_model_dir": "datasets/cov/trained_crbms/",
@@ -27,6 +27,8 @@
           "lf": 5,
           "ld": 10,
           "data_worker_num": 4,
-          "convolution_topology": {"hidden_20": {"number": 40, "kernelx": 25, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
+          "convolution_topology": {"hidden_14": {"number": 25, "kernelx": 14, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
+            "output_paddingx": 0, "output_paddingy": 0, "weight": 1.0},
+          "hidden_28": {"number": 25, "kernelx": 28, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
             "output_paddingx": 0, "output_paddingy": 0, "weight": 1.0}}
           }}

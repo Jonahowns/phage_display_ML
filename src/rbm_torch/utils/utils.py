@@ -618,7 +618,7 @@ def markov_step_zeroT_marginal(self, v,beta=1):
 #             checkpoint_file = os.path.join(checkpoint_dir, file)
 #     return checkpoint_file
 
-def get_beta_and_W(model, hidden_key=None, include_gaps=False):
+def get_beta_and_W(model, hidden_key=None, include_gaps=False, separate_signs=False):
     if model._get_name() == "RBM" or model._get_name() == "ExpRBM":
         W = model.get_param("W")
         if include_gaps:
@@ -631,10 +631,18 @@ def get_beta_and_W(model, hidden_key=None, include_gaps=False):
             exit(-1)
         else:
             W = model.get_param(hidden_key + "_W").squeeze(1)
-            if include_gaps:
-                return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+            if separate_signs:
+                Wpos = np.maximum(W, 0)
+                Wneg = np.minimum(W, 0)
+                if include_gaps:
+                    return np.sqrt((Wpos ** 2).sum(-1).sum(-1)), Wpos, np.sqrt((Wneg ** 2).sum(-1).sum(-1)), Wneg
+                else:
+                    return np.sqrt((Wpos[:, :, :-1] ** 2).sum(-1).sum(-1)), Wpos, np.sqrt((Wneg[:, :, :-1] ** 2).sum(-1).sum(-1)), Wneg
             else:
-                return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
+                if include_gaps:
+                    return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+                else:
+                    return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
 
 def all_weights(model, name=None, rows=5, order_weights=True):
     if name is None:
