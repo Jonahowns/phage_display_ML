@@ -94,7 +94,10 @@ if __name__ == '__main__':
         exit(1)
 
     logger = TensorBoardLogger(server_model_dir, name=model_name)
-    if run_data["gpus"] > 1:
+
+    if debug_flag:
+        plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")
+    elif run_data["gpus"] > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines
         plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=run_data["gpus"], accelerator="ddp")  # distributed data-parallel
     else:
