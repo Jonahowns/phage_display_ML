@@ -10,6 +10,7 @@ import os
 from rbm_torch.models.rbm import RBM
 from rbm_torch.models.crbm import CRBM
 from rbm_torch.models.crbm_experimental import ExpCRBM
+from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
 
 
@@ -31,7 +32,7 @@ if __name__ == '__main__':
 
     # Get info needed for all models
     model_type = run_data["model_type"]  # rbm, crbm, exp_rbm, exp_crbm
-    assert model_type in ["rbm", "crbm", "exp_rbm", "exp_crbm"]
+    assert model_type in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm"]
 
     config = run_data["config"]
     model_name = run_data["model_name"]
@@ -89,6 +90,8 @@ if __name__ == '__main__':
         model = CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "exp_crbm":
         model = ExpCRBM(config, debug=debug_flag, precision=config["precision"])
+    elif model_type == "net_crbm":
+        model = CRBM_net(config, debug=debug_flag, precision=config["precision"])
     else:
         print(f"Model Type {model_type} is not supported")
         exit(1)

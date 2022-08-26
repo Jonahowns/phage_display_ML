@@ -1386,9 +1386,9 @@ class CRBM(LightningModule):
     def AIS(self, M=10, n_betas=10000, batches=None, verbose=0, beta_type='adaptive'):
         with torch.no_grad():
             if beta_type == 'linear':
-                betas = torch.arange(n_betas) / torch.tensor(n_betas - 1, dtype=torch.float64)
+                betas = torch.arange(n_betas,  device=self.device) / torch.tensor(n_betas - 1, dtype=torch.float64, device=self.device)
             elif beta_type == 'root':
-                betas = torch.sqrt(torch.arange(n_betas)) / torch.tensor(n_betas - 1, dtype=torch.float64)
+                betas = torch.sqrt(torch.arange(n_betas,  device=self.device)) / torch.tensor(n_betas - 1, dtype=torch.float64, device=self.device)
             elif beta_type == 'adaptive':
                 Nthermalize = 200
                 Nchains = 20
@@ -1405,20 +1405,20 @@ class CRBM(LightningModule):
                 betas = []
                 sparse_betas = self.betas.flip(0)
                 for i in range(N_PT - 1):
-                    betas += list(sparse_betas[i] + (sparse_betas[i + 1] - sparse_betas[i]) * torch.arange(n_betas / (N_PT-1)) / (n_betas / (N_PT - 1) - 1))
-                betas = torch.tensor(betas)
+                    betas += list(sparse_betas[i] + (sparse_betas[i + 1] - sparse_betas[i]) * torch.arange(n_betas / (N_PT-1), device=self.device) / (n_betas / (N_PT - 1) - 1))
+                betas = torch.tensor(betas, device=self.device)
                 # if verbose:
                 # import matplotlib.pyplot as plt
                 # plt.plot(betas); plt.title('Interpolating temperatures');plt.show()
 
             # Initialization.
-            log_weights = torch.zeros(M)
+            log_weights = torch.zeros(M,  device=self.device)
             # config = self.gen_data(Nchains=M, Lchains=1, Nthermalize=0, beta=0)
 
             config = [self.sample_from_inputs_v(self.random_init_config_v(custom_size=(M,))),
                       self.sample_from_inputs_h(self.random_init_config_h(custom_size=(M,)))]
 
-            log_Z_init = torch.zeros(1)
+            log_Z_init = torch.zeros(1,  device=self.device)
 
             log_Z_init += self.logpartition_h(self.random_init_config_h(custom_size=(1,), zeros=True), beta=0)
             log_Z_init += self.logpartition_v(self.random_init_config_v(custom_size=(1,), zeros=True), beta=0)

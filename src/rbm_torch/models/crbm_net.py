@@ -11,6 +11,7 @@ from rbm_torch.models.crbm import CRBM
 import math
 from torch.optim import SGD, AdamW
 from pytorch_lightning import LightningModule, Trainer
+from rbm_torch.utils.utils import Categorical
 
 
 class FitnessPredictor(LightningModule):
@@ -21,6 +22,9 @@ class FitnessPredictor(LightningModule):
 
         self.network_epochs = network_config["network_epochs"]
 
+        if debug:
+            self.crbm.worker_num = 0
+
         self.crbm.fasta_file = network_config["fasta_file"]
         self.crbm.weights = network_config["weights"]
         self.crbm.setup()
@@ -28,6 +32,7 @@ class FitnessPredictor(LightningModule):
 
         # classifier optimization options
         self.network_lr = network_config["network_lr"]
+        self.network_dr = network_config["network_dr"]
         self.network_lrf = network_config["network_lr_final"]
         self.network_wd = network_config['network_weight_decay']  # Put into weight decay option in configure_optimizer, l2 regularizer
         self.network_decay_after = network_config['network_decay_after']  # hyperparameter for when the lr decay should occur
@@ -49,18 +54,35 @@ class FitnessPredictor(LightningModule):
 
         linear_size = full_out.shape[1]
         self.linear_size = linear_size
+        self.fcns = network_config["network_layers"]
 
-        network = [
-            nn.Linear(linear_size, linear_size//3, dtype=torch.get_default_dtype()),
-            nn.LeakyReLU(),
-            nn.Linear(linear_size//3, linear_size // 2, dtype=torch.get_default_dtype()),
-            nn.LeakyReLU(),
-            nn.Linear(linear_size//2, 1, dtype=torch.get_default_dtype()),
-            nn.Sigmoid()
-        ]
+        network = []
+
+        fcn_size = [linear_size]
+        if self.fcns > 1:
+            fcn_size += [linear_size//i for i in range(2, self.fcns+1, 1)]
+
+            for i in range(self.fcns-1):
+                network.append(nn.Dropout(self.network_dr))
+                network.append(nn.Linear(fcn_size[i], fcn_size[i+1], dtype=torch.get_default_dtype()))
+                network.append(nn.BatchNorm1d(fcn_size[i+1]))
+                network.append(nn.LeakyReLU())
+
+        network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
+        network.append(nn.Sigmoid())
+
+        # network = [
+        #     nn.Linear(linear_size, linear_size//3, dtype=torch.get_default_dtype()),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(linear_size//3, linear_size // 2, dtype=torch.get_default_dtype()),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(linear_size//2, 1, dtype=torch.get_default_dtype()),
+        #     nn.Sigmoid()
+        # ]
 
         self.net = nn.Sequential(*network)
-        self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='sum')
+        self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='sum')
+        self.save_hyperparameters()
 
     def configure_optimizers(self):
         optim = self.network_optimizer(self.parameters(), lr=self.network_lr, weight_decay=self.network_wd)
@@ -104,30 +126,355 @@ class FitnessPredictor(LightningModule):
     def forward(self, input):
         with torch.no_grad():
             # attempting to remove crbm_variables from gradient calculation
-            h_pos = self.crbm.sample_from_inputs_h(self.crbm.compute_output_v(input))
+            # h_pos = self.crbm.sample_from_inputs_h(self.crbm.compute_output_v(input))
+            h_pos = self.crbm.compute_output_v(input)
         h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in h_pos], dim=1)
         return self.net(h_flattened)
 
+    def predict(self, X):
+        # Read in data
+        reader = Categorical(X, self.crbm.q, weights=None, max_length=self.crbm.v_num, molecule=self.crbm.molecule, device=self.device, one_hot=True)
+        data_loader = torch.utils.data.DataLoader(
+            reader,
+            batch_size=self.crbm.batch_size,
+            num_workers=self.crbm.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.crbm.pin_mem,
+            shuffle=False
+        )
+        self.eval()
+        with torch.no_grad():
+            fitness_vals = []
+            for i, batch in enumerate(data_loader):
+                seqs, one_hot, seq_weights = batch
+                fitness_vals += self(one_hot).squeeze(1).detach().tolist()
+
+        return X.sequence.tolist(), fitness_vals
 
 
+class CRBM_net(CRBM):
+    """ Pytorch Lightning Module of Cnvolutional Restricted Boltzmann Machine
+
+    Parameters
+    ----------
+    config: dictionary,
+        sets mandatory variables for model to run
+    precision: str, optional, default="double"
+        sets default dtype of torch tensors as torch.float32 or torch.float64
+    debug: bool, optional, default=False
+        sets dataworker number to 1, enables use of debugger during model training
+        if False, tensor information won't be visible in debugger
+
+    Notes
+    -----
+    Description of Mandatory Config Keys and their accepted values
+        "fasta_file": str or list of strs,
+        "h_num": int, number of hidden nodes
+        "v_num": int, number of visible nodes, should be equal to sequence length of data
+        "q": int, number of values each visible node can take on, ex. for dna with values {A, C, G, T, -}, q is 5
+        "mc_moves": int, number of times each layer is sampled during each step
+        "batch_size": int, number of sequences in a batch
+        "epochs": int, number of iterations to run the model
+        "molecule": str, type of sequence data can be {"dna", "rna", "protein"}
+        "sample_type": str, {"gibbs", "pt", "pcd"}
+        "loss_type": str, {"free_energy", "energy"}
+        "optimizer": str, {"AdamW", "SGD", "Adagrad"}
+        "lr": float, learning rate of model
+        "l1_2": float, l1^2 penalty on the sum of the absolute value of the weights
+        "lf": float, penalty on the sum of the absolute value of the visible biases 'fields'
+        "seed": int, controls tensor generating random values for reproducable behavior
+
+
+
+    Description of Optional Config Keys and their accepted values
+        "data_worker_num": int, default=multiprocessing.cpu_count()
+        "sequence_weights": str, torch.tensor, or np.array
+            str values: "fasta", use values in fasta file
+                        other str, name of a weight file in same directory as provided fasta file
+
+        "lr_final"
+    """
+
+
+    def __init__(self, config, precision="double", debug=False):
+        super().__init__(config, precision=precision, debug=debug)
+
+        assert self.loss_type in ['free_energy']
+        assert self.sample_type in ['gibbs']
+
+        input_size = (config["batch_size"], self.v_num, self.q)
+
+        test_output = self.compute_output_v(torch.rand(input_size, device=self.device, dtype=torch.get_default_dtype()))
+
+        # fully flatten each and concatenate along 0 dim
+        out_flat = [torch.flatten(x, start_dim=1) for x in test_output]
+        full_out = torch.cat(out_flat, dim=1)
+
+        linear_size = full_out.shape[1]
+        self.linear_size = linear_size
+
+        self.fcns = config["fully_connected_layers"]
+        self.fcn_dr = config["fcn_dropout"]
+
+        network = []
+
+        fcn_size = [linear_size]
+        if self.fcns > 1:
+            fcn_size += [linear_size // i for i in range(2, self.fcns + 1, 1)]
+
+            for i in range(self.fcns - 1):
+                network.append(nn.Dropout(self.fcn_dr))
+                network.append(nn.Linear(fcn_size[i], fcn_size[i + 1], dtype=torch.get_default_dtype()))
+                network.append(nn.BatchNorm1d(fcn_size[i + 1]))
+                network.append(nn.LeakyReLU())
+
+        network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
+        network.append(nn.Sigmoid())
+
+        if config["fcn_loss"] == "l1":
+            self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='sum')
+        elif config["fcn_loss"] == "mse":
+            self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='sum')
+
+        self.net = nn.Sequential(*network)
+
+        torch.autograd.set_detect_anomaly(True)
+        self.save_hyperparameters()
+
+
+    def training_step_CD_free_energy(self, batch, batch_idx):
+        seqs, one_hot, fitness_targets = batch
+
+        fitness_targets = fitness_targets.to(torch.get_default_dtype())
+        # if self.meminfo:
+        #     print("GPU Allocated Training Step Start:", torch.cuda.memory_allocated(0))
+
+        # forward function of CRBM
+        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
+
+        # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
+
+        F_v = self.free_energy(V_pos_oh).sum() / V_pos_oh.shape[0]  # free energy of training data
+        F_vp = self.free_energy(V_neg_oh).sum() / V_neg_oh.shape[0]  # free energy of gibbs sampled visible states
+        cd_loss = F_v - F_vp
+
+        # Regularization Terms
+        reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.mean() * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+        # Network Loss on hidden unit input
+        h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in self.compute_output_v(V_pos_oh)], dim=1)
+        preds = self.net(h_flattened)
+
+        net_loss = self.netloss(preds.squeeze(1), fitness_targets)
+
+        # Calculate Loss
+        loss = cd_loss + reg1 + reg2 + reg3 + net_loss
+
+        logs = {"loss": loss,
+                "free_energy_diff": cd_loss.detach(),
+                "train_mse_loss": net_loss.detach(),
+                "train_free_energy": F_v.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
+                }
+
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_fitness_mse", net_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        # if self.meminfo:
+        #     print("GPU Allocated Final:", torch.cuda.memory_allocated(0))
+
+        return logs
+
+    def training_epoch_end(self, outputs):
+        # These are detached
+        avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
+        avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
+        field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
+        weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
+        distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
+        free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
+        net_loss = torch.stack([x["train_mse_loss"] for x in outputs]).mean()
+        # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
+
+        self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
+                                                           "CD_Loss": avg_dF,
+                                                           "Field Reg": field_reg,
+                                                           "Weight Reg": weight_reg,
+                                                           "Distance Reg": distance_reg,
+                                                           "Train Fitness MSE": net_loss,
+                                                           # "Train_pseudo_likelihood": pseudo_likelihood,
+                                                           "Train Free Energy": free_energy,
+                                                           }, self.current_epoch)
+
+        for name, p in self.named_parameters():
+            self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+
+
+    def validation_step(self, batch, batch_idx):
+        seqs, one_hot, fitness_targets = batch
+
+        fitness_targets = fitness_targets.to(torch.get_default_dtype())
+
+        h_input = self.compute_output_v(one_hot)
+        h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in h_input], dim=1)
+        preds = self.net(h_flattened)
+
+        net_loss = self.netloss(preds.squeeze(1), fitness_targets)
+
+        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
+        free_energy_avg = self.free_energy(one_hot).sum() / one_hot.shape[0]
+
+
+        batch_out = {
+            # "val_pseudo_likelihood": pseudo_likelihood.detach()
+            "val_free_energy": free_energy_avg.detach(),
+            "val_mse_loss": net_loss.detach()
+
+        }
+
+        # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
+        self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_fitness_mse", batch_out["val_mse_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        #
+        return batch_out
+
+
+    def validation_epoch_end(self, outputs):
+        avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['val_mse_loss'] for x in outputs]).mean()
+        self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
+        self.logger.experiment.add_scalar("Validation MSE Loss", avg_loss, self.current_epoch)
+
+    def on_before_zero_grad(self, optimizer):
+        with torch.no_grad():
+            for key in self.hidden_convolution_keys:
+                for param in ["gamma+", "gamma-"]:
+                    getattr(self, f"{key}_{param}").data.clamp_(0.05, 1.0)
+                for param in ["theta+", "theta-"]:
+                    getattr(self, f"{key}_{param}").data.clamp_(0.0, 1.0)
+
+    def predict(self, X):
+        # Read in data
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
+        # reader.data.to(self.device)
+        data_loader = torch.utils.data.DataLoader(
+            reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=False
+        )
+
+        # reader.train_data = reader.train_data.to(device='cuda')
+        # reader.train_weights = reader.train_weights.to(device='cuda')
+        # reader.train_data.to()
+
+
+        self.eval()
+        with torch.no_grad():
+            likelihood = []
+            fitness_vals = []
+            for i, batch in enumerate(data_loader):
+                seqs, one_hot, seq_weights = batch
+                one_hot_gpu = one_hot.to(device="cuda")
+
+                likelihood += self.likelihood(one_hot_gpu).detach().tolist()
+
+                h_input = self.compute_output_v(one_hot_gpu)
+                h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in h_input], dim=1)
+                preds = self.net(h_flattened)
+
+                fitness_vals += preds.cpu().squeeze(1).tolist()
+
+        return X.sequence.tolist(), likelihood, fitness_vals
+
+    # def on_before_optimizer_step(self, optimizer, optimizer_idx):
+    #     param_names = []
+    #     for key in self.hidden_convolution_keys:
+    #         param_names.append(f"{key}_gamma+")
+    #         param_names.append(f"{key}_gamma-")
+    #         param_names.append(f"{key}_theta+")
+    #         param_names.append(f"{key}_theta-")
+    #         param_names.append(f"{key}_W")
+    #
+    #     for param in param_names:
+    #         p = getattr(self, f"{param}")
+    #         if True in torch.isnan(p.grad):
+    #             print(param)
+    #             print(p.grad)
 
 
 if __name__ == '__main__':
-    network_config = {"network_epochs": 100, "network_lr": 0.002, "network_lr_final": 0.00002, "network_weight_decay": 0.001,
-                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/cov/net_test_short.fasta", "weights": "fasta"}
+    network_config = {"network_epochs": 2000, "network_lr": 0.000005, "network_lr_final": 0.000005, "network_weight_decay": 0.001,
+                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/cov/en_fit.fasta", "weights": "fasta",
+                      "network_layers": 1, "network_dr": 0.01}
 
     import rbm_torch.analysis.analysis_methods as am
 
-    mdir = "/mnt/D1/globus/cov_trained_crbms/"
-    r = "ultra_ut_enrich_1c_st"
+    # mdir = "/mnt/D1/globus/cov_trained_crbms/"
+    # r = "en_fit_w"
+    # #
+    # checkp, version_dir = am.get_checkpoint_path(r, rbmdir=mdir)
+    # #
+    # device = torch.device("cuda")
+    # fp = FitnessPredictor(checkp, network_config, debug=False)
+    # fp.to(device)
+    #
+    # logger = TensorBoardLogger("./datasets/cov/trained_crbms/", name="fitness_predictor_en_fit")
+    # plt = Trainer(max_epochs=network_config['network_epochs'], logger=logger, accelerator="gpu", devices=1)
+    # plt.fit(fp)
 
-    checkp, version_dir = am.get_checkpoint_path(r, rbmdir=mdir)
 
-    fp = FitnessPredictor(checkp, network_config)
+    # Evaluate how model did
+    # check = "./datasets/cov/trained_crbms/fitness_predictor_en_fit/version_17/checkpoints/epoch=1999-step=16000.ckpt"
+    # fp = FitnessPredictor.load_from_checkpoint(check)
+    # fp.eval()
+    #
+    # from rbm_torch.utils.utils import fasta_read
+    # import pandas as pd
+    # seqs, folds, chars, q = fasta_read("./datasets/cov/en_fit.fasta", "dna", threads=4)
+    #
+    # df = pd.DataFrame({"sequence": seqs, "copy_num": folds})
+    #
+    # ss, fit_vals = fp.predict(df)
+    #
+    # # print(fit_vals)
+    #
+    # import matplotlib.pyplot as plt
+    # plt.scatter(folds, fit_vals, alpha=0.3, s=2)
+    # plt.show()
 
-    logger = TensorBoardLogger("./datasets/cov/trained_crbms/", name="fitness_predictor_test")
-    plt = Trainer(max_epochs=network_config['network_epochs'], logger=logger, accelerator="cpu")
-    plt.fit(fp)
+    check = "./datasets/cov/trained_crbms/en_net/version_1/checkpoints/epoch=1499-step=12000.ckpt"
+
+    device = torch.device("cuda")
+
+    cnet = CRBM_net.load_from_checkpoint(check)
+
+    cnet.to(device)
+    cnet.eval()
+
+    from rbm_torch.utils.utils import fasta_read
+    import pandas as pd
+    seqs, folds, chars, q = fasta_read("./datasets/cov/en_fit.fasta", "dna", threads=4)
+
+    df = pd.DataFrame({"sequence": seqs, "copy_num": folds})
+
+    ss, likeli, fit_vals = cnet.predict(df)
+
+    # print(fit_vals)
+
+    import matplotlib.pyplot as plt
+    plt.scatter(folds, fit_vals, alpha=0.3, s=2)
+    plt.show()
 
 
 
