@@ -2,9 +2,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import Trainer
 
 import argparse
-import json
-import numpy as np
-from numpy.random import randint
+# import json
+# import numpy as np
+# from numpy.random import randint
 import os
 
 from rbm_torch.models.rbm import RBM
@@ -13,6 +13,7 @@ from rbm_torch.models.crbm_experimental import ExpCRBM
 from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
 
+from rbm_torch.utils.utils import load_run_file
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Runs Training Procedure from a json run file")
@@ -23,63 +24,14 @@ if __name__ == '__main__':
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1" # For debugging of cuda errors
 
-    try:
-        with open(args.runfile, "r") as f:
-            run_data = json.load(f)
-    except IOError:
-        print(f"Runfile {args.runfile} not found or empty! Please check!")
-        exit(1)
-
-    # Get info needed for all models
-    model_type = run_data["model_type"]  # rbm, crbm, exp_rbm, exp_crbm
-    assert model_type in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm"]
-
-    config = run_data["config"]
-    model_name = run_data["model_name"]
-
-    data_dir = run_data["data_dir"]
-    fasta_file = run_data["fasta_file"]
-
+    run_data, config = load_run_file(args.runfile)
+    model_type = run_data["model_type"]
     server_model_dir = run_data["server_model_dir"]
-
-    # Deal with weights
-    weights = None
-    if run_data["weights"] == "fasta":
-        weights = "fasta"  # All weights are already in the processed fasta files
-        # model_name += "_f"
-    elif run_data["weights"] is None or run_data["weights"] == "None":
-        pass
-    else:
-        ## Assumes weight file to be in same directory as our data files.
-        try:
-            with open(data_dir + run_data["weights"]) as f:
-                data = json.load(f)
-            weights = np.asarray(data["weights"])
-            # model_name += f"_{data['extension']}"
-        except IOError:
-            print(f"Could not load provided weight file {data_dir + run_data['weights']}")
-            exit(-1)
-
-    # Edit config for dataset specific hyperparameters
-    config["fasta_file"] = data_dir + fasta_file
-    config["sequence_weights"] = weights
-    seed = randint(0, 10000, 1)[0]
-    config["seed"] = seed
-    if config["lr_final"] == "None":
-        config["lr_final"] = None
-
-    if "crbm" in model_type:
-        # added since json files don't support tuples
-        for key, val in config["convolution_topology"].items():
-            for attribute in ["kernel", "dilation", "padding", "stride", "output_padding"]:
-                val[f"{attribute}"] = (val[f"{attribute}x"], val[f"{attribute}y"])
 
     debug_flag = False
     if args.d in ["true", "True"]:
         debug_flag = True
         run_data["gpus"] = 0
-
-    config["gpus"] = run_data["gpus"]
 
     # Training Code
     if model_type == "rbm":
@@ -96,7 +48,7 @@ if __name__ == '__main__':
         print(f"Model Type {model_type} is not supported")
         exit(1)
 
-    logger = TensorBoardLogger(server_model_dir, name=model_name)
+    logger = TensorBoardLogger(server_model_dir, name=run_data["model_name"])
 
     if debug_flag:
         plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")

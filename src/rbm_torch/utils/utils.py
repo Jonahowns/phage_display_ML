@@ -37,6 +37,7 @@ import time
 from multiprocessing import Pool
 import pandas as pd
 import types
+import json
 from torch.utils.data import Dataset
 
 # from sklearn.model_selection import train_test_split
@@ -90,6 +91,56 @@ aadict['.'] = -1
 
 letter_to_int_dicts = {"protein": aadict, "dna": dnadict, "rna": rnadict}
 int_to_letter_dicts = {"protein": aadict_inverse, "dna": dnadict_inverse, "rna": rnadict_inverse}
+
+
+def load_run_file(runfile):
+    try:
+        with open(runfile, "r") as f:
+            run_data = json.load(f)
+    except IOError:
+        print(f"Runfile {runfile} not found or empty! Please check!")
+        exit(1)
+
+    # Get info needed for all models
+    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm"]
+
+    config = run_data["config"]
+
+    data_dir = run_data["data_dir"]
+    fasta_file = run_data["fasta_file"]
+
+    # Deal with weights
+    weights = None
+    if run_data["weights"] == "fasta":
+        weights = "fasta"  # All weights are already in the processed fasta files
+    elif run_data["weights"] is None or run_data["weights"] == "None":
+        pass
+    else:
+        ## Assumes weight file to be in same directory as our data files.
+        try:
+            with open(data_dir + run_data["weights"]) as f:
+                data = json.load(f)
+            weights = np.asarray(data["weights"])
+        except IOError:
+            print(f"Could not load provided weight file {data_dir + run_data['weights']}")
+            exit(-1)
+
+    # Edit config for dataset specific hyperparameters
+    config["fasta_file"] = data_dir + fasta_file
+    config["sequence_weights"] = weights
+    seed = np.random.randint(0, 10000, 1)[0]
+    config["seed"] = seed
+    if config["lr_final"] == "None":
+        config["lr_final"] = None
+
+    if "crbm" in run_data["model_type"]:
+        # added since json files don't support tuples
+        for key, val in config["convolution_topology"].items():
+            for attribute in ["kernel", "dilation", "padding", "stride", "output_padding"]:
+                val[f"{attribute}"] = (val[f"{attribute}x"], val[f"{attribute}y"])
+
+    config["gpus"] = run_data["gpus"]
+    return run_data, config
 
 
 class Categorical(Dataset):
