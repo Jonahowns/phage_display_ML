@@ -30,7 +30,7 @@ import optuna
 from optuna.integration import PyTorchLightningPruningCallback
 
 
-def objective(trial, hyperparams_of_interest, config, epochs):
+def objective(trial, hyperparams_of_interest, config, epochs, postfix=None):
     hyper_params = {}
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
@@ -68,6 +68,9 @@ def objective(trial, hyperparams_of_interest, config, epochs):
         metric = "ptl/val_free_energy"
         # metric_mode = "min"
 
+    if postfix:
+        config["model_name"] = config["model_name"] + f"_{postfix}"
+
     if model == "rbm":
         mod = RBM(config, precision=config["precision"])
     elif model == "exp_rbm":
@@ -98,7 +101,7 @@ def objective(trial, hyperparams_of_interest, config, epochs):
         enable_progress_bar=False,
         enable_checkpointing=True,
         logger=TensorBoardLogger(
-            save_dir="~/ray_results/", name="tb", version="."),
+            save_dir=os.path.join(os.getcwd(), config["server_model_dir"]), name=config["model_name"], version=trial.number),
         callbacks=[PyTorchLightningPruningCallback(trial, monitor=metric)],
     )
 

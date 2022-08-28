@@ -2,6 +2,7 @@ import globus_sdk
 from glob import glob
 import argparse
 import json
+import os
 
 # Should be run on Agave, Pushes latest models to our Work Dell
 # Goal is to Transfer the most recent version of each RBM automatically to our local computer for analysis
@@ -33,7 +34,7 @@ def find_version(model_name, source_dir, endpoint_dir=None):
 
 
 # Create Transfer Task and Submit
-def model_transfer(run_data_list):
+def model_transfer(run_data_list, hparam_config=None, postfix=None):
     # create a Transfer task consisting of one or more items
     task_data = globus_sdk.TransferData(
         transfer_client, source_endpoint_id, dest_endpoint_id
@@ -46,9 +47,19 @@ def model_transfer(run_data_list):
 
         source_endpoint_dir = f"/jprocyk/machine_learning/phage_display_ML/{rdata['server_model_dir']}"
 
-        version_dir = find_version(rdata["model_name"], source_dir, endpoint_dir=source_endpoint_dir)
+        model_name = rdata['model_name']
+
+        if postfix:
+            model_name = model_name + f"_{postfix}"
+
+        if hparam_config:
+            model_name = f"{hparam_config}_" + model_name
+            version_dir = source_endpoint_dir + model_name
+        else:
+            version_dir = find_version(model_name, source_dir, endpoint_dir=source_endpoint_dir)
+
         # Destination of our Trained Models RIP
-        final_destination = destination_dir + rdata["model_name"] + "/" + version_dir.split("/")[-2] + "/"
+        final_destination = destination_dir + model_name + "/" + version_dir.split("/")[-2] + "/"
 
         task_data.add_item(
             version_dir,  # source
@@ -66,7 +77,13 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Transfer trained rbm or crbm models from Agave Scratch Endpoint to Target Endpoint")
     requiredNamed = parser.add_argument_group('required named arguments')
     requiredNamed.add_argument('run_files', nargs="+", type=str, help="Runfiles of the models you want to transfer")
+    requiredNamed.add_argument('-h', nargs="1", type=str, help="hyperparam config name", default=None)
+    requiredNamed.add_argument('-p', nargs="1", type=str, help="postfix to add to end of model name", default=None)
     args = parser.parse_args()
+
+    all_versions = False
+    if args.h:
+        all_versions = True
 
     all_run_data = []
     for runfile in args.run_files:
@@ -106,4 +123,4 @@ if __name__=='__main__':
         authorizer=globus_sdk.AccessTokenAuthorizer(transfer_tokens["access_token"])
     )
 
-    model_transfer(all_run_data)
+    model_transfer(all_run_data, hparam_config=args.h, postfix=args.p)

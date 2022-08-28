@@ -30,9 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('runfile', type=str, help="File holding all the necessary info for training the model")
     parser.add_argument('hparam_config_name', type=str, help="Name of hyperparameter optimization dictionary in hyp_configs.py")
     parser.add_argument('optimization_method', type=str, help="Which hparam optimization method to use, asha or pbt?")
-    parser.add_argument('samples', type=int, help="Number of Ray Tune Samples")
+    parser.add_argument('trials', type=int, help="Number of Optuna trials")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
-    parser.add_argument('cpus', type=int, help="Number of CPUs PER Trial")
     parser.add_argument('gpus', type=int, help="Number of GPUs PER Trial")
 
     args = parser.parse_args()
@@ -40,6 +39,7 @@ if __name__ == '__main__':
     run_data, config = load_run_file(args.runfile)
     config["model_type"] = run_data["model_type"]
     config["fasta_file"] = os.path.join(os.getcwd(), config["fasta_file"])
+    config["model_name"] = f"{args.hparam_config_name}_{config['model_name']}"
 
     # Set search Parameters
     search_method = args.optimization_method
@@ -60,15 +60,19 @@ if __name__ == '__main__':
         # Write out our expanded convolution topology to the optimization dictionary
         optimization_dict["convolution_topology"][tune_key] = full_convolution_topology
 
-    pruner = optuna.pruners.NopPruner()
+
+    pruner_warm_up_steps = 100
+
+    pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30, interval_steps=100, n_min_trials=5)
 
     study = optuna.create_study(
-        study_name="test",
+        study_name=config["model_name"],
         direction="minimize",
         pruner=pruner
     )
 
-    study.optimize(lambda trial: objective(trial, optimization_dict, config, args.epochs), n_trials=2)
+    config["gpus"] = args.gpus
+    study.optimize(lambda trial: objective(trial, optimization_dict, config, args.epochs), n_trials=args.trials)
 
     print("Best trial:")
     trial = study.best_trial
