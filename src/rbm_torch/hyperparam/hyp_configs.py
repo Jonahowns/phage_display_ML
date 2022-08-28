@@ -103,12 +103,12 @@ hconfigs = {"rbm" : {
                 "hidden": {  # hidden unit number grid search with varying of regularization variables
                     "convolution_topology": {"choice": [[[40, 25]], [[80, 25]], [[40, 15], [40, 25]]]},
                     # "batch_size": {"choice": [10000, 20000]},
-                    # "l1_2": {"uniform": [5, 20]},
+                    "l1_2": {"uniform": [5, 20]},
                     # "lf": {"uniform": [2, 20]},
                     "lr": {"uniform": [1e-4, 1e-2]},
-                    # "ld": {"uniform": [5, 20]},
-                    # "fully_connected_layers": {"choice": [2, 3, 4]},
-                    # "fcn_dropout": {"uniform": [0.001, 0.2]},
+                    "ld": {"uniform": [5, 20]},
+                    "fully_connected_layers": {"choice": [2, 3, 4]},
+                    "fcn_dropout": {"loguniform": [0.001, 0.2]},
                     # "fcn_loss": {"choice": ["mse", "l1"]}
                 }
             }

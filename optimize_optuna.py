@@ -29,7 +29,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Hyperparameter Optimization on Provided Dataset")
     parser.add_argument('runfile', type=str, help="File holding all the necessary info for training the model")
     parser.add_argument('hparam_config_name', type=str, help="Name of hyperparameter optimization dictionary in hyp_configs.py")
-    parser.add_argument('optimization_method', type=str, help="Which hparam optimization method to use, asha or pbt?")
+    # parser.add_argument('optimization_method', type=str, help="Which hparam optimization method to use, asha or pbt?")
     parser.add_argument('trials', type=int, help="Number of Optuna trials")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
     parser.add_argument('gpus', type=int, help="Number of GPUs PER Trial")
@@ -39,10 +39,10 @@ if __name__ == '__main__':
     run_data, config = load_run_file(args.runfile)
     config["model_type"] = run_data["model_type"]
     config["fasta_file"] = os.path.join(os.getcwd(), config["fasta_file"])
-    config["model_name"] = f"{args.hparam_config_name}_{config['model_name']}"
+    config["model_name"] = f"{args.hparam_config_name}_{run_data['model_name']}"
+    config["server_model_dir"] = run_data["server_model_dir"]
 
     # Set search Parameters
-    search_method = args.optimization_method
     optimization_dict = hconfigs[run_data["model_type"]][args.hparam_config_name]  # From hyper_configs, Sets which hyperparameters are optimized
 
     # Take our very compressed version of the convolution topology and write it out in a form the model will understand
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     pruner_warm_up_steps = 100
 
-    pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30, interval_steps=100, n_min_trials=5)
+    pruner = optuna.pruners.MedianPruner(n_startup_trials=8, n_warmup_steps=pruner_warm_up_steps, interval_steps=100, n_min_trials=8)
 
     study = optuna.create_study(
         study_name=config["model_name"],
