@@ -80,8 +80,8 @@ if __name__ == '__main__':
         pruner=pruner
     )
 
-    config["gpus"] = args.gpus
-    study.optimize(lambda trial: objective(trial, optimization_dict, config, args.epochs), n_trials=args.trials)
+    config["gpus"] = int(args.gpus)
+    study.optimize(lambda trial: objective(trial, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=config["gpus"])
 
     print("Best trial:")
     trial = study.best_trial
