@@ -60,6 +60,15 @@ if __name__ == '__main__':
         # Write out our expanded convolution topology to the optimization dictionary
         optimization_dict["convolution_topology"][tune_key] = full_convolution_topology
 
+    # if model directory already exists, increment by one and add to new directory name
+    if os.path.isdir(os.path.join(os.getcwd(), config["server_model_dir"], config["model_name"])):
+        i = 1
+        postfix = f"_{i}"
+        while os.path.isdir(os.path.join(os.getcwd(), config["server_model_dir"], config["model_name"] + postfix)):
+            i += 1
+            postfix = f"_{i}"
+
+        config["model_name"] = config["model_name"] + postfix
 
     pruner_warm_up_steps = 100
 

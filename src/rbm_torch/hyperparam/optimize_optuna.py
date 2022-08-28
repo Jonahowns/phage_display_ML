@@ -93,14 +93,6 @@ def objective(trial, hyperparams_of_interest, config, epochs, postfix=None):
         device_num = num_gpus
         acc = "ddp"
 
-    if os.path.isdir(os.path.join(os.getcwd(), config["server_model_dir"], config["model_name"])):
-        i = 1
-        postfix = f"_{i}"
-        while os.path.isdir(os.path.join(os.getcwd(), config["server_model_dir"], config["model_name"] + postfix)):
-            i += 1
-
-        config["model_name"] = config["model_name"] + postfix
-
     trainer = Trainer(
         # default_root_dir="./checkpoints/",
         max_epochs=epochs,
