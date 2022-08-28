@@ -1,19 +1,18 @@
 # import ray.tune as tune
-from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
+# from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 # from ray_lightning import RayPlugin
-from ray_lightning.tune import TuneReportCallback
-
+# from ray_lightning.tune import TuneReportCallback
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
-import numpy as np
-import math
-from ray import air, tune
+# import numpy as np
+# import math
+# from ray import air, tune
 # from ray.air import session
-import torch
-import argparse
-from copy import deepcopy
+# import torch
+# import argparse
+# from copy import deepcopy
 
 # local files
 from rbm_torch.models.rbm import RBM
@@ -22,8 +21,8 @@ from rbm_torch.models.crbm_experimental import ExpCRBM
 from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
 
-from rbm_torch.utils.utils import load_run_file
-from rbm_torch.hyperparam.hyp_configs import hconfigs
+# from rbm_torch.utils.utils import load_run_file
+# from rbm_torch.hyperparam.hyp_configs import hconfigs
 
 
 import optuna
