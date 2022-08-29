@@ -31,7 +31,7 @@ import optuna
 from optuna.integration import PyTorchLightningPruningCallback
 
 
-def objective(trial, hyperparams_of_interest, config, epochs, postfix=None):
+def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=None):
     hyper_params = {}
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
@@ -85,13 +85,13 @@ def objective(trial, hyperparams_of_interest, config, epochs, postfix=None):
 
     num_gpus = config["gpus"]
     if num_gpus == 0:
-        device_num = os.cpu_count()
+        device_num = [os.cpu_count()]
         acc = "cpu"
     elif num_gpus == 1:
-        device_num = num_gpus
+        device_num = [device]
         acc = "gpu"
     else:
-        device_num = num_gpus
+        device_num = [device]
         acc = "ddp"
 
     trainer = Trainer(
@@ -129,7 +129,7 @@ class Objective:
         gpu_id = self.gpu_queue.get()
 
         # Please write actual objective function here
-        value = objective(trial, self.hyperparams_of_interest, self.config, self.epochs, postfix=self.postfix)
+        value = objective(trial, self.hyperparams_of_interest, self.config, self.epochs, gpu_id, postfix=self.postfix)
         # Return GPU ID to the queue.
         self.gpu_queue.put(gpu_id)
 
