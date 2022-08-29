@@ -574,7 +574,40 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
 
 def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, reshape=True, update_betas=False, config_init=[]):
     tmp_model = copy.deepcopy(model)
-    if tmp_model._get_name() == "RBM":
+    name = tmp_model._get_name()
+    if "CRBM" in name:
+        setattr(tmp_model, "fields", torch.nn.Parameter(getattr(tmp_model, "fields") * beta, requires_grad=False))
+
+        if which == 'joint':
+            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
+            for key in tmp_model.hidden_convolution_keys:
+                for pkey in param_keys:
+                    setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}") * beta, requires_grad=False))
+        elif which == "marginal":
+            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            new_convolution_keys = copy.deepcopy(tmp_model.hidden_convolution_keys)
+
+            # Setup Steps for editing the hidden layer topology of our model
+            setattr(tmp_model, "convolution_topology", copy.deepcopy(model.convolution_topology))
+            tmp_model_conv_topology = getattr(tmp_model, "convolution_topology")  # Get and edit tmp_model_conv_topology
+            # Also need to fix up parameter hidden_layer_W
+            # tmp_model_hidden_layer_W = getattr(tmp_model, "hidden_layer_W")
+            tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
+
+            # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
+            for key in tmp_model.hidden_convolution_keys:
+                for b in range(beta - 1):
+                    new_key = f"{key}_{b}"
+                    new_convolution_keys.append(new_key)
+                    tmp_model_conv_topology[f"{new_key}"] = copy.deepcopy(tmp_model_conv_topology[f"{key}"])
+
+                    for pkey in param_keys:
+                        new_param_key = f"{new_key}_{pkey}"
+                        # setattr(tmp_model, new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+                        tmp_model.register_parameter(new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+
+            tmp_model.hidden_convolution_keys = new_convolution_keys
+    elif "RBM" in name:
         with torch.no_grad():
             if which == 'joint':
                 tmp_model.params["fields"] *= beta
@@ -597,51 +630,16 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
                     tmp_model.params["0theta-"] = torch.nn.Parameter(torch.repeat_interleave(model.params["0theta-"], beta, dim=0), requires_grad=False)
             tmp_model.prep_W()
 
-    elif tmp_model._get_name() == "CRBM":
-        setattr(tmp_model, "fields", torch.nn.Parameter(getattr(tmp_model, "fields") * beta, requires_grad=False))
-
-        if which == 'joint':
-            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
-            for key in tmp_model.hidden_convolution_keys:
-                for pkey in param_keys:
-                    setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}")*beta, requires_grad=False))
-        elif which == "marginal":
-            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
-            new_convolution_keys = copy.deepcopy(tmp_model.hidden_convolution_keys)
-
-            # Setup Steps for editing the hidden layer topology of our model
-            setattr(tmp_model, "convolution_topology", copy.deepcopy(model.convolution_topology))
-            tmp_model_conv_topology = getattr(tmp_model, "convolution_topology")  # Get and edit tmp_model_conv_topology
-            # Also need to fix up parameter hidden_layer_W
-            # tmp_model_hidden_layer_W = getattr(tmp_model, "hidden_layer_W")
-            tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
-
-            # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
-            for key in tmp_model.hidden_convolution_keys:
-                for b in range(beta-1):
-                    new_key = f"{key}_{b}"
-                    new_convolution_keys.append(new_key)
-                    tmp_model_conv_topology[f"{new_key}"] = copy.deepcopy(tmp_model_conv_topology[f"{key}"])
-
-                    for pkey in param_keys:
-                        new_param_key = f"{new_key}_{pkey}"
-                        # setattr(tmp_model, new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
-                        tmp_model.register_parameter(new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
-
-
-
-            tmp_model.hidden_convolution_keys = new_convolution_keys
-
     return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 
-def gen_data_zeroT(RBM, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
-    tmp_RBM = copy.deepcopy(RBM)
+def gen_data_zeroT(model, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
+    tmp_model = copy.deepcopy(model)
     with torch.no_grad():
         if which == 'joint':
-            tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_joint, tmp_RBM)
+            tmp_model.markov_step = types.MethodType(markov_step_zeroT_joint, tmp_model)
         elif which == 'marginal':
-            tmp_RBM.markov_step = types.MethodType(markov_step_zeroT_marginal, tmp_RBM)
-        return tmp_RBM.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
+            tmp_model.markov_step = types.MethodType(markov_step_zeroT_marginal, tmp_model)
+        return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 
 def markov_step_zeroT_joint(self, v, beta=1):
     I = self.compute_output_v(v)
@@ -670,13 +668,8 @@ def markov_step_zeroT_marginal(self, v,beta=1):
 #     return checkpoint_file
 
 def get_beta_and_W(model, hidden_key=None, include_gaps=False, separate_signs=False):
-    if model._get_name() == "RBM" or model._get_name() == "ExpRBM":
-        W = model.get_param("W")
-        if include_gaps:
-            return np.sqrt((W ** 2).sum(-1).sum(-1)), W
-        else:
-            return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
-    elif model._get_name() == "CRBM":
+    name = model._get_name()
+    if "CRBM" in name:
         if hidden_key is None:
             print("Must specify hidden key in get_beta_and_W for crbm")
             exit(-1)
@@ -694,11 +687,29 @@ def get_beta_and_W(model, hidden_key=None, include_gaps=False, separate_signs=Fa
                     return np.sqrt((W ** 2).sum(-1).sum(-1)), W
                 else:
                     return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
+    elif "RBM" in name:
+        W = model.get_param("W")
+        if include_gaps:
+            return np.sqrt((W ** 2).sum(-1).sum(-1)), W
+        else:
+            return np.sqrt((W[:, :, :-1] ** 2).sum(-1).sum(-1)), W
+
 
 def all_weights(model, name=None, rows=5, order_weights=True):
+    model_name = model._get_name()
     if name is None:
         name = model._get_name()
-    if model._get_name() == "RBM" or model._get_name() == "ExpRBM":
+
+    if "CRBM" in model_name:
+        for key in model.hidden_convolution_keys:
+            wdim = model.convolution_topology[key]["weight_dims"]
+            kernelx = wdim[2]
+            if kernelx <= 10:
+                ncols = 2
+            else:
+                ncols = 1
+            conv_weights(model, key, name + "_" + key, rows, ncols, 7, 5, order_weights=order_weights)
+    elif "RBM" in model_name:
         beta, W = get_beta_and_W(model)
         if order_weights:
             order = np.argsort(beta)[::-1]
@@ -710,16 +721,9 @@ def all_weights(model, name=None, rows=5, order_weights=True):
         else:
             ncols = 1
         fig = Sequence_logo_all(W[order], name=name + '.pdf', nrows=rows, ncols=ncols, figsize=(7, 5), ticks_every=10, ticks_labels_size=10, title_size=12, dpi=200, molecule=model.molecule)
-    elif model._get_name() == "CRBM":
-        for key in model.hidden_convolution_keys:
-            wdim = model.convolution_topology[key]["weight_dims"]
-            kernelx = wdim[2]
-            if kernelx <= 10:
-                ncols = 2
-            else:
-                ncols = 1
-            conv_weights(model, key, name+"_"+key, rows, ncols, 7, 5, order_weights=order_weights)
+
     plt.close() # close all open figures
+
 
 def conv_weights(crbm, hidden_key, name, rows, columns, h, w, order_weights=True):
     beta, W = get_beta_and_W(crbm, hidden_key)

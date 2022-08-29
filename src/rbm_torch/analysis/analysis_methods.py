@@ -126,13 +126,23 @@ def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="
       version_dir: str,
           tensorboard directory of target pytorch model
       """
-    likelihoods = {}
-    sequences = {}
+    likelihoods, sequences, fit_vals = {}, {}, {}
+
     for x in rounds:
-        seqs, likeli = model.predict(all_data[all_data[key] == x])
+        model.predict(all_data[all_data[key] == x])
+
+        if "net" in model._get_name():
+            seqs, likeli, fitness_vals = model.predict(all_data[all_data[key] == x])
+            fit_vals[x] = fitness_vals
+        else:
+            seqs, likeli = model.predict(all_data[all_data[key] == x])
         likelihoods[x] = likeli
         sequences[x] = seqs
-    data = {'likelihoods': likelihoods, "sequences": sequences}
+
+    if "net" in model._get_name():
+        data = {'likelihoods': likelihoods, "sequences": sequences, "fitness_vals": fit_vals}
+    else:
+        data = {'likelihoods': likelihoods, "sequences": sequences}
     out = open(dir+identifier+".json", "w")
     json.dump(data, out)
     out.close()
