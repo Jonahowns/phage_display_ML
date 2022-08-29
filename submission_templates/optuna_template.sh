@@ -15,5 +15,5 @@
 
 source activate PYTHONENV
 
-python optimize_optuna.py RUNFILE HPARAM_CONFIG_KEY TRIALS EPOCHS GPUS_PER_TRIAL
+python optimize_optuna.py RUNFILE HPARAM_CONFIG_KEY TRIALS EPOCHS GPUS
 

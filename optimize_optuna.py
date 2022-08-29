@@ -37,7 +37,7 @@ if __name__ == '__main__':
     # parser.add_argument('optimization_method', type=str, help="Which hparam optimization method to use, asha or pbt?")
     parser.add_argument('trials', type=int, help="Number of Optuna trials")
     parser.add_argument('epochs', type=int, help="Number of Training Iterations")
-    parser.add_argument('gpus', type=int, help="Number of GPUs PER Trial")
+    parser.add_argument('gpus', type=int, help="Number of GPUs Total, each trial trained on separate gpu")
 
     args = parser.parse_args()
 
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     )
 
     n_gpu = int(args.gpus)
-    config["gpus"] = n_gpu
+    # config["gpus"] = n_gpu
 
     cluster = LocalCUDACluster()
     client = Client(cluster)

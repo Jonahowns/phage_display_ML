@@ -62,7 +62,7 @@ if __name__ == "__main__":
     filedata = filedata.replace("HPARAM_CONFIG_KEY", args.hidden_param_key)
     filedata = filedata.replace("TRIALS", args.trials)
     filedata = filedata.replace("EPOCHS", args.epochs)
-    filedata = filedata.replace("GPUS_PER_TRIAL", "1")
+    # filedata = filedata.replace("GPUS_PER_TRIAL", "1")
     filedata = filedata.replace("GPUS", args.gpus)
 
 

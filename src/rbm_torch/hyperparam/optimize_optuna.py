@@ -83,16 +83,9 @@ def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=No
     elif model == "net_crbm":
         mod = CRBM_net(config, precision=config["precision"])
 
-    num_gpus = config["gpus"]
-    if num_gpus == 0:
-        device_num = [os.cpu_count()]
-        acc = "cpu"
-    elif num_gpus == 1:
-        device_num = [device]
-        acc = "gpu"
-    else:
-        device_num = [device]
-        acc = "ddp"
+    # num_gpus = config["gpus"]
+    device_num = [device]
+    acc = "gpu"
 
     trainer = Trainer(
         # default_root_dir="./checkpoints/",
