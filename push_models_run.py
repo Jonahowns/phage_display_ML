@@ -52,14 +52,14 @@ def model_transfer(run_data_list, hparam_config=None, postfix=None):
         if postfix:
             model_name = model_name + f"_{postfix}"
 
-        if hparam_config:
+        if hparam_config:  # transferring a hyperparameter optimization run
             model_name = f"{hparam_config}_" + model_name
             version_dir = source_endpoint_dir + model_name
-        else:
+            final_destination = destination_dir + model_name + "/"
+        else:  # transferring a single model run
             version_dir = find_version(model_name, source_dir, endpoint_dir=source_endpoint_dir)
-
-        # Destination of our Trained Models RIP
-        final_destination = destination_dir + model_name + "/" + version_dir.split("/")[-2] + "/"
+            # Destination of our Trained Models RIP
+            final_destination = destination_dir + model_name + "/" + version_dir.split("/")[-2] + "/"
 
         task_data.add_item(
             version_dir,  # source
