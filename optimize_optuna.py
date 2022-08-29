@@ -99,7 +99,7 @@ if __name__ == '__main__':
             gpu_queue.put(i)
         with parallel_backend("dask", n_jobs=n_gpu):
             # study.optimize(Objective(gpu_queue), n_trials=10, n_jobs=n_gpu)
-            study.optimize(Objective(gpu_queue, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=config["gpus"])
+            study.optimize(Objective(gpu_queue, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=n_gpu)
 
     # study.optimize(lambda trial: Objective(gpu_queue, trial, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=config["gpus"])
 
