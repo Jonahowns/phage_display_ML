@@ -77,12 +77,12 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Transfer trained rbm or crbm models from Agave Scratch Endpoint to Target Endpoint")
     requiredNamed = parser.add_argument_group('required named arguments')
     requiredNamed.add_argument('run_files', nargs="+", type=str, help="Runfiles of the models you want to transfer")
-    requiredNamed.add_argument('-h', nargs="1", type=str, help="hyperparam config name", default=None)
+    requiredNamed.add_argument('-k', nargs="1", type=str, help="hyperparam config key name", default=None)
     requiredNamed.add_argument('-p', nargs="1", type=str, help="postfix to add to end of model name", default=None)
     args = parser.parse_args()
 
     all_versions = False
-    if args.h:
+    if args.k:
         all_versions = True
 
     all_run_data = []
@@ -123,4 +123,4 @@ if __name__=='__main__':
         authorizer=globus_sdk.AccessTokenAuthorizer(transfer_tokens["access_token"])
     )
 
-    model_transfer(all_run_data, hparam_config=args.h, postfix=args.p)
+    model_transfer(all_run_data, hparam_config=args.k, postfix=args.p)
