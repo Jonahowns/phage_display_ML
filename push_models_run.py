@@ -76,9 +76,10 @@ def model_transfer(run_data_list, hparam_config=None, postfix=None):
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description="Transfer trained rbm or crbm models from Agave Scratch Endpoint to Target Endpoint")
     requiredNamed = parser.add_argument_group('required named arguments')
-    requiredNamed.add_argument('run_files', nargs="+", type=str, help="Runfiles of the models you want to transfer")
-    requiredNamed.add_argument('-k', nargs=1, type=str, help="hyperparam config key name", default=None)
-    requiredNamed.add_argument('-p', nargs=1, type=str, help="postfix to add to end of model name", default=None)
+    requiredNamed.add_argument('-k', type=str, help="hyperparam config key name", default=None)
+    requiredNamed.add_argument('-p', type=str, help="postfix to add to end of model name", default=None)
+    requiredNamed.add_argument('-r', '--run_files', nargs="*", type=str, help="Runfiles of the models you want to transfer")
+
     args = parser.parse_args()
 
     all_versions = False
