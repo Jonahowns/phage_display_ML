@@ -21,3 +21,11 @@ PIL
 pip install
 Tbparse
 globus-sdk
+
+
+Hyperparameter libraies
+pip install
+dask_cuda
+
+conda install
+optuna

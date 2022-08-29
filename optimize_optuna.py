@@ -9,6 +9,11 @@ import argparse
 from copy import deepcopy
 import optuna
 
+from dask.distributed import Client, wait
+from dask_cuda import LocalCUDACluster
+from multiprocessing import Manager
+from joblib import parallel_backend
+
 # # local files
 # from rbm_torch.models.rbm import RBM
 # from rbm_torch.models.crbm import CRBM
@@ -19,7 +24,7 @@ import optuna
 from rbm_torch.utils.utils import load_run_file
 from rbm_torch.hyperparam.hyp_configs import hconfigs
 # from rbm_torch.hyperparam.optimize import optimize
-from rbm_torch.hyperparam.optimize_optuna import objective
+from rbm_torch.hyperparam.optimize_optuna import Objective
 
 if __name__ == '__main__':
     os.environ["SLURM_JOB_NAME"] = "bash"   # server runs crash without this line (yay raytune)
@@ -80,18 +85,25 @@ if __name__ == '__main__':
         pruner=pruner
     )
 
-    config["gpus"] = int(args.gpus)
-    study.optimize(lambda trial: objective(trial, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=config["gpus"])
+    n_gpu = int(args.gpus)
+    config["gpus"] = n_gpu
+
+    cluster = LocalCUDACluster()
+    client = Client(cluster)
+
+    with Manager() as manager:
+
+        # Initialize the queue by adding available GPU IDs.
+        gpu_queue = manager.Queue()
+        for i in range(n_gpu):
+            gpu_queue.put(i)
+        with parallel_backend("dask", n_jobs=n_gpu):
+            # study.optimize(Objective(gpu_queue), n_trials=10, n_jobs=n_gpu)
+            study.optimize(Objective(gpu_queue, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=config["gpus"])
+
+    # study.optimize(lambda trial: Objective(gpu_queue, trial, optimization_dict, config, args.epochs), n_trials=args.trials, n_jobs=config["gpus"])
 
     print("Best trial:")
     trial = study.best_trial
 
     print("  Value: {}".format(trial.value))
-
-    # # Launch Hyperparameter Optimization Task
-    # optimize(config,
-    #          optimization_dict,
-    #          num_samples=args.samples,
-    #          num_epochs=args.epochs,
-    #          gpus_per_trial=args.gpus,
-    #          cpus_per_trial=args.cpus)
