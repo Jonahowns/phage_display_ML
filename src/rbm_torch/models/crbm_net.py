@@ -12,6 +12,7 @@ import math
 from torch.optim import SGD, AdamW
 from pytorch_lightning import LightningModule, Trainer
 from rbm_torch.utils.utils import Categorical
+from rbm_torch.utils.utils import FDS
 
 
 class FitnessPredictor(LightningModule):
@@ -228,7 +229,25 @@ class CRBM_net(CRBM):
                 network.append(nn.LeakyReLU())
 
         network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
-        network.append(nn.Sigmoid())
+        # network.append(nn.Sigmoid())
+
+        self.use_fds = False
+        if "fds_kernel" in config.keys():
+            self.use_fds = True
+
+            self.fds_kernel = config["fds_kernel"]  # gaussian, laplace, triang
+            self.fds_ks = config["fds_ks"]  # 5, FDS kernel size: should be odd number
+            self.fds_sigma = config ["fds_sigma"]  # 2, FDS gaussian/laplace kernel sigma
+            self.fds_start_update = config["fds_start_update"]  # 0, which epoch to start FDS updating
+            self.fds_start_smooth = config["fds_start_smooth"]  # 1, which epoch to start using FDS to smooth features
+            self.fds_bucket_num = config["fds_bucket_num"]  # 50, maximum bucket considered for FDS
+            self.fds_bucket_start = config["fds_bucket_start"]  # 0, minimum(starting) bucket for FDS
+            self.fds_momentum = config["fds_momentum"]  # 0.9, FDS momentum
+
+            self.FDS = FDS(feature_dim=linear_size, bucket_num=self.fds_bucket_num, bucket_start=self.fds_bucket_start,
+                       start_update=self.fds_start_update, start_smooth=self.fds_start_smooth,
+                       kernel=self.fds_kernel, ks=self.fds_ks, sigma=self.fds_sigma, momentum=self.fds_momentum, device=self.device)
+
 
         if config["fcn_loss"] == "l1":
             self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='mean')
@@ -237,7 +256,7 @@ class CRBM_net(CRBM):
 
         self.net = nn.Sequential(*network)
 
-        torch.autograd.set_detect_anomaly(True)
+        # torch.autograd.set_detect_anomaly(True)
         self.save_hyperparameters()
 
 
@@ -276,9 +295,16 @@ class CRBM_net(CRBM):
 
         # Network Loss on hidden unit input
         h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in self.compute_output_v(V_pos_oh)], dim=1)
+
+        # Enable FDS
+        if self.use_fds:
+            if self.current_epoch >= self.fds_start_smooth:
+                h_flattened = self.FDS.smooth(h_flattened, fitness_targets, self.current_epoch)
+
         preds = self.net(h_flattened)
 
         raw_mse_loss = self.netloss(preds.squeeze(1), fitness_targets)
+
         net_loss = 10 * self.current_epoch/self.epochs * raw_mse_loss
 
         crbm_loss = (cd_loss + reg1 + reg2 + reg3) * (1.5 - self.current_epoch/self.epochs)

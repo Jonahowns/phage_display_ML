@@ -31,5 +31,13 @@
           "fcn_loss": "l1",
           "data_worker_num": 4,
           "convolution_topology": {"hidden_29": {"number": 40, "kernelx": 29, "kernely":  5, "stridex": 1, "stridey": 1, "paddingx": 0, "paddingy": 0, "dilationx": 1, "dilationy": 1,
-            "output_paddingx": 0, "output_paddingy": 0, "weight": 1.0}}
+            "output_paddingx": 0, "output_paddingy": 0, "weight": 1.0}},
+          "fds_kernel": "gaussian",
+          "fds_ks": 5,
+          "fds_sigma": 2,
+          "fds_start_update": 0,
+          "fds_start_smooth": 200,
+          "fds_bucket_num": 50,
+          "fds_bucket_start": 0,
+          "fds_momentum": 0.9
           }}
