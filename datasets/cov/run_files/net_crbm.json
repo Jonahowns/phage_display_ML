@@ -36,7 +36,7 @@
           "fds_ks": 5,
           "fds_sigma": 2,
           "fds_start_update": 0,
-          "fds_start_smooth": 200,
+          "fds_start_smooth": 1,
           "fds_bucket_num": 50,
           "fds_bucket_start": 0,
           "fds_momentum": 0.9

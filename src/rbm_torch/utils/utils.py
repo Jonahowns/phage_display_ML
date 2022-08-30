@@ -374,6 +374,8 @@ def calibrate_mean_var(matrix, m1, v1, m2, v2, clip_min=0.5, clip_max=2.):
     factor = torch.clamp(v2 / v1, clip_min, clip_max)
     return (matrix - m1) * torch.sqrt(factor) + m2
 
+
+# Taken and adapted from https://github.com/YyzHarry/imbalanced-regression
 class FDS(nn.Module):
     def __init__(self, feature_dim, bucket_num=50, bucket_start=0, start_update=0, start_smooth=1,
                  kernel='gaussian', ks=5, sigma=2, momentum=0.9, device="cpu"):
@@ -460,6 +462,7 @@ class FDS(nn.Module):
         assert self.feature_dim == features.size(1), "Input feature dimension is not aligned!"
         assert features.size(0) == labels.size(0), "Dimensions of features and labels are not aligned!"
 
+        labels = labels.numpy()
         buckets = np.array([self._get_bucket_idx(label) for label in labels])
         for bucket in np.unique(buckets):
             curr_feats = features[torch.tensor((buckets == bucket).astype(np.uint8))]
@@ -497,6 +500,7 @@ class FDS(nn.Module):
             return features
 
         # labels = labels.squeeze(1)
+        labels = labels.numpy()
         buckets = np.array([self._get_bucket_idx(label) for label in labels])
         for bucket in np.unique(buckets):
             features[torch.tensor((buckets == bucket).astype(np.uint8))] = calibrate_mean_var(
