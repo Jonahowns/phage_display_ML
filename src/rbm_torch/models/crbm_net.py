@@ -369,7 +369,7 @@ class CRBM_net(CRBM):
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/val_fitness_mse", batch_out["val_mse_loss"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_fitness_mse", batch_out["val_fitness_mse"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         #
         return batch_out
