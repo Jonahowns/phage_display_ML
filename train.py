@@ -18,7 +18,8 @@ from rbm_torch.utils.utils import load_run_file
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Runs Training Procedure from a json run file")
     parser.add_argument('runfile', type=str, help="json file containing all info needed to run models")
-    parser.add_argument('-d', type=str, nargs="?", help="debug flag, pass true to be able to inspect tensor values", default="False")
+    parser.add_argument('-dg', type=str, nargs="?", help="debug flag for gpu, pass true to be able to inspect tensor values", default="False")
+    parser.add_argument('-dc', type=str, nargs="?", help="debug flag for cpu, pass true to be able to inspect tensor values", default="False")
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
@@ -29,7 +30,11 @@ if __name__ == '__main__':
     server_model_dir = run_data["server_model_dir"]
 
     debug_flag = False
-    if args.d in ["true", "True"]:
+    if args.dg in ["true", "True"]:
+        debug_flag = True
+        run_data["gpus"] = 1
+
+    if args.dc in ["true", "True"]:
         debug_flag = True
         run_data["gpus"] = 0
 
@@ -51,7 +56,10 @@ if __name__ == '__main__':
     logger = TensorBoardLogger(server_model_dir, name=run_data["model_name"])
 
     if debug_flag:
-        plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")
+        if run_data["gpus"] == 0:
+            plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")
+        else:
+            plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cuda", devices=run_data["gpus"])
     elif run_data["gpus"] > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines
         plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=run_data["gpus"], accelerator="cuda", strategy="ddp")  # distributed data-parallel

@@ -379,7 +379,7 @@ def calibrate_mean_var(matrix, m1, v1, m2, v2, clip_min=0.5, clip_max=2.):
 class FDS(nn.Module):
     def __init__(self, feature_dim, bucket_num=50, bucket_start=0, start_update=0, start_smooth=1,
                  kernel='gaussian', ks=5, sigma=2, momentum=0.9, device="cpu"):
-        super(FDS, self).__init__()
+        super().__init__()
         self.device = device
         self.feature_dim = feature_dim
         self.bucket_num = bucket_num
@@ -418,8 +418,9 @@ class FDS(nn.Module):
         return torch.tensor(kernel_window, dtype=torch.get_default_dtype(), device=self.device)
 
     def _assign_bucket_edges(self):
-        _, bins_edges = torch.histogram(torch.tensor([], device=self.device), bins=self.bucket_num, range=(0., 1.))
-        self.bucket_edges = bins_edges
+        # _, bins_edges = torch.histogram(torch.tensor([], device=self.device), bins=self.bucket_num, range=(0., 1.))
+        bin_edges = torch.linspace(0, 1, self.bucket_num + 1, device=self.device)
+        self.bucket_edges = bin_edges
         self.bucket_start_torch = torch.tensor([self.bucket_start], device=self.device)
 
     def _get_bucket_idx(self, label):

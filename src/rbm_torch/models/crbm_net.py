@@ -259,6 +259,11 @@ class CRBM_net(CRBM):
         # torch.autograd.set_detect_anomaly(True)
         self.save_hyperparameters()
 
+    def on_train_start(self):
+        super().on_train_start()
+        # only way I can get this thing on the correct device
+        if self.use_fds:
+            self.FDS.device = self.device
 
     def training_step_CD_free_energy(self, batch, batch_idx):
         seqs, one_hot, fitness_targets = batch
