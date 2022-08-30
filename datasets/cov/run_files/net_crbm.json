@@ -5,7 +5,7 @@
   "server_model_dir": "datasets/cov/trained_crbms/",
   "weights": "fasta",
   "model_type": "net_crbm",
-  "gpus": 1,
+  "gpus": 2,
   "config": {"fasta_file": "",
           "v_num": 40,
           "q": 5,
