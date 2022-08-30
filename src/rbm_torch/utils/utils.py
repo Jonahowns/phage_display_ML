@@ -420,6 +420,7 @@ class FDS(nn.Module):
     def _assign_bucket_edges(self):
         _, bins_edges = torch.histogram(torch.tensor([], device=self.device), bins=self.bucket_num, range=(0., 1.))
         self.bucket_edges = bins_edges
+        self.bucket_start_torch = torch.tensor([self.bucket_start], device=self.device)
 
     def _get_bucket_idx(self, label):
         # label = np.float32(label)
@@ -429,7 +430,7 @@ class FDS(nn.Module):
             return self.bucket_num - 1
         else:
             # return max(np.where(self.bucket_edges > label)[0][0] - 1, self.bucket_start)
-            return torch.max(torch.nonzero((self.bucket_edges > label).float()).squeeze(1)[-1] - 1, torch.tensor([self.bucket_start])).item()
+            return torch.max(torch.nonzero((self.bucket_edges > label).float()).squeeze(1)[-1] - 1, self.bucket_start_torch).item()
             # return max(np.where(self.bucket_edges > label)[-1] - 1, self.bucket_start)
 
     def _update_last_epoch_stats(self):
