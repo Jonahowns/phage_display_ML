@@ -54,7 +54,7 @@ if __name__ == '__main__':
         plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")
     elif run_data["gpus"] > 1:
         # distributed data parallel, multi-gpus on single machine or across multiple machines
-        plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=run_data["gpus"], accelerator="ddp")  # distributed data-parallel
+        plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=run_data["gpus"], accelerator="cuda", strategy="ddp")  # distributed data-parallel
     else:
-        plt = Trainer(max_epochs=config['epochs'], logger=logger, devices=run_data["gpus"], accelerator="gpu")  # gpus=1,
+        plt = Trainer(max_epochs=config['epochs'], logger=logger, devices=run_data["gpus"], accelerator="cuda")  # gpus=1,
     plt.fit(model)
