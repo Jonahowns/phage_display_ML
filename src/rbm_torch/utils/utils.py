@@ -417,13 +417,20 @@ class FDS(nn.Module):
         logging.info(f'Using FDS: [{kernel.upper()}] ({ks}/{sigma})')
         return torch.tensor(kernel_window, dtype=torch.get_default_dtype(), device=self.device)
 
+    def _assign_bucket_edges(self):
+        _, bins_edges = torch.histogram(torch.tensor([], device=self.device), bins=self.bucket_num, range=(0., 1.))
+        self.bucket_edges = bins_edges
+
     def _get_bucket_idx(self, label):
-        label = np.float32(label)
-        _, bins_edges = np.histogram(a=np.array([], dtype=np.float32), bins=self.bucket_num, range=(0., 5.))
-        if label == 5.:
+        # label = np.float32(label)
+        # _, bins_edges = np.histogram(a=np.array([], dtype=np.float32), bins=self.bucket_num, range=(0., 5.))
+        # bin_edges = self.bucket_edges
+        if label == 1.:
             return self.bucket_num - 1
         else:
-            return max(np.where(bins_edges > label)[0][0] - 1, self.bucket_start)
+            # return max(np.where(self.bucket_edges > label)[0][0] - 1, self.bucket_start)
+            return torch.max(torch.nonzero((self.bucket_edges > label).float()).squeeze(1)[-1] - 1, torch.tensor([self.bucket_start])).item()
+            # return max(np.where(self.bucket_edges > label)[-1] - 1, self.bucket_start)
 
     def _update_last_epoch_stats(self):
         self.running_mean_last_epoch = self.running_mean
@@ -462,10 +469,20 @@ class FDS(nn.Module):
         assert self.feature_dim == features.size(1), "Input feature dimension is not aligned!"
         assert features.size(0) == labels.size(0), "Dimensions of features and labels are not aligned!"
 
-        labels = labels.numpy()
-        buckets = np.array([self._get_bucket_idx(label) for label in labels])
-        for bucket in np.unique(buckets):
-            curr_feats = features[torch.tensor((buckets == bucket).astype(np.uint8))]
+        # labels = labels.numpy()
+        buckets = torch.zeros((labels.size(0)), device=self.device)
+
+        self._assign_bucket_edges()
+        for i in range(labels.size(0)):
+            buckets[i] = self._get_bucket_idx(labels[i])
+
+        # buckets = np.array([self._get_bucket_idx(label) for label in labels])
+        # for bucket in np.unique(buckets):
+
+        unique_buckets = torch.unique(buckets)
+        for bucket in unique_buckets.tolist():
+            # curr_feats = features[torch.tensor((buckets == bucket).astype(np.uint8))]
+            curr_feats = features[torch.tensor((buckets == bucket)).tolist()]
             curr_num_sample = curr_feats.size(0)
             curr_mean = torch.mean(curr_feats, 0)
             curr_var = torch.var(curr_feats, 0, unbiased=True if curr_feats.size(0) != 1 else False)
@@ -481,7 +498,7 @@ class FDS(nn.Module):
 
         # make up for zero training samples buckets
         for bucket in range(self.bucket_start, self.bucket_num):
-            if bucket not in np.unique(buckets):
+            if bucket not in unique_buckets.tolist():
                 if bucket == self.bucket_start:
                     self.running_mean[0] = self.running_mean[1]
                     self.running_var[0] = self.running_var[1]
@@ -500,11 +517,17 @@ class FDS(nn.Module):
             return features
 
         # labels = labels.squeeze(1)
-        labels = labels.numpy()
-        buckets = np.array([self._get_bucket_idx(label) for label in labels])
-        for bucket in np.unique(buckets):
-            features[torch.tensor((buckets == bucket).astype(np.uint8))] = calibrate_mean_var(
-                features[torch.tensor((buckets == bucket).astype(np.uint8))],
+        # labels = labels.numpy()
+        buckets = torch.zeros((labels.size(0)), device=self.device)
+
+        self._assign_bucket_edges()
+        for i in range(labels.size(0)):
+            buckets[i] = self._get_bucket_idx(labels[i])
+
+        # buckets = np.array([self._get_bucket_idx(label) for label in labels])
+        for bucket in torch.unique(buckets).long().tolist():
+            features[(buckets == bucket)] = calibrate_mean_var(
+                features[torch.tensor((buckets == bucket).tolist())],
                 self.running_mean_last_epoch[bucket - self.bucket_start],
                 self.running_var_last_epoch[bucket - self.bucket_start],
                 self.smoothed_mean_last_epoch[bucket - self.bucket_start],
