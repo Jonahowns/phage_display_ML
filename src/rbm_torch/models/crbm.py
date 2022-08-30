@@ -12,7 +12,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import SGD, AdamW, Adagrad  # Supported Optimizers
+from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
 from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
@@ -118,6 +118,8 @@ class CRBM(LightningModule):
             self.optimizer = AdamW
         elif optimizer == "Adagrad":
             self.optimizer = Adagrad
+        elif optimizer == "Adadelta":
+            self.optimizer = Adadelta
         else:
             print(f"Optimizer {optimizer} is not supported")
             exit(1)

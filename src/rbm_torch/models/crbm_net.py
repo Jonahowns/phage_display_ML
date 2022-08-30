@@ -231,9 +231,9 @@ class CRBM_net(CRBM):
         network.append(nn.Sigmoid())
 
         if config["fcn_loss"] == "l1":
-            self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='sum')
+            self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='mean')
         elif config["fcn_loss"] == "mse":
-            self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='sum')
+            self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='mean')
 
         self.net = nn.Sequential(*network)
 
@@ -262,7 +262,7 @@ class CRBM_net(CRBM):
         vy = fitness_targets - torch.mean(fitness_targets)
 
         pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
-        pearson_loss = 1 - pearson_correlation
+        pearson_loss = (1 - pearson_correlation) * (self.current_epoch/self.epochs + 1) * 5
 
         # Regularization Terms
         reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
@@ -278,16 +278,20 @@ class CRBM_net(CRBM):
         h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in self.compute_output_v(V_pos_oh)], dim=1)
         preds = self.net(h_flattened)
 
-        net_loss = self.netloss(preds.squeeze(1), fitness_targets)
+        raw_mse_loss = self.netloss(preds.squeeze(1), fitness_targets)
+        net_loss = 10 * self.current_epoch/self.epochs * raw_mse_loss
+
+        crbm_loss = (cd_loss + reg1 + reg2 + reg3) * (1.5 - self.current_epoch/self.epochs)
 
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3 + net_loss + pearson_loss
+        loss = crbm_loss + net_loss + pearson_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
                 "train_mse_loss": net_loss.detach(),
                 "train_free_energy": F_v.detach(),
                 "train_pearson_corr": pearson_correlation.detach(),
+                "train_pearson_loss": pearson_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
                 "distance_reg": reg3.detach()
@@ -313,6 +317,7 @@ class CRBM_net(CRBM):
         free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
         net_loss = torch.stack([x["train_mse_loss"] for x in outputs]).mean()
         pearson_corr = torch.stack([x["train_pearson_corr"] for x in outputs]).mean()
+        pearson_loss = torch.stack([x["train_pearson_loss"] for x in outputs]).mean()
         # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars('Regularization', {'Field Reg':field_reg,
@@ -322,7 +327,7 @@ class CRBM_net(CRBM):
         self.logger.experiment.add_scalars("Loss", {"Total": avg_loss,
                                                     "CD_Loss": avg_dF,
                                                     "Train Fitness MSE": net_loss,
-                                                    "Pearson Loss": 1-pearson_corr}, self.current_epoch)
+                                                    "Pearson Loss": pearson_loss}, self.current_epoch)
 
         self.logger.log_metrics({"train_pearson_corr": pearson_corr, "train_fitness_mse": net_loss, "train_free_energy": free_energy}, self.current_epoch)
 
@@ -358,7 +363,7 @@ class CRBM_net(CRBM):
         batch_out = {
             # "val_pseudo_likelihood": pseudo_likelihood.detach()
             "val_free_energy": free_energy_avg.detach(),
-            "val_mse_loss": net_loss.detach(),
+            "val_fitness_mse": net_loss.detach(),
             "val_pearson_corr": pearson_correlation.detach()
         }
 
@@ -372,7 +377,7 @@ class CRBM_net(CRBM):
 
     def validation_epoch_end(self, outputs):
         avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
-        avg_loss = torch.stack([x['val_mse_loss'] for x in outputs]).mean()
+        avg_loss = torch.stack([x['val_fitness_mse'] for x in outputs]).mean()
         avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
         self.logger.log_metrics({"val_free_energy": avg_fe, "val_fitness_mse": avg_loss, "val_pearson_corr": avg_pearson}, self.current_epoch)
         # self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
