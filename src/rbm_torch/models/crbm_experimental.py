@@ -104,7 +104,7 @@ class pCRBM(CRBM):
         vy = fitness_targets - torch.mean(fitness_targets)
 
         pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
-        pearson_loss = (1 - pearson_correlation) * (self.current_epoch/self.epochs + 1) * 25
+        pearson_loss = (1 - pearson_correlation) * (self.current_epoch/self.epochs + 1.5) * 25
 
         # Regularization Terms
         reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
