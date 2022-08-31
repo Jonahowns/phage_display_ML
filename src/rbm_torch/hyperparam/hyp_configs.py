@@ -113,7 +113,7 @@ hconfigs = {"rbm" : {
                 }
             },
             "pcrbm" :  {"hidden": {  # hidden unit number grid search with varying of regularization variables
-                    "convolution_topology": {"choice": [[[40, 25]], [[60, 25]], [[80, 25]], [[40, 15]], [[60, 15]], [[80, 15]]]},
+                    "convolution_topology": {"choice": [[[40, 25]], [[200, 25]], [[80, 25]], [[120, 25]]]},
                     # "batch_size": {"choice": [10000, 20000]},
                     # "l1_2": {"uniform": [5, 20]},
                     # "lf": {"uniform": [2, 20]},
