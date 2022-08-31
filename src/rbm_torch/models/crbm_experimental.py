@@ -79,6 +79,128 @@ class ExpCRBM(CRBM):
         return outputs
 
 
+class pCRBM(CRBM):
+    def __init__(self, config, precision="double", debug=False):
+        super().__init__(config, precision=precision, debug=debug)
+
+    def training_step_CD_free_energy(self, batch, batch_idx):
+        seqs, one_hot, fitness_targets = batch
+
+        fitness_targets = fitness_targets.to(torch.get_default_dtype())
+        # if self.meminfo:
+        #     print("GPU Allocated Training Step Start:", torch.cuda.memory_allocated(0))
+
+        # forward function of CRBM
+        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
+
+        # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
+        free_energy = self.free_energy(V_pos_oh)
+        F_v = (free_energy * fitness_targets).sum() / fitness_targets.sum()  # free energy of training data
+        F_vp = (self.free_energy(V_neg_oh) * fitness_targets).sum() / fitness_targets.sum()  # free energy of gibbs sampled visible states
+        cd_loss = F_v - F_vp
+
+        # correlation coefficient between free energy and fitness values
+        vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+        vy = fitness_targets - torch.mean(fitness_targets)
+
+        pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+        pearson_loss = (1 - pearson_correlation) * (self.current_epoch/self.epochs + 1) * 25
+
+        # Regularization Terms
+        reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.mean() * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+        crbm_loss = (cd_loss + reg1 + reg2 + reg3) * (1.5 - self.current_epoch/self.epochs)
+
+        # Calculate Loss
+        loss = crbm_loss + pearson_loss
+
+        logs = {"loss": loss,
+                "free_energy_diff": cd_loss.detach(),
+                "train_free_energy": F_v.detach(),
+                "train_pearson_corr": pearson_correlation.detach(),
+                "train_pearson_loss": pearson_loss.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
+                }
+
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        # if self.meminfo:
+        #     print("GPU Allocated Final:", torch.cuda.memory_allocated(0))
+
+        return logs
+
+    def training_epoch_end(self, outputs):
+        # These are detached
+        avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
+        avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
+        field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
+        weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
+        distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
+        free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
+        pearson_corr = torch.stack([x["train_pearson_corr"] for x in outputs]).mean()
+        pearson_loss = torch.stack([x["train_pearson_loss"] for x in outputs]).mean()
+        # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
+
+        self.logger.experiment.add_scalars('Regularization', {'Field Reg':field_reg,
+                                                              'Weight Reg': weight_reg,
+                                                              'Distance Reg': distance_reg}, self.current_epoch)
+
+        self.logger.experiment.add_scalars("Loss", {"Total": avg_loss,
+                                                    "CD_Loss": avg_dF,
+                                                    "Pearson Loss": pearson_loss}, self.current_epoch)
+
+        self.logger.log_metrics({"train_pearson_corr": pearson_corr, "train_free_energy": free_energy}, self.current_epoch)
+
+        for name, p in self.named_parameters():
+            self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+
+    def validation_step(self, batch, batch_idx):
+        seqs, one_hot, fitness_targets = batch
+
+        fitness_targets = fitness_targets.to(torch.get_default_dtype())
+
+        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
+        free_energy = self.free_energy(one_hot)
+        free_energy_avg = free_energy.sum() / one_hot.shape[0]
+
+        # correlation coefficient between free energy and fitness values
+        vx = -1*(free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+        vy = fitness_targets - torch.mean(fitness_targets)
+
+        pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+
+        # pearson_loss = 1 - pearson_correlation
+
+        batch_out = {
+            # "val_pseudo_likelihood": pseudo_likelihood.detach()
+            "val_free_energy": free_energy_avg.detach(),
+            "val_pearson_corr": pearson_correlation.detach()
+        }
+
+        # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
+        self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        #
+        return batch_out
+
+    def validation_epoch_end(self, outputs):
+        avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
+        avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
+        self.logger.log_metrics({"val_free_energy": avg_fe, "val_pearson_corr": avg_pearson}, self.current_epoch)
+
+
+
 
 # if __name__ == '__main__':
     # data_file = '../invivo/sham2_ipsi_c1.fasta'  # cpu is faster
