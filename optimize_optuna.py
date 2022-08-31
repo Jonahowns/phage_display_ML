@@ -24,7 +24,7 @@ from joblib import parallel_backend
 from rbm_torch.utils.utils import load_run_file
 from rbm_torch.hyperparam.hyp_configs import hconfigs
 # from rbm_torch.hyperparam.optimize import optimize
-from rbm_torch.hyperparam.optimize_optuna import Objective
+from rbm_torch.hyperparam.optimize_optuna import Objective, directions
 
 if __name__ == '__main__':
     os.environ["SLURM_JOB_NAME"] = "bash"   # server runs crash without this line (yay raytune)
@@ -46,6 +46,7 @@ if __name__ == '__main__':
     config["fasta_file"] = os.path.join(os.getcwd(), config["fasta_file"])
     config["model_name"] = f"{args.hparam_config_name}_{run_data['model_name']}"
     config["server_model_dir"] = run_data["server_model_dir"]
+    config["epochs"] = args.epochs
 
     # Set search Parameters
     optimization_dict = hconfigs[run_data["model_type"]][args.hparam_config_name]  # From hyper_configs, Sets which hyperparameters are optimized
@@ -75,13 +76,13 @@ if __name__ == '__main__':
 
         config["model_name"] = config["model_name"] + postfix
 
-    pruner_warm_up_steps = 100
+    pruner_warm_up_steps = 200
 
     pruner = optuna.pruners.MedianPruner(n_startup_trials=8, n_warmup_steps=pruner_warm_up_steps, interval_steps=100, n_min_trials=8)
 
     study = optuna.create_study(
         study_name=config["model_name"],
-        direction="minimize",
+        direction=directions[config["model_type"]],
         pruner=pruner
     )
 

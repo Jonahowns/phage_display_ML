@@ -1,34 +1,48 @@
-# import ray.tune as tune
-# from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
-# from ray_lightning import RayPlugin
-# from ray_lightning.tune import TuneReportCallback
-
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 import os
-# import numpy as np
-# import math
-# from ray import air, tune
-# from ray.air import session
-# import torch
-# import argparse
-# from copy import deepcopy
 
 # local files
 from rbm_torch.models.rbm import RBM
 from rbm_torch.models.crbm import CRBM
-from rbm_torch.models.crbm_experimental import ExpCRBM
+from rbm_torch.models.crbm_experimental import ExpCRBM, pCRBM
 from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
-
-from contextlib import contextmanager
-import multiprocessing
-# from rbm_torch.utils.utils import load_run_file
-# from rbm_torch.hyperparam.hyp_configs import hconfigs
 
 
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
+
+models = {
+    "pcrbm": pCRBM,
+    "exp_crbm": ExpCRBM,
+    "crbm": CRBM,
+    "rbm": RBM,
+    "exp_rbm": ExpRBM,
+    "net_crbm": CRBM_net
+}
+
+metrics = {
+    "pcrbm": "ptl/val_pearson_corr",
+    "exp_crbm": "ptl/val_free_energy",
+    "crbm": "ptl/val_free_energy",
+    "rbm": "ptl/val_pseudo_likelihood",
+    "exp_rbm": "ptl/val_pseudo_likelihood",
+    "net_crbm": "ptl/val_fitness_mse"
+}
+
+# maximize of minimize the corresponding metric
+directions = {
+    "pcrbm": "maximize",
+    "exp_crbm": "minimize",
+    "crbm": "minimize",
+    "rbm": "minimize",
+    "exp_rbm": "minimize",
+    "net_crbm": "maximize"
+}
+
+
+
 
 
 def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=None):
@@ -54,38 +68,18 @@ def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=No
             hyper_params[key] = config[key]
 
     model = config["model_type"]
-    assert model in ["rbm", "crbm", "net_crbm", "exp_rbm", "exp_crbm"]
+    assert model in models.keys()
 
-    if model == "rbm" or model == "exp_rbm":
-        # metric_cols = ["training_iteration", "train_loss", "train_pseudo_likelihood", "val_pseudo_likelihood", ]
-        metric = "ptl/val_pseudo_likelihood"
-        # metric_mode = "max"
-    elif model == "net_crbm":
-        # metric_cols = ["training_iteration", "train_free_energy", "train_mse", "val_free_energy", "val_mse"]
-        metric = "ptl/val_fitness_mse"
-        # metric_mode = "min"
-    elif model == "crbm" or model == "exp_crbm":
-        # metric_cols = ["training_iteration", "train_free_energy", "val_free_energy"]
-        metric = "ptl/val_free_energy"
-        # metric_mode = "min"
+    metric = metrics[model]
 
     if postfix:
         config["model_name"] = config["model_name"] + f"_{postfix}"
 
-    if model == "rbm":
-        mod = RBM(config, precision=config["precision"])
-    elif model == "exp_rbm":
-        mod = ExpRBM(config, precision=config["precision"])
-    elif model == "crbm":
-        mod = CRBM(config, precision=config["precision"])
-    elif model == "exp_crbm":
-        mod = ExpCRBM(config, precision=config["precision"])
-    elif model == "net_crbm":
-        mod = CRBM_net(config, precision=config["precision"])
+    mod = models[model](config, precision=config["precision"])
 
     # num_gpus = config["gpus"]
     device_num = [device]
-    acc = "gpu"
+    acc = "cuda"
 
     trainer = Trainer(
         # default_root_dir="./checkpoints/",
@@ -100,7 +94,7 @@ def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=No
     )
 
     # hyperparameters = dict(n_layers=n_layers, dropout=dropout, output_dims=output_dims)
-    trainer.logger.log_hyperparams(hyper_params)
+    # trainer.logger.log_hyperparams(hyper_params)
     trainer.fit(mod)
 
     return trainer.callback_metrics[metric].item()
