@@ -45,7 +45,7 @@ directions = {
 
 
 
-def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=None):
+def objective(trial, hyperparams_of_interest, config, epochs, postfix=None):
     hyper_params = {}
     for key, value in hyperparams_of_interest.items():
         assert key in config.keys()
@@ -78,13 +78,13 @@ def objective(trial, hyperparams_of_interest, config, epochs, device, postfix=No
     mod = models[model](config, precision=config["precision"])
 
     # num_gpus = config["gpus"]
-    device_num = [device]
+    # device_num = [device]
     acc = "cuda"
 
     trainer = Trainer(
         # default_root_dir="./checkpoints/",
         max_epochs=epochs,
-        devices=device_num,
+        # devices=device_num,
         accelerator=acc,
         enable_progress_bar=False,
         enable_checkpointing=True,
@@ -116,7 +116,8 @@ class Objective:
         gpu_id = self.gpu_queue.get()
 
         # Please write actual objective function here
-        value = objective(trial, self.hyperparams_of_interest, self.config, self.epochs, gpu_id, postfix=self.postfix)
+        value = objective(trial, self.hyperparams_of_interest, self.config, self.epochs, postfix=self.postfix)
+
         # Return GPU ID to the queue.
         self.gpu_queue.put(gpu_id)
 
