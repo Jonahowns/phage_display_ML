@@ -5,7 +5,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 
 # Project Dependencies
-from rbm_torch.utils.utils import BatchNorm2D
+from rbm_torch.utils.utils import BatchNorm2D  # , spearman
 # from rbm_torch import crbm_configs
 from rbm_torch.models.crbm import CRBM
 
@@ -83,6 +83,25 @@ class pCRBM(CRBM):
     def __init__(self, config, precision="double", debug=False):
         super().__init__(config, precision=precision, debug=debug)
 
+    #     for key in self.hidden_convolution_keys:
+    #         setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=True, momentum=0.1))
+    #
+    # ## Compute Input for Hidden Layer from Visible Potts
+    # def compute_output_v(self, X):  # X is the one hot vector
+    #     outputs = []
+    #     hidden_layer_W = getattr(self, "hidden_layer_W")
+    #     total_weights = hidden_layer_W.sum()
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
+    #         outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+    #                                 padding=self.convolution_topology[i]["padding"],
+    #                                 dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+    #         outputs[-1] *= hidden_layer_W[iid] / total_weights
+    #         batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+    #         outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
+    #         # outputs[-1] *= convx
+    #     return outputs
+
     def training_step_CD_free_energy(self, batch, batch_idx):
         seqs, one_hot, fitness_targets = batch
 
@@ -99,12 +118,18 @@ class pCRBM(CRBM):
         F_vp = (self.free_energy(V_neg_oh) * fitness_targets).sum() / fitness_targets.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
 
+        #spearman correlation
+        # spearman_corr = spearman(-1*free_energy.unsqueeze(0).cpu(), fitness_targets.unsqueeze(0).cpu())
+        # spearman_loss = (1 - spearman_corr) * (self.current_epoch/self.epochs + 2.5) * 25
+
+
+        # pearson correlation
         # correlation coefficient between free energy and fitness values
         vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
         vy = fitness_targets - torch.mean(fitness_targets)
 
         pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
-        pearson_loss = (1 - pearson_correlation) * (self.current_epoch/self.epochs + 1.5) * 25
+        pearson_loss = (1 - pearson_correlation) * (self.current_epoch/self.epochs + 1.) * 5
 
         # Regularization Terms
         reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
@@ -120,12 +145,15 @@ class pCRBM(CRBM):
 
         # Calculate Loss
         loss = crbm_loss + pearson_loss
+        # loss = crbm_loss + spearman_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
                 "train_free_energy": F_v.detach(),
                 "train_pearson_corr": pearson_correlation.detach(),
                 "train_pearson_loss": pearson_loss.detach(),
+                # "train_spearman_corr": spearman_corr.detach(),
+                # "train_spearman_loss": spearman_loss.detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
                 "distance_reg": reg3.detach()
@@ -133,6 +161,7 @@ class pCRBM(CRBM):
 
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_spearman_corr", logs["train_spearman_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         # if self.meminfo:
@@ -149,18 +178,25 @@ class pCRBM(CRBM):
         distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
         free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
         pearson_corr = torch.stack([x["train_pearson_corr"] for x in outputs]).mean()
+        # spearman_corr = torch.stack([x["train_spearman_corr"] for x in outputs]).mean()
         pearson_loss = torch.stack([x["train_pearson_loss"] for x in outputs]).mean()
+        # spearman_loss = torch.stack([x["train_spearman_loss"] for x in outputs]).mean()
         # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
 
-        self.logger.experiment.add_scalars('Regularization', {'Field Reg':field_reg,
-                                                              'Weight Reg': weight_reg,
-                                                              'Distance Reg': distance_reg}, self.current_epoch)
+        # self.logger.experiment.add_scalars('Regularization', {'Field Reg':field_reg,
+        #                                                       'Weight Reg': weight_reg,
+        #                                                       'Distance Reg': distance_reg}, self.current_epoch)
 
         self.logger.experiment.add_scalars("Loss", {"Total": avg_loss,
                                                     "CD_Loss": avg_dF,
                                                     "Pearson Loss": pearson_loss}, self.current_epoch)
 
+        # self.logger.experiment.add_scalars("Loss", {"Total": avg_loss,
+        #                                             "CD_Loss": avg_dF,
+        #                                             "Spearman Loss": spearman_loss}, self.current_epoch)
+
         self.logger.log_metrics({"train_pearson_corr": pearson_corr, "train_free_energy": free_energy}, self.current_epoch)
+        # self.logger.log_metrics({"train_spearman_corr": spearman_corr, "train_free_energy": free_energy}, self.current_epoch)
 
         for name, p in self.named_parameters():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
@@ -175,29 +211,34 @@ class pCRBM(CRBM):
         free_energy_avg = free_energy.sum() / one_hot.shape[0]
 
         # correlation coefficient between free energy and fitness values
-        vx = -1*(free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
-        vy = fitness_targets - torch.mean(fitness_targets)
+        # vx = -1*(free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+        # vy = fitness_targets - torch.mean(fitness_targets)
 
-        pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+        # pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
 
+        spearman_corr = spearman(fitness_targets.unsqueeze(0).cpu(), free_energy.unsqueeze(0).cpu())
         # pearson_loss = 1 - pearson_correlation
 
         batch_out = {
             # "val_pseudo_likelihood": pseudo_likelihood.detach()
             "val_free_energy": free_energy_avg.detach(),
-            "val_pearson_corr": pearson_correlation.detach()
+            # "val_pearson_corr": pearson_correlation.detach(),
+            # "val_spearman_corr": spearman_corr.detach()
         }
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/val_spearman_corr", batch_out["val_spearman_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         #
         return batch_out
 
     def validation_epoch_end(self, outputs):
         avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
-        avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
-        self.logger.log_metrics({"val_free_energy": avg_fe, "val_pearson_corr": avg_pearson}, self.current_epoch)
+        # avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
+        # avg_pearson = torch.stack([x['val_spearman_corr'] for x in outputs]).mean()
+        # self.logger.log_metrics({"val_free_energy": avg_fe, "val_pearson_corr": avg_pearson}, self.current_epoch)
+        # self.logger.log_metrics({"val_free_energy": avg_fe, "val_spearman_corr": avg_pearson}, self.current_epoch)
 
 
 

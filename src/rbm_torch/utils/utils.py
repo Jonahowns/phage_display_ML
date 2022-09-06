@@ -39,6 +39,7 @@ import pandas as pd
 import types
 import json
 from torch.utils.data import Dataset
+# import torchsort
 
 # from sklearn.model_selection import train_test_split
 # import json
@@ -141,6 +142,24 @@ def load_run_file(runfile):
 
     config["gpus"] = run_data["gpus"]
     return run_data, config
+
+
+# def corrcoef(target, pred):
+#     pred_n = pred - pred.mean()
+#     target_n = target - target.mean()
+#     pred_n = pred_n / pred_n.norm()
+#     target_n = target_n / target_n.norm()
+#     return (pred_n * target_n).sum()
+#
+#
+# def spearman(target, pred, regularization="l2", regularization_strength=1.0):
+#     pred = torchsort.soft_rank(
+#         pred,
+#         regularization=regularization,
+#         regularization_strength=regularization_strength,
+#     )
+#     return corrcoef(target, pred / pred.shape[-1])
+#
 
 
 class Categorical(Dataset):
