@@ -10,7 +10,7 @@
           "v_num": 40,
           "q": 5,
           "molecule": "dna",
-          "epochs": 500,
+          "epochs": 600,
           "precision": "single",
           "seed": 0,
           "batch_size": 1000,
@@ -29,6 +29,7 @@
           "use_pearson": true,
           "use_lst_sqrs": true,
           "use_network": false,
+          "use_batch_norm": false,
           "network_layers": 3,
           "predictor_network": "conv",
           "fcn_start_size": 500,
@@ -39,9 +40,9 @@
           "network_delay": 0.75,
           "data_worker_num": 4,
           "convolution_topology": {
-              "hidden_27": {
-              "number": 100,
-              "kernelx": 27,
+              "hidden_31": {
+              "number": 150,
+              "kernelx": 31,
               "kernely": 5,
               "stridex": 1,
               "stridey": 1,

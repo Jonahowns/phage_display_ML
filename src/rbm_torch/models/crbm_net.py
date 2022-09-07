@@ -12,7 +12,7 @@ import math
 from torch.optim import SGD, AdamW
 from pytorch_lightning import LightningModule, Trainer
 from rbm_torch.utils.utils import Categorical
-from rbm_torch.utils.utils import FDS
+from rbm_torch.utils.utils import FDS, BatchNorm2D
 
 
 class FitnessPredictor(LightningModule):
@@ -205,9 +205,14 @@ class CRBM_net(CRBM):
         self.use_pearson = config["use_pearson"]
         self.use_lst_sqrs = config["use_lst_sqrs"]
         self.use_network = config["use_network"]
+        self.use_batch_norm = config["use_batch_norm"]
 
 
         input_size = (config["batch_size"], self.v_num, self.q)
+
+        if self.use_batch_norm:
+            for key in self.hidden_convolution_keys:
+                setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
 
         test_output = self.compute_output_v(torch.rand(input_size, device=self.device, dtype=torch.get_default_dtype()))
 
@@ -217,7 +222,6 @@ class CRBM_net(CRBM):
 
         linear_size = full_out.shape[1]
         self.linear_size = linear_size
-
 
         if self.use_network:
             self.network_type = config["predictor_network"]
@@ -317,6 +321,33 @@ class CRBM_net(CRBM):
         # torch.autograd.set_detect_anomaly(True)
         self.save_hyperparameters()
 
+        ## Compute Input for Hidden Layer from Visible Potts
+    def compute_output_v(self, X):  # X is the one hot vector
+        outputs = []
+        hidden_layer_W = getattr(self, "hidden_layer_W")
+        total_weights = hidden_layer_W.sum()
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            # convx = self.convolution_topology[i]["convolution_dims"][2]
+            outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+                                    padding=self.convolution_topology[i]["padding"],
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+            outputs[-1] *= hidden_layer_W[iid] / total_weights
+            if self.use_batch_norm:
+                batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+                outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
+            # outputs[-1] *= convx
+        return outputs
+
+    # def on_before_zero_grad(self, optimizer):
+    #     with torch.no_grad():
+    #         for key in self.hidden_convolution_keys:
+    #             for param in ["gamma+", "gamma-"]:
+    #                 getattr(self, f"{key}_{param}").data.clamp_(0.05, 1.0)
+    #             for param in ["theta+", "theta-"]:
+    #                 getattr(self, f"{key}_{param}").data.clamp_(0.0, 1.0)
+    #             if self.use_batch_norm:
+    #                 getattr(self, f"batch_norm_{key}").bias.clamp(-1.0, 1.0)
+    #                 getattr(self, f"batch_norm_{key}").weight.clamp(0.0, 1.5)
 
     def network(self, x, fitness_targets):
         # Enable FDS
@@ -404,6 +435,10 @@ class CRBM_net(CRBM):
             net_loss = raw_mse_loss  # * max((self.current_epoch/self.epochs - 0.5), 0.)
 
         # loss calculation
+        # if self.use_batch_norm:
+        #     cd_loss /= pearson_multiplier
+
+
         crbm_loss = (cd_loss + reg1 + reg2 + reg3)  # * (1.2 - self.current_epoch/self.epochs)
 
         loss = crbm_loss
