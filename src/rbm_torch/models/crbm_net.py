@@ -361,24 +361,30 @@ class CRBM_net(CRBM):
         F_vp = (self.free_energy(V_neg_oh) * fitness_targets).sum() / fitness_targets.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
 
-        # correlation coefficient between free energy and fitness values
-        vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
-        vy = fitness_targets - torch.mean(fitness_targets)
+        self.use_pearson
+        self.use_lst_sqrs
 
-        pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
-        pearson_loss = (1 - pearson_correlation) # * (self.current_epoch/self.epochs + 1) * 10
+        if self.use_pearson:
+            # correlation coefficient between free energy and fitness values
+            vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+            vy = fitness_targets - torch.mean(fitness_targets)
 
-        # Using residuals from least square fitting as loss, not sure why but this seems to not work at all
-        a = torch.vstack([-1*free_energy, torch.ones(free_energy.shape[0], device=self.device)]).T
-        # sol = torch.linalg.lstsq(a, vy, driver="gels").solution   # This errors out in the backward pass
-        sol = torch.linalg.pinv(a) @ fitness_targets
-        residuals = torch.abs(fitness_targets - (-1*free_energy * sol[0] + sol[1]))
-        lst_sq_loss = residuals.sum()
+            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+            pearson_loss = (1 - pearson_correlation) # * (self.current_epoch/self.epochs + 1) * 10
+
+
+        if self.use_lst_sqrs:
+            # Using residuals from least square fitting as loss, not sure why but this seems to not work at all
+            a = torch.vstack([-1*free_energy, torch.ones(free_energy.shape[0], device=self.device)]).T
+            # sol = torch.linalg.lstsq(a, vy, driver="gels").solution   # This errors out in the backward pass
+            sol = torch.linalg.pinv(a) @ fitness_targets
+            residuals = torch.abs(fitness_targets - (-1*free_energy * sol[0] + sol[1]))
+            lst_sq_loss = residuals.sum()
 
 
         # lst_sq_loss = max((self.current_epoch/self.epochs - 0.25), 0.) * residuals.mean()*100
-        pearson_multiplier = 1.
 
+        pearson_multiplier = 1.
         # Regularization Terms
         reg1 = self.lf/(2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
@@ -401,8 +407,20 @@ class CRBM_net(CRBM):
 
         crbm_loss = (cd_loss + reg1 + reg2 + reg3)  # * (1.2 - self.current_epoch/self.epochs)
 
+        loss = crbm_loss
+
+        if self.use_pearson:
+            loss += pearson_loss * pearson_multiplier
+
+        if self.use_lst_sqrs:
+            loss += lst_sq_loss
+
+        if self.use_network:
+            loss += 5*net_loss
+
+
         # Calculate Loss
-        loss = crbm_loss + net_loss * 5 + pearson_loss * pearson_multiplier + lst_sq_loss
+        # loss = crbm_loss + net_loss * 5 + pearson_loss * pearson_multiplier + lst_sq_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -416,8 +434,14 @@ class CRBM_net(CRBM):
                 "distance_reg": reg3.detach()
                 }
 
+        if self.use_pearson:
+            logs["train_pearson_corr"] = pearson_correlation.detach()
+            logs["train_pearson_loss"] = pearson_loss.detach()
+            self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
         self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(f"ptl/train_fitness_{self.network_loss_type}", raw_mse_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
