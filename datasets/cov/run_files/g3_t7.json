@@ -23,7 +23,7 @@
           "sequence_weights": "None",
           "optimizer": "AdamW",
           "weight_decay": 0.001,
-          "l1_2": 20,
+          "l1_2": 40,
           "lf": 2,
           "ld": 100,
           "use_pearson": true,
