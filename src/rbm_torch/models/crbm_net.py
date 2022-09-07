@@ -369,10 +369,11 @@ class CRBM_net(CRBM):
         pearson_loss = (1 - pearson_correlation) # * (self.current_epoch/self.epochs + 1) * 10
 
         # Using residuals from least square fitting as loss, not sure why but this seems to not work at all
-        # a = torch.vstack([-1*free_energy, torch.ones(free_energy.shape[0], device=self.device)]).T
-        # # sol = torch.linalg.lstsq(a, vy, driver="gels").solution   # This errors out in the backward pass
-        # sol = torch.linalg.pinv(a) @ fitness_targets
-        # residuals = torch.abs(fitness_targets - (-1*free_energy * sol[0] + sol[1]))
+        a = torch.vstack([-1*free_energy, torch.ones(free_energy.shape[0], device=self.device)]).T
+        # sol = torch.linalg.lstsq(a, vy, driver="gels").solution   # This errors out in the backward pass
+        sol = torch.linalg.pinv(a) @ fitness_targets
+        residuals = torch.abs(fitness_targets - (-1*free_energy * sol[0] + sol[1]))
+        lst_sq_loss = residuals.sum()
 
 
         # lst_sq_loss = max((self.current_epoch/self.epochs - 0.25), 0.) * residuals.mean()*100
@@ -401,7 +402,7 @@ class CRBM_net(CRBM):
         crbm_loss = (cd_loss + reg1 + reg2 + reg3)  # * (1.2 - self.current_epoch/self.epochs)
 
         # Calculate Loss
-        loss = crbm_loss + net_loss * 5 + pearson_loss * pearson_multiplier  # + lst_sq_loss
+        loss = crbm_loss + net_loss * 5 + pearson_loss * pearson_multiplier + lst_sq_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -418,7 +419,7 @@ class CRBM_net(CRBM):
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
-        # self.log("ptl/train_residuals", logs["train_residuals"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log(f"ptl/train_fitness_{self.network_loss_type}", raw_mse_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         # if self.meminfo:
