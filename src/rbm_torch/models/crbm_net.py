@@ -202,6 +202,11 @@ class CRBM_net(CRBM):
         assert self.loss_type in ['free_energy']
         assert self.sample_type in ['gibbs']
 
+        self.use_pearson = config["use_pearson"]
+        self.use_lst_sqrs = config["use_lst_sqrs"]
+        self.use_network = config["use_network"]
+
+
         input_size = (config["batch_size"], self.v_num, self.q)
 
         test_output = self.compute_output_v(torch.rand(input_size, device=self.device, dtype=torch.get_default_dtype()))
@@ -213,79 +218,75 @@ class CRBM_net(CRBM):
         linear_size = full_out.shape[1]
         self.linear_size = linear_size
 
-        self.network_type = config["predictor_network"]
-        self.network_layers = config["network_layers"]
 
-        network = []
-        network.append(nn.BatchNorm1d(linear_size))
-        if self.network_type == "fcn":
-            self.fcn_dr = config["fcn_dropout"]
-
-            if "fcn_start_size" in config.keys():
-                fcn_start_size = config["fcn_start_size"]
-                network.append(nn.Dropout(self.fcn_dr))
-                network.append(nn.Linear(linear_size, fcn_start_size, dtype=torch.get_default_dtype()))
-                # network.append(nn.BatchNorm1d(fcn_start_size))
-                network.append(nn.LeakyReLU())
-                linear_size = config["fcn_start_size"]
-                self.network_layers -= 1
-
-            fcn_size = [linear_size]
-            if self.network_layers > 1:
-                fcn_size += [linear_size // i for i in range(2, self.network_layers + 1, 1)]
-
-                for i in range(self.network_layers - 1):
-                    network.append(nn.Dropout(self.fcn_dr))
-                    network.append(nn.Linear(fcn_size[i], fcn_size[i + 1], dtype=torch.get_default_dtype()))
-                    # network.append(nn.BatchNorm1d(fcn_size[i + 1]))
-                    network.append(nn.LeakyReLU())
-
-            network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
-            network.append(nn.Sigmoid())
-
-        elif self.network_type == "conv":
-            
-            conv_start_channels = config["conv_start_channels"]
-            conv_end_channels = config["conv_end_channels"]
-
-            kernel_sizes, output_sizes, channels = [], [], []
-
-            channels = [x for x in range(conv_start_channels, conv_end_channels-1, -int((conv_start_channels-conv_end_channels)//(self.network_layers-1)))]
-
-            input_size = linear_size
-            for i in range(self.network_layers):
-                kernel_sizes.append(int(input_size // 1.5))
-                output_sizes.append(input_size - kernel_sizes[-1] + 1)
-                input_size = output_sizes[-1]
+        if self.use_network:
+            self.network_type = config["predictor_network"]
+            self.network_layers = config["network_layers"]
+            self.network_delay = 0.5
+            if "network_delay" in config.keys():
+                self.network_delay = config["network_delay"]
 
             network = []
-            for i in range(self.network_layers):
-                if i == 0:
-                    network.append(nn.Sequential(
-                        nn.Conv1d(1, channels[i], kernel_size=kernel_sizes[i]),
-                        nn.BatchNorm1d(channels[i]),
-                        # nn.LeakyReLU()))
-                        nn.Tanh()))
-                else:
-                    network.append(nn.Sequential(
-                        nn.Conv1d(channels[i-1], channels[i], kernel_size=kernel_sizes[i]),
-                        nn.BatchNorm1d(channels[i]),
-                        nn.Tanh()))
+            network.append(nn.BatchNorm1d(linear_size))
+            if self.network_type == "fcn":
+                self.fcn_dr = config["fcn_dropout"]
+                network.append(nn.BatchNorm1d(linear_size))
 
-            self.final = nn.Sequential(nn.Linear(channels[-1] * output_sizes[-1], 1),
-                                       nn.Sigmoid())
+                if "fcn_start_size" in config.keys():
+                    fcn_start_size = config["fcn_start_size"]
+                    network.append(nn.Dropout(self.fcn_dr))
+                    network.append(nn.Linear(linear_size, fcn_start_size, dtype=torch.get_default_dtype()))
+                    network.append(nn.BatchNorm1d(fcn_start_size))
+                    network.append(nn.LeakyReLU())
+                    linear_size = config["fcn_start_size"]
+                    self.network_layers -= 1
 
-        self.net = nn.Sequential(*network)
-            # self.conv1 = nn.Sequential(
-            #     nn.Conv1d(1, 16, kernel_size=c1_kernel_size),
-            #     nn.BatchNorm1d(16),
-            #     nn.LeakyReLU())
-            #
-            # self.conv2 = nn.Sequential(
-            #     nn.Conv1d(16, 4, kernel_size=c2_kernel_size),
-            #     nn.BatchNorm1d(4),
-            #     nn.LeakyReLU())
+                fcn_size = [linear_size]
+                if self.network_layers > 1:
+                    fcn_size += [linear_size // i for i in range(2, self.network_layers + 1, 1)]
 
+                    for i in range(self.network_layers - 1):
+                        network.append(nn.Dropout(self.fcn_dr))
+                        network.append(nn.Linear(fcn_size[i], fcn_size[i + 1], dtype=torch.get_default_dtype()))
+                        network.append(nn.BatchNorm1d(fcn_size[i + 1]))
+                        network.append(nn.LeakyReLU())
+
+                network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
+                network.append(nn.Sigmoid())
+
+            elif self.network_type == "conv":
+
+                conv_start_channels = config["conv_start_channels"]
+                conv_end_channels = config["conv_end_channels"]
+
+                kernel_sizes, output_sizes, channels = [], [], []
+
+                channels = [x for x in range(conv_start_channels, conv_end_channels-1, -int((conv_start_channels-conv_end_channels)//(self.network_layers-1)))]
+
+                input_size = linear_size
+                for i in range(self.network_layers):
+                    kernel_sizes.append(int(input_size // 1.5))
+                    output_sizes.append(input_size - kernel_sizes[-1] + 1)
+                    input_size = output_sizes[-1]
+
+                network = []
+                for i in range(self.network_layers):
+                    if i == 0:
+                        network.append(nn.Sequential(
+                            nn.Conv1d(1, channels[i], kernel_size=kernel_sizes[i]),
+                            nn.BatchNorm1d(channels[i]),
+                            # nn.LeakyReLU()))
+                            nn.Tanh()))
+                    else:
+                        network.append(nn.Sequential(
+                            nn.Conv1d(channels[i-1], channels[i], kernel_size=kernel_sizes[i]),
+                            nn.BatchNorm1d(channels[i]),
+                            nn.Tanh()))
+
+                self.final = nn.Sequential(nn.Linear(channels[-1] * output_sizes[-1], 1),
+                                           nn.Sigmoid())
+
+            self.net = nn.Sequential(*network)
 
         self.use_fds = False
         if "fds_kernel" in config.keys():
@@ -361,8 +362,6 @@ class CRBM_net(CRBM):
         F_vp = (self.free_energy(V_neg_oh) * fitness_targets).sum() / fitness_targets.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp
 
-        self.use_pearson
-        self.use_lst_sqrs
 
         if self.use_pearson:
             # correlation coefficient between free energy and fitness values
@@ -396,15 +395,15 @@ class CRBM_net(CRBM):
             reg2 += x.mean() * self.l1_2 / (2*W_shape[1]*W_shape[2]*W_shape[3])
             reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
-        # Network Loss on hidden unit input
-        h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in self.compute_output_v(V_pos_oh)], dim=1)
+        if self.use_network:
+            # Network Loss on hidden unit input
+            h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in self.compute_output_v(V_pos_oh)], dim=1)
 
-        preds = self.network(h_flattened, fitness_targets)
+            preds = self.network(h_flattened, fitness_targets)
+            raw_mse_loss = self.netloss(preds.squeeze(1), fitness_targets)
+            net_loss = raw_mse_loss  # * max((self.current_epoch/self.epochs - 0.5), 0.)
 
-        raw_mse_loss = self.netloss(preds.squeeze(1), fitness_targets)
-
-        net_loss = raw_mse_loss  # * max((self.current_epoch/self.epochs - 0.5), 0.)
-
+        # loss calculation
         crbm_loss = (cd_loss + reg1 + reg2 + reg3)  # * (1.2 - self.current_epoch/self.epochs)
 
         loss = crbm_loss
@@ -416,7 +415,11 @@ class CRBM_net(CRBM):
             loss += lst_sq_loss
 
         if self.use_network:
-            loss += 5*net_loss
+            if self.self.current_epoch/self.epochs > self.network_delay:
+                loss += 5 * net_loss * max((self.current_epoch / self.epochs - 0.25), 0.)
+            else:
+                loss += net_loss*0.
+
 
 
         # Calculate Loss
@@ -424,10 +427,10 @@ class CRBM_net(CRBM):
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
-                f"train_{self.network_loss_type}_loss": net_loss.detach(),
+                # f"train_{self.network_loss_type}_loss": net_loss.detach(),
                 "train_free_energy": F_v.detach(),
-                "train_pearson_corr": pearson_correlation.detach(),
-                "train_pearson_loss": pearson_loss.detach(),
+                # "train_pearson_corr": pearson_correlation.detach(),
+                # "train_pearson_loss": pearson_loss.detach(),
                 # "train_residuals": residuals.mean().detach(),
                 "field_reg": reg1.detach(),
                 "weight_reg": reg2.detach(),
@@ -439,12 +442,16 @@ class CRBM_net(CRBM):
             logs["train_pearson_loss"] = pearson_loss.detach()
             self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
+        if self.use_network:
+            logs[f"train_{self.network_loss_type}_loss"] = net_loss.detach()
+            self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log(f"ptl/train_fitness_{self.network_loss_type}", raw_mse_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=False, logger=True)
-        self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f"ptl/train_fitness_{self.network_loss_type}", raw_mse_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log(f"ptl/train_fitness_{self.network_loss_type}", raw_mse_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         # if self.meminfo:
         #     print("GPU Allocated Final:", torch.cuda.memory_allocated(0))
@@ -459,21 +466,31 @@ class CRBM_net(CRBM):
         weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
         distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
         free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
-        net_loss = torch.stack([x[f"train_{self.network_loss_type}_loss"] for x in outputs]).mean()
-        pearson_corr = torch.stack([x["train_pearson_corr"] for x in outputs]).mean()
-        pearson_loss = torch.stack([x["train_pearson_loss"] for x in outputs]).mean()
+
+
         # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
 
         self.logger.experiment.add_scalars('Regularization', {'Field Reg':field_reg,
                                                               'Weight Reg': weight_reg,
                                                               'Distance Reg': distance_reg}, self.current_epoch)
 
-        self.logger.experiment.add_scalars("Loss", {"Total": avg_loss,
-                                                    "CD_Loss": avg_dF,
-                                                    f"Train Fitness {self.network_loss_type}": net_loss,
-                                                    "Pearson Loss": pearson_loss}, self.current_epoch)
+        loss_scalars = {"Total": avg_loss, "CD_Loss": avg_dF}
+        metric_scalars = {"train_free_energy": free_energy}
 
-        self.logger.log_metrics({"train_pearson_corr": pearson_corr, f"train_fitness_{self.network_loss_type}": net_loss, "train_free_energy": free_energy}, self.current_epoch)
+        if self.use_network:
+            net_loss = torch.stack([x[f"train_{self.network_loss_type}_loss"] for x in outputs]).mean()
+            loss_scalars[f"Train Fitness {self.network_loss_type}"] = net_loss
+            metric_scalars[f"Train Fitness {self.network_loss_type}"] = net_loss
+
+        if self.use_pearson:
+            pearson_corr = torch.stack([x["train_pearson_corr"] for x in outputs]).mean()
+            pearson_loss = torch.stack([x["train_pearson_loss"] for x in outputs]).mean()
+            loss_scalars[f"Pearson Loss"] = pearson_loss
+            metric_scalars["Train Pearson Corr"] = pearson_corr
+
+        self.logger.experiment.add_scalars("Loss", loss_scalars, self.current_epoch)
+
+        self.logger.log_metrics(metric_scalars, self.current_epoch)
 
         for name, p in self.named_parameters():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
@@ -484,44 +501,64 @@ class CRBM_net(CRBM):
 
         fitness_targets = fitness_targets.to(torch.get_default_dtype())
 
-        h_input = self.compute_output_v(one_hot)
-        h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in h_input], dim=1)
-        preds = self.network(h_flattened, fitness_targets)
+        if self.use_network:
+            h_input = self.compute_output_v(one_hot)
+            h_flattened = torch.cat([torch.flatten(x, start_dim=1) for x in h_input], dim=1)
+            preds = self.network(h_flattened, fitness_targets)
 
-        net_loss = self.netloss(preds.squeeze(1), fitness_targets)
+            net_loss = self.netloss(preds.squeeze(1), fitness_targets)
 
         # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy = self.free_energy(one_hot)
         free_energy_avg = free_energy.sum() / one_hot.shape[0]
 
-        # correlation coefficient between free energy and fitness values
-        vx = -1*(free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
-        vy = fitness_targets - torch.mean(fitness_targets)
+        if self.use_pearson:
+            # correlation coefficient between free energy and fitness values
+            vx = -1*(free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+            vy = fitness_targets - torch.mean(fitness_targets)
 
-        pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
 
         # pearson_loss = 1 - pearson_correlation
 
         batch_out = {
             # "val_pseudo_likelihood": pseudo_likelihood.detach()
             "val_free_energy": free_energy_avg.detach(),
-            f"val_fitness_{self.network_loss_type}": net_loss.detach(),
-            "val_pearson_corr": pearson_correlation.detach()
+            # f"val_fitness_{self.network_loss_type}": net_loss.detach(),
+            # "val_pearson_corr": pearson_correlation.detach()
         }
+
+        if self.use_network:
+            batch_out[f"val_fitness_{self.network_loss_type}"] = net_loss.detach()
+            self.log(f"ptl/val_fitness_{self.network_loss_type}", batch_out[f"val_fitness_{self.network_loss_type}"],
+                     on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        if self.use_pearson:
+            batch_out["val_pearson_corr"] = pearson_correlation.detach()
+            self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True,
+                     logger=True)
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f"ptl/val_fitness_{self.network_loss_type}", batch_out[f"val_fitness_{self.network_loss_type}"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # self.log(f"ptl/val_fitness_{self.network_loss_type}", batch_out[f"val_fitness_{self.network_loss_type}"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         #
         return batch_out
 
 
     def validation_epoch_end(self, outputs):
         avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
-        avg_loss = torch.stack([x[f'val_fitness_{self.network_loss_type}'] for x in outputs]).mean()
-        avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
-        self.logger.log_metrics({"val_free_energy": avg_fe, f"val_fitness_{self.network_loss_type}": avg_loss, "val_pearson_corr": avg_pearson}, self.current_epoch)
+        metrics = {"val_free_energy": avg_fe}
+
+        if self.use_network:
+            avg_loss = torch.stack([x[f'val_fitness_{self.network_loss_type}'] for x in outputs]).mean()
+            metrics[f"val_fitness_{self.network_loss_type}"] = avg_loss
+
+        if self.use_pearson:
+            avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
+            metrics["val_pearson_corr"] = avg_pearson
+
+        self.logger.log_metrics(metrics, self.current_epoch)
         # self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
         # self.logger.experiment.add_scalar("Validation MSE Loss", avg_loss, self.current_epoch)
 
