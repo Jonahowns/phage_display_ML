@@ -450,8 +450,8 @@ class CRBM_net(CRBM):
             loss += lst_sq_loss
 
         if self.use_network:
-            if self.self.current_epoch/self.epochs > self.network_delay:
-                loss += 5 * net_loss * max((self.current_epoch / self.epochs - 0.25), 0.)
+            if self.current_epoch/self.epochs > self.network_delay:
+                loss += 5 * net_loss * self.current_epoch / self.epochs
             else:
                 loss += net_loss*0.
 
