@@ -27,7 +27,7 @@
           "lf": 2,
           "ld": 100,
           "use_pearson": true,
-          "use_lst_sqrs": true,
+          "use_lst_sqrs": false,
           "use_network": false,
           "use_batch_norm": true,
           "network_layers": 3,
@@ -42,6 +42,20 @@
           "convolution_topology": {
               "hidden_31": {
               "number": 150,
+              "kernelx": 31,
+              "kernely": 5,
+              "stridex": 1,
+              "stridey": 1,
+              "paddingx": 0,
+              "paddingy": 0,
+              "dilationx": 1,
+              "dilationy": 1,
+              "output_paddingx": 0,
+              "output_paddingy": 0,
+              "weight": 1.0
+            },
+             "hidden_35": {
+              "number": 20,
               "kernelx": 31,
               "kernely": 5,
               "stridex": 1,

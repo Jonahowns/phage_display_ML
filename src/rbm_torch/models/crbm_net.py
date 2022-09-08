@@ -435,8 +435,8 @@ class CRBM_net(CRBM):
             net_loss = raw_mse_loss  # * max((self.current_epoch/self.epochs - 0.5), 0.)
 
         # loss calculation
-        # if self.use_batch_norm:
-        #     cd_loss /= pearson_multiplier
+        if self.use_batch_norm:
+            cd_loss /= pearson_multiplier
 
 
         crbm_loss = (cd_loss + reg1 + reg2 + reg3)  # * (1.2 - self.current_epoch/self.epochs)

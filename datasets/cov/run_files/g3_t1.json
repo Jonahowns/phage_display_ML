@@ -10,7 +10,7 @@
           "v_num": 40,
           "q": 5,
           "molecule": "dna",
-          "epochs": 600,
+          "epochs": 1200,
           "precision": "single",
           "seed": 0,
           "batch_size": 1000,
