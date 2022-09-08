@@ -1,5 +1,5 @@
 {"fasta_file": "fold_avg_all.fasta",
-  "model_name": "p_21",
+  "model_name": "p_27",
   "local_model_dir": "/mnt/D1/globus/exo_trained_crbms/",
   "data_dir": "./datasets/exo/",
   "server_model_dir": "datasets/exo/trained_crbms/",
