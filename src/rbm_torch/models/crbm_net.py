@@ -479,8 +479,10 @@ class CRBM_net(CRBM):
 
         if self.use_network:
             logs[f"train_{self.network_loss_type}_loss"] = net_loss.detach()
-            self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
             self.log(f"ptl/train_fitness_{self.network_loss_type}", raw_mse_loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        if self.use_lst_sqrs:
+            self.log("ptl/train_residuals", residuals.sum().detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         # self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
