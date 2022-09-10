@@ -436,6 +436,10 @@ class CRBM_net(CRBM):
         elif self.network_loss_type == "mse":
             self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='mean')
 
+        self.pool_kernel = config["pool_kernel"]
+
+        self.pool = nn.MaxPool2d(self.pool_kernel, return_indices=True)
+        self.unpool = nn.MaxUnpool2d(self.pool_kernel)
         # self.net = nn.Sequential(*network)
 
         # torch.autograd.set_detect_anomaly(True)
@@ -458,24 +462,29 @@ class CRBM_net(CRBM):
             # outputs[-1] *= convx
         return outputs
 
-    # def compute_output_v(self, X):  # X is the one hot vector
-    #     outputs = []
-    #     hidden_layer_W = getattr(self, "hidden_layer_W")
-    #     total_weights = hidden_layer_W.sum()
-    #     for iid, i in enumerate(self.hidden_convolution_keys):
-    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
-    #         conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
-    #                                 padding=self.convolution_topology[i]["padding"],
-    #                                 dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
-    #         max_vals, max_inds = conv.max(2)
-    #         min_vals, min_inds = conv.min(2)
-    #         outputs.append(torch.cat([max_vals.unsqueeze(2), min_vals.unsqueeze(2)], 2))
-    #         outputs[-1] *= hidden_layer_W[iid] / total_weights
-    #         if self.use_batch_norm:
-    #             batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
-    #             outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
-    #         # outputs[-1] *= convx
-    #     return outputs
+    def compute_output_v(self, X):  # X is the one hot vector
+        outputs = []
+        hidden_layer_W = getattr(self, "hidden_layer_W")
+        total_weights = hidden_layer_W.sum()
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            # convx = self.convolution_topology[i]["convolution_dims"][2]
+            conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+                                    padding=self.convolution_topology[i]["padding"],
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
+            max_pool, max_inds = self.pool(conv)
+            min_pool, min_inds = self.pool(-1*conv)
+
+            max_reconst = self.unpool(max_pool, max_inds)
+            min_reconst = self.unpool(-1*min_pool, min_inds)
+
+            outputs.append(max_reconst + min_reconst)
+
+            outputs[-1] *= hidden_layer_W[iid] / total_weights
+            if self.use_batch_norm:
+                batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+                outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
+            # outputs[-1] *= convx
+        return outputs
     #
     #     ## Compute Input for Visible Layer from Hidden dReLU
     #
