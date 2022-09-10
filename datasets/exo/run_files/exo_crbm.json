@@ -28,6 +28,7 @@
           "ld": 250,
           "stratify_datasets": true,
           "use_cd": true,
+          "pool_kernel": 4,
           "use_pearson": true,
           "use_spearman": false,
           "use_lst_sqrs": false,

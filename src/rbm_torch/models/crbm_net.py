@@ -334,6 +334,11 @@ class CRBM_net(CRBM):
             for key in self.hidden_convolution_keys:
                 setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
 
+        self.pool_kernel = config["pool_kernel"]
+
+        self.pool = nn.MaxPool2d(self.pool_kernel, return_indices=True)
+        self.unpool = nn.MaxUnpool2d(self.pool_kernel)
+
         test_output = self.compute_output_v(torch.rand(input_size, device=self.device, dtype=torch.get_default_dtype()))
 
         # fully flatten each and concatenate along 0 dim
@@ -436,31 +441,30 @@ class CRBM_net(CRBM):
         elif self.network_loss_type == "mse":
             self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='mean')
 
-        self.pool_kernel = config["pool_kernel"]
 
-        self.pool = nn.MaxPool2d(self.pool_kernel, return_indices=True)
-        self.unpool = nn.MaxUnpool2d(self.pool_kernel)
+
+
         # self.net = nn.Sequential(*network)
 
         # torch.autograd.set_detect_anomaly(True)
         self.save_hyperparameters()
 
         ## Compute Input for Hidden Layer from Visible Potts
-    def compute_output_v(self, X):  # X is the one hot vector
-        outputs = []
-        hidden_layer_W = getattr(self, "hidden_layer_W")
-        total_weights = hidden_layer_W.sum()
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            # convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
-                                    padding=self.convolution_topology[i]["padding"],
-                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
-            outputs[-1] *= hidden_layer_W[iid] / total_weights
-            if self.use_batch_norm:
-                batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
-                outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
-            # outputs[-1] *= convx
-        return outputs
+    # def compute_output_v(self, X):  # X is the one hot vector
+    #     outputs = []
+    #     hidden_layer_W = getattr(self, "hidden_layer_W")
+    #     total_weights = hidden_layer_W.sum()
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
+    #         outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+    #                                 padding=self.convolution_topology[i]["padding"],
+    #                                 dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
+    #         outputs[-1] *= hidden_layer_W[iid] / total_weights
+    #         if self.use_batch_norm:
+    #             batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+    #             outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
+    #         # outputs[-1] *= convx
+    #     return outputs
 
     def compute_output_v(self, X):  # X is the one hot vector
         outputs = []
@@ -471,6 +475,7 @@ class CRBM_net(CRBM):
             conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
+
             max_pool, max_inds = self.pool(conv)
             min_pool, min_inds = self.pool(-1*conv)
 
