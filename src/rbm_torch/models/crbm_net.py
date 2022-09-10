@@ -12,7 +12,7 @@ import math
 from torch.optim import SGD, AdamW
 from pytorch_lightning import LightningModule, Trainer
 from rbm_torch.utils.utils import Categorical, HiddenInputs
-from rbm_torch.utils.utils import FDS, BatchNorm2D, spearman
+from rbm_torch.utils.utils import FDS, BatchNorm2D, spearman, pool1d_dim
 
 
 class FitnessPredictor(LightningModule):
@@ -330,14 +330,26 @@ class CRBM_net(CRBM):
 
         input_size = (config["batch_size"], self.v_num, self.q)
 
+        self.pool_kernels = config["pool_kernels"]
+        self.pool_strides = config["pool_strides"]
+        self.pools = []
+        self.unpools = []
         if self.use_batch_norm:
-            for key in self.hidden_convolution_keys:
+            for kid, key in enumerate(self.hidden_convolution_keys):
+                setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
                 setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
 
-        self.pool_kernel = config["pool_kernel"]
+                pool_input_size = self.convolution_topology[key]["convolution_dims"][2]
 
-        self.pool = nn.MaxPool2d(self.pool_kernel, return_indices=True)
-        self.unpool = nn.MaxUnpool2d(self.pool_kernel)
+                pool_top = self.pool_topology[key]
+                # determines output size of pool, and reconstruction size. Checks it will work
+                pool_dims = pool1d_dim(pool_input_size, pool_top, self.v_num)
+
+                self.pools.append(nn.MaxPool1d(pool_top["kernel"], stride=pool_top["stride"], return_indices=True, padding=pool_top["padding"]))
+                self.unpools.append(nn.MaxUnpool1d(pool_top["kernel"], stride=pool_top["stride"], padding=pool_top["padding"]))
+
+        # self.pool = nn.MaxPool2d(self.pool_kernel, return_indices=True)
+        # self.unpool = nn.MaxUnpool2d(self.pool_kernel)
 
         test_output = self.compute_output_v(torch.rand(input_size, device=self.device, dtype=torch.get_default_dtype()))
 
@@ -476,11 +488,11 @@ class CRBM_net(CRBM):
                                     padding=self.convolution_topology[i]["padding"],
                                     dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
 
-            max_pool, max_inds = self.pool(conv)
-            min_pool, min_inds = self.pool(-1*conv)
+            max_pool, max_inds = self.pools[iid](conv)
+            min_pool, min_inds = self.pools[iid](-1*conv)
 
-            max_reconst = self.unpool(max_pool, max_inds)
-            min_reconst = self.unpool(-1*min_pool, min_inds)
+            max_reconst = self.unpools[iid](max_pool, max_inds)
+            min_reconst = self.unpools[iid](-1*min_pool, min_inds)
 
             outputs.append(max_reconst + min_reconst)
 

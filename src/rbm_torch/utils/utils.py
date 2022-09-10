@@ -633,6 +633,35 @@ def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
                         print(f"Whole Convolution Found: Kernel: {kernel[0]}, Stride: {stride[0]}, Dilation: {dilation[0]}, Padding: {padding[0]}")
     return
 
+
+# used by crbm to initialize weight sizes
+def pool1d_dim(input_shape, pool_topology, v_num):
+    [batch_size, h_number, convolutions] = input_shape
+    stride = pool_topology["stride"]
+    padding = pool_topology["padding"]
+    kernel = pool_topology["kernel"]
+    # dilation = pool_topology["dilation"]
+    dilation = 1
+    h_num = pool_topology["number"]
+
+    pool_out_num = int(math.floor((convolutions + padding * 2 - dilation * (kernel - 1) - 1) / stride + 1))
+
+    # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+    un_pool_out_size = (pool_out_num - 1) * stride - 2 * padding + 1 * (kernel - 1) + 1
+
+    # Pad for the unsampled visible units (depends on stride, and tensor size)
+    output_padding = v_num - un_pool_out_size
+
+    if output_padding != 0:
+        print("Cannot create full reconstruction, please choose differnt pool topology")
+
+    pool_out_size = (batch_size, h_number, pool_out_num)
+    reconstruction_size = (batch_size, h_number, un_pool_out_size)
+
+    return {"pool_size": pool_out_size, "reconstruction_shape": reconstruction_size}
+
+
+
 # used by crbm to initialize weight sizes
 def conv2d_dim(input_shape, conv_topology):
     [batch_size, input_channels, v_num, q] = input_shape
