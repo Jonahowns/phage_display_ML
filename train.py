@@ -20,6 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('runfile', type=str, help="json file containing all info needed to run models")
     parser.add_argument('-dg', type=str, nargs="?", help="debug flag for gpu, pass true to be able to inspect tensor values", default="False")
     parser.add_argument('-dc', type=str, nargs="?", help="debug flag for cpu, pass true to be able to inspect tensor values", default="False")
+    parser.add_argument('-s', type=str, nargs="?", help="seed number", default=None)
     args = parser.parse_args()
 
     os.environ["SLURM_JOB_NAME"] = "bash"  # server runs crash without this line (yay raytune)
@@ -37,6 +38,9 @@ if __name__ == '__main__':
     if args.dc in ["true", "True"]:
         debug_flag = True
         run_data["gpus"] = 0
+
+    if args.s is not None:
+        config["seed"] = int(args.s)
 
     # Training Code
     if model_type == "rbm":

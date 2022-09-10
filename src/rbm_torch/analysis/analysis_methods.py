@@ -132,15 +132,21 @@ def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="
         model.predict(all_data[all_data[key] == x])
 
         if "net" in model._get_name():
-            seqs, likeli, fitness_vals = model.predict(all_data[all_data[key] == x])
-            fit_vals[x] = fitness_vals
+            if model.use_network:
+                seqs, likeli, fitness_vals = model.predict(all_data[all_data[key] == x])
+                fit_vals[x] = fitness_vals
+            else:
+                seqs, likeli = model.predict(all_data[all_data[key] == x])
         else:
             seqs, likeli = model.predict(all_data[all_data[key] == x])
         likelihoods[x] = likeli
         sequences[x] = seqs
 
     if "net" in model._get_name():
-        data = {'likelihoods': likelihoods, "sequences": sequences, "fitness_vals": fit_vals}
+        if model.use_network:
+            data = {'likelihoods': likelihoods, "sequences": sequences, "fitness_vals": fit_vals}
+        else:
+            data = {'likelihoods': likelihoods, "sequences": sequences}
     else:
         data = {'likelihoods': likelihoods, "sequences": sequences}
     out = open(dir+identifier+".json", "w")

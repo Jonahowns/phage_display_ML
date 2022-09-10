@@ -39,7 +39,7 @@ import pandas as pd
 import types
 import json
 from torch.utils.data import Dataset
-# import torchsort
+import torchsort
 
 # from sklearn.model_selection import train_test_split
 # import json
@@ -130,7 +130,7 @@ def load_run_file(runfile):
     config["fasta_file"] = data_dir + fasta_file
     config["sequence_weights"] = weights
     seed = np.random.randint(0, 10000, 1)[0]
-    config["seed"] = seed
+    config["seed"] = int(seed)
     if config["lr_final"] == "None":
         config["lr_final"] = None
 
@@ -144,22 +144,23 @@ def load_run_file(runfile):
     return run_data, config
 
 
-# def corrcoef(target, pred):
-#     pred_n = pred - pred.mean()
-#     target_n = target - target.mean()
-#     pred_n = pred_n / pred_n.norm()
-#     target_n = target_n / target_n.norm()
-#     return (pred_n * target_n).sum()
+def corrcoef(target, pred):
+    pred_n = pred - pred.mean()
+    target_n = target - target.mean()
+    pred_n = pred_n / pred_n.norm()
+    target_n = target_n / target_n.norm()
+    return (pred_n * target_n).sum()
+
+
+def spearman(target, pred, regularization="l2", regularization_strength=1.0):
+    pred = torchsort.soft_rank(
+        pred,
+        regularization=regularization,
+        regularization_strength=regularization_strength,
+    )
+    return corrcoef(target, pred / pred.shape[-1])
 #
-#
-# def spearman(target, pred, regularization="l2", regularization_strength=1.0):
-#     pred = torchsort.soft_rank(
-#         pred,
-#         regularization=regularization,
-#         regularization_strength=regularization_strength,
-#     )
-#     return corrcoef(target, pred / pred.shape[-1])
-#
+
 
 
 class Categorical(Dataset):
@@ -282,6 +283,35 @@ class Categorical(Dataset):
     #     self.count = 0
     #     if self.shuffle:
     #         self.dataset = self.dataset.sample(frac=1).reset_index(drop=True)
+
+
+class HiddenInputs(Categorical):
+
+    # Takes in torch tensor of hidden inputs as input_tensor and fitness_values as tensor of the fitness values
+    def __init__(self, crbm, dataset, q, fitness_values, max_length=20, molecule='protein', device='cpu', one_hot=False):
+        super().__init__(dataset, q, weights=fitness_values, max_length=max_length, molecule=molecule, device=device, one_hot=one_hot)
+        self.input_tensor = self.make_input_tensor(crbm)
+        self.fitness_values = fitness_values
+
+
+    def make_input_tensor(self, crbm):
+        with torch.no_grad():
+            input_tensor = self.train_data.to(crbm.device)
+            ih = crbm.compute_output_v(input_tensor)
+            return torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy()
+        # return d.to(self.device)
+
+    def __getitem__(self, index):
+        inp = self.input_tensor[index]  # str of sequence
+        fitness_value = self.train_weights[index]
+
+        return inp, fitness_value
+
+    def __len__(self):
+        return self.input_tensor.shape[0]
+
+
+
 
 class BatchNorm1D(torch.nn.Module):
     def __init__(self, eps=1e-5, affine=True, momentum=None):

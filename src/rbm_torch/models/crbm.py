@@ -885,7 +885,25 @@ class CRBM(LightningModule):
 
         assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
 
-        self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
+        if self.stratify:
+            w8s = all_data.seq_count.to_numpy()
+            bin_edges = np.geomspace(np.min(w8s), np.max(w8s), 3)
+            bin_edges = bin_edges[1:]
+
+            def assign_label(x):
+                bin_edge = bin_edges[0]
+                idx = 0
+                while x > bin_edge:
+                    idx += 1
+                    bin_edge = bin_edges[idx]
+
+                return idx
+
+            labels = list(map(assign_label, w8s))
+            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.15, stratify=labels, random_state=self.seed)
+
+        else:
+            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
 
     def on_train_start(self):
         # Log which sequences belong to each dataset
