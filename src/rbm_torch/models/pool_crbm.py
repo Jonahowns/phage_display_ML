@@ -167,7 +167,6 @@ class pool_CRBM(LightningModule):
 
         self.use_batch_norm = config["use_batch_norm"]
 
-        self.pool_topology = config["pool_topology"]
         self.pools = []
         self.unpools = []
 

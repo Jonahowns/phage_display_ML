@@ -14,7 +14,7 @@ import math
 from torch.optim import SGD, AdamW
 from pytorch_lightning import LightningModule, Trainer
 from rbm_torch.utils.utils import Categorical, HiddenInputs
-from rbm_torch.utils.utils import FDS, BatchNorm2D, spearman, pool1d_dim
+from rbm_torch.utils.utils import FDS, BatchNorm2D, pool1d_dim
 
 
 class FitnessPredictor(LightningModule):
