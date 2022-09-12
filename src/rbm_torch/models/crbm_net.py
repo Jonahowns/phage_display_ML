@@ -8,6 +8,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 # Project Dependencies
 # from rbm_torch import crbm_configs
 from rbm_torch.models.crbm import CRBM
+from rbm_torch.models.pool_crbm import pool_CRBM
+import numpy as np
 import math
 from torch.optim import SGD, AdamW
 from pytorch_lightning import LightningModule, Trainer
@@ -19,7 +21,7 @@ class FitnessPredictor(LightningModule):
     def __init__(self, crbm_checkpoint_file, network_config, debug=False):
         super().__init__()
 
-        self.crbm = self.load_crbm(crbm_checkpoint_file)
+        self.crbm = self.load_crbm(crbm_checkpoint_file, crbm_type="pool")
 
         self.network_epochs = network_config["network_epochs"]
 
@@ -59,6 +61,45 @@ class FitnessPredictor(LightningModule):
 
         self.network_type = network_config["predictor_network"]
         self.network_layers = network_config["network_layers"]
+        self.network_objective = network_config["network_objective"]
+
+        assert self.network_objective in ["classification", "regression"]
+        if self.network_objective =="classification":
+            self.class_number = network_config["network_class_number"]
+            self.label_spacing = network_config["label_spacing"]
+
+            training_fitness_values = self.crbm.training_data.seq_count.to_numpy()
+            val_fitness_values = self.crbm.validation_data.seq_count.to_numpy()
+
+            combined = np.concatenate([training_fitness_values, val_fitness_values])
+
+            if type(self.label_spacing) is list:
+                bin_edges = self.label_spacing
+            else:
+                if self.label_spacing == "log":
+                    bin_edges = np.geomspace(np.min(combined), np.max(combined), self.class_number+1)
+                elif self.label_spacing == "lin":
+                    bin_edges = np.linspace(np.min(combined), np.max(combined), self.class_number + 1)
+            bin_edges = bin_edges[1:]
+
+            def assign_label(x):
+                bin_edge = bin_edges[0]
+                idx = 0
+                while x > bin_edge:
+                    idx += 1
+                    bin_edge = bin_edges[idx]
+
+                return idx
+
+            train_labels = list(map(assign_label, training_fitness_values))
+            self.class_weights = [1-train_labels.count(x)/len(train_labels) for x in range(0, self.class_number)]
+
+            val_labels = list(map(assign_label, val_fitness_values))
+
+            self.crbm.training_data["labels"] = train_labels
+            self.crbm.validation_data["labels"] = val_labels
+
+
         # self.network_delay = 0.5
         # if "network_delay" in network_config.keys():
         #     self.network_delay = network_config["network_delay"]
@@ -87,8 +128,12 @@ class FitnessPredictor(LightningModule):
                     network.append(nn.BatchNorm1d(fcn_size[i + 1]))
                     network.append(nn.LeakyReLU())
 
-            network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
-            network.append(nn.Sigmoid())
+            if self.network_objective == "regression":
+                network.append(nn.Linear(fcn_size[-1], 1, dtype=torch.get_default_dtype()))
+                network.append(nn.Sigmoid())
+            elif self.network_objective == "classification":
+                network.append(nn.Linear(fcn_size[-1], self.class_number, dtype=torch.get_default_dtype()))
+                network.append(nn.LogSoftmax())
 
         elif self.network_type == "conv":
 
@@ -119,17 +164,26 @@ class FitnessPredictor(LightningModule):
                         nn.BatchNorm1d(channels[i]),
                         nn.Tanh()))
 
-            self.final = nn.Sequential(nn.Linear(channels[-1] * output_sizes[-1], 1),
-                                       nn.Sigmoid())
+            if self.network_objective == "regression":
+                self.final = nn.Sequential(nn.Linear(channels[-1] * output_sizes[-1], 1),
+                                           nn.Sigmoid())
+            elif self.network_objective == "classification":
+                self.final = nn.Sequential(nn.Linear(channels[-1] * output_sizes[-1], self.class_number),
+                                           nn.LogSoftmax())
 
 
         self.net = nn.Sequential(*network)
 
         self.network_loss_type = network_config["network_loss"]
-        if self.network_loss_type == "l1":
-            self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='mean')
-        elif self.network_loss_type == "mse":
-            self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='mean')
+
+        if self.network_objective == "regression":
+            if self.network_loss_type == "l1":
+                self.netloss = nn.L1Loss(size_average=None, reduce=None, reduction='mean')
+            elif self.network_loss_type == "mse":
+                self.netloss = nn.MSELoss(size_average=None, reduce=None, reduction='mean')
+        elif self.network_objective == "classification":
+            if self.network_loss_type == "nll":
+                self.netloss = nn.NLLLoss(weight=torch.tensor(self.class_weights, device=self.device), reduction='mean')
 
         self.use_fds = network_config["use_fds"]
         if self.use_fds:
@@ -178,18 +232,25 @@ class FitnessPredictor(LightningModule):
         # my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decay_gamma)
         return optim
 
-    def load_crbm(self, checkpoint_file):
-        crbm = CRBM.load_from_checkpoint(checkpoint_file)
+    def load_crbm(self, checkpoint_file, crbm_type="crbm"):
+        if crbm_type == "crbm":
+            crbm = CRBM.load_from_checkpoint(checkpoint_file)
+        elif crbm_type == "pool":
+            crbm = pool_CRBM.load_from_checkpoint(checkpoint_file)
         crbm.eval()
         return crbm
 
 
     def train_dataloader(self, init_fields=True):
         # Get Correct Weights
-        if "seq_count" in self.crbm.training_data.columns:
-            training_weights = self.crbm.training_data["seq_count"].tolist()
-        else:
-            training_weights = None
+        if self.network_objective == "regression":
+            if "seq_count" in self.crbm.training_data.columns:
+                training_weights = self.crbm.training_data["seq_count"].tolist()
+            else:
+                training_weights = None
+        elif self.network_objective == "classification":
+            if "labels" in self.crbm.training_data.columns:
+                training_weights = self.crbm.training_data["labels"].tolist()
 
         train_reader = HiddenInputs(self.crbm, self.crbm.training_data, self.crbm.q, training_weights, max_length=self.crbm.v_num,
                                    molecule=self.crbm.molecule, device=self.crbm.device, one_hot=True)
@@ -204,10 +265,14 @@ class FitnessPredictor(LightningModule):
 
     def val_dataloader(self):
         # Get Correct Validation weights
-        if "seq_count" in self.crbm.validation_data.columns:
-            validation_weights = self.crbm.validation_data["seq_count"].tolist()
-        else:
-            validation_weights = None
+        if self.network_objective == "regression":
+            if "seq_count" in self.crbm.validation_data.columns:
+                validation_weights = self.crbm.validation_data["seq_count"].tolist()
+            else:
+                validation_weights = None
+        elif self.network_objective == "classification":
+            if "labels" in self.crbm.validation_data.columns:
+                validation_weights = self.crbm.validation_data["labels"].tolist()
 
         val_reader = HiddenInputs(self.crbm, self.crbm.validation_data, self.crbm.q, validation_weights, max_length=self.crbm.v_num,
                                    molecule=self.crbm.molecule, device=self.crbm.device, one_hot=True)
@@ -224,18 +289,49 @@ class FitnessPredictor(LightningModule):
         hidden_inputs, fitness_targets = batch
         fitness_targets = fitness_targets.to(torch.get_default_dtype())
         preds = self.network(hidden_inputs, fitness_targets)
-        train_loss = self.netloss(preds.squeeze(1), fitness_targets)
 
-        self.log('train_MSE', train_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if self.network_objective == "regression":
+            train_loss = self.netloss(preds.squeeze(1), fitness_targets)
+            self.log('train_MSE', train_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        elif self.network_objective == "classification":
+            train_loss = self.netloss(preds, fitness_targets.long())
+            class_pred = torch.argmax(preds, 1)
+            acc = (class_pred == fitness_targets).double().mean()
+            self.log('train_Loss', train_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log("train Acc", acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
         return train_loss
+
+    def classification_tables(self):
+        from sklearn.metrics import classification_report
+        print('\nClassification Report\n')
+
+        train_seqs, train_class_preds = self.predict(self.crbm.training_data)
+        val_seqs, val_class_preds = self.predict(self.crbm.validation_data)
+
+        train_true_labels = self.crbm.training_data.labels.tolist()
+        val_true_labels = self.crbm.validation_data.labels.tolist()
+
+        print('\nTraining Classification Report\n')
+        print(classification_report(train_class_preds, train_true_labels, target_names=[f'Class {i}' for i in range(self.class_number)]))
+        print('\nValidation Classification Report\n')
+        print(classification_report(val_class_preds, val_true_labels, target_names=[f'Class {i}' for i in range(self.class_number)]))
 
     def validation_step(self, batch, batch_idx):
         hidden_inputs, fitness_targets = batch
         fitness_targets = fitness_targets.to(torch.get_default_dtype())
         preds = self.network(hidden_inputs, fitness_targets)
-        val_loss = self.netloss(preds.squeeze(1), fitness_targets)
 
-        self.log('val_MSE', val_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if self.network_objective == "regression":
+            val_loss = self.netloss(preds.squeeze(1), fitness_targets)
+            self.log('val_MSE', val_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        elif self.network_objective == "classification":
+            val_loss = self.netloss(preds, fitness_targets.long())
+            class_pred = torch.argmax(preds, 1)
+            acc = (class_pred == fitness_targets).double().mean()
+            self.log('val_Loss', val_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            self.log("val Acc", acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
         return val_loss
 
     # def forward(self, input):
@@ -265,7 +361,10 @@ class FitnessPredictor(LightningModule):
             fitness_vals = []
             for i, batch in enumerate(data_loader):
                 one_hot, fitness_targets = batch
-                fitness_vals += self.network(one_hot, fitness_targets, eval=False).squeeze(1).detach().tolist()
+                if self.network_objective == "regression":
+                    fitness_vals += self.network(one_hot, fitness_targets, eval=False).squeeze(1).detach().tolist()
+                elif self.network_objective == "classification":
+                    fitness_vals += self.network(one_hot, fitness_targets, eval=False).argmax(1).detach().tolist()
 
         return X.sequence.tolist(), fitness_vals
 
@@ -322,31 +421,34 @@ class CRBM_net(CRBM):
 
         self.use_cd = config["use_cd"]
         self.use_pearson = config["use_pearson"]
-        self.use_spearman = config["use_spearman"]
+        self.use_batch_norm = config["use_batch_norm"]
+        # self.use_spearman = config["use_spearman"]
         self.use_lst_sqrs = config["use_lst_sqrs"]
         self.use_network = config["use_network"]
-        self.use_batch_norm = config["use_batch_norm"]
-
 
         input_size = (config["batch_size"], self.v_num, self.q)
 
-        self.pool_kernels = config["pool_kernels"]
-        self.pool_strides = config["pool_strides"]
-        self.pools = []
-        self.unpools = []
+
         if self.use_batch_norm:
             for kid, key in enumerate(self.hidden_convolution_keys):
                 setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
                 setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
 
-                pool_input_size = self.convolution_topology[key]["convolution_dims"][2]
-
-                pool_top = self.pool_topology[key]
-                # determines output size of pool, and reconstruction size. Checks it will work
-                pool_dims = pool1d_dim(pool_input_size, pool_top, self.v_num)
-
-                self.pools.append(nn.MaxPool1d(pool_top["kernel"], stride=pool_top["stride"], return_indices=True, padding=pool_top["padding"]))
-                self.unpools.append(nn.MaxUnpool1d(pool_top["kernel"], stride=pool_top["stride"], padding=pool_top["padding"]))
+        #### for max and min pool version
+        # self.pool_topology = config["pool_topology"]
+        # # self.pool_kernels = config["pool_kernels"]
+        # # self.pool_strides = config["pool_strides"]
+        # self.pools = []
+        # self.unpools = []
+        # for kid, key in enumerate(self.hidden_convolution_keys):
+        #     pool_input_size = self.convolution_topology[key]["convolution_dims"][:-1]
+        #
+        #     pool_top = self.pool_topology[key]
+        #     # determines output size of pool, and reconstruction size. Checks it will work
+        #     pool_dims = pool1d_dim(pool_input_size, pool_top)
+        #
+        #     self.pools.append(nn.MaxPool1d(pool_top["kernel"], stride=pool_top["stride"], return_indices=True, padding=pool_top["padding"]))
+        #     self.unpools.append(nn.MaxUnpool1d(pool_top["kernel"], stride=pool_top["stride"], padding=pool_top["padding"]))
 
         # self.pool = nn.MaxPool2d(self.pool_kernel, return_indices=True)
         # self.unpool = nn.MaxUnpool2d(self.pool_kernel)
@@ -462,46 +564,48 @@ class CRBM_net(CRBM):
         self.save_hyperparameters()
 
         ## Compute Input for Hidden Layer from Visible Potts
-    # def compute_output_v(self, X):  # X is the one hot vector
-    #     outputs = []
-    #     hidden_layer_W = getattr(self, "hidden_layer_W")
-    #     total_weights = hidden_layer_W.sum()
-    #     for iid, i in enumerate(self.hidden_convolution_keys):
-    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
-    #         outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
-    #                                 padding=self.convolution_topology[i]["padding"],
-    #                                 dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
-    #         outputs[-1] *= hidden_layer_W[iid] / total_weights
-    #         if self.use_batch_norm:
-    #             batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
-    #             outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
-    #         # outputs[-1] *= convx
-    #     return outputs
-
     def compute_output_v(self, X):  # X is the one hot vector
         outputs = []
         hidden_layer_W = getattr(self, "hidden_layer_W")
         total_weights = hidden_layer_W.sum()
         for iid, i in enumerate(self.hidden_convolution_keys):
             # convx = self.convolution_topology[i]["convolution_dims"][2]
-            conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+            outputs.append(F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
                                     padding=self.convolution_topology[i]["padding"],
-                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
-
-            max_pool, max_inds = self.pools[iid](conv)
-            min_pool, min_inds = self.pools[iid](-1*conv)
-
-            max_reconst = self.unpools[iid](max_pool, max_inds)
-            min_reconst = self.unpools[iid](-1*min_pool, min_inds)
-
-            outputs.append(max_reconst + min_reconst)
-
+                                    dilation=self.convolution_topology[i]["dilation"]).squeeze(3))
             outputs[-1] *= hidden_layer_W[iid] / total_weights
             if self.use_batch_norm:
                 batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
                 outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
             # outputs[-1] *= convx
         return outputs
+
+
+    ### Version with max and min pools
+    # def compute_output_v(self, X):  # X is the one hot vector
+    #     outputs = []
+    #     hidden_layer_W = getattr(self, "hidden_layer_W")
+    #     total_weights = hidden_layer_W.sum()
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
+    #         conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), getattr(self, f"{i}_W"), stride=self.convolution_topology[i]["stride"],
+    #                                 padding=self.convolution_topology[i]["padding"],
+    #                                 dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
+    #
+    #         max_pool, max_inds = self.pools[iid](conv)
+    #         min_pool, min_inds = self.pools[iid](-1*conv)
+    #
+    #         max_reconst = self.unpools[iid](max_pool, max_inds)
+    #         min_reconst = self.unpools[iid](-1*min_pool, min_inds)
+    #
+    #         outputs.append(max_reconst + min_reconst)
+    #
+    #         outputs[-1] *= hidden_layer_W[iid] / total_weights
+    #         if self.use_batch_norm:
+    #             batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+    #             outputs[-1] = batch_norm(outputs[-1])  # apply batch norm
+    #         # outputs[-1] *= convx
+    #     return outputs
     #
     #     ## Compute Input for Visible Layer from Hidden dReLU
     #
@@ -551,15 +655,6 @@ class CRBM_net(CRBM):
             y = y.view(y.size(0), -1)  # flatten
             return self.final(y)
 
-    # def conv_net(self, x):
-    #     # input is of fcn_size[-1]
-    #     y = self.conv1(x.unsqueeze(1))
-    #     y = self.conv2(y)
-    #     y = y.view(y.size(0), -1)  # flatten
-    #     pred = self.final(y)
-    #     return pred
-
-
     def on_train_start(self):
         super().on_train_start()
         # only way I can get this thing on the correct device
@@ -575,7 +670,6 @@ class CRBM_net(CRBM):
 
         # forward function of CRBM
 
-
         # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
         free_energy = self.free_energy(one_hot)
 
@@ -585,7 +679,6 @@ class CRBM_net(CRBM):
             F_vp = (self.free_energy(V_neg_oh) * fitness_targets).sum() / fitness_targets.sum()  # free energy of gibbs sampled visible states
             cd_loss = F_v - F_vp
 
-
         if self.use_pearson:
             # correlation coefficient between free energy and fitness values
             vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
@@ -594,9 +687,9 @@ class CRBM_net(CRBM):
             pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
             pearson_loss = (1 - pearson_correlation) # * (self.current_epoch/self.epochs + 1) * 10
 
-        if self.use_spearman:
-            spearman_correlation = spearman((-1 * free_energy).unsqueeze(0).cpu(), (fitness_targets).unsqueeze(0).cpu())
-            spearman_loss = 1 - spearman_correlation
+        # if self.use_spearman:
+        #     spearman_correlation = spearman((-1 * free_energy).unsqueeze(0).cpu(), (fitness_targets).unsqueeze(0).cpu())
+        #     spearman_loss = 1 - spearman_correlation
 
         if self.use_lst_sqrs:
             # Using residuals from least square fitting as loss, not sure why but this seems to not work at all
@@ -605,7 +698,6 @@ class CRBM_net(CRBM):
             sol = torch.linalg.pinv(a) @ fitness_targets
             residuals = torch.abs(fitness_targets - (-1*free_energy * sol[0] + sol[1]))
             lst_sq_loss = residuals.sum()
-
 
         # lst_sq_loss = max((self.current_epoch/self.epochs - 0.25), 0.) * residuals.mean()*100
 
@@ -642,8 +734,8 @@ class CRBM_net(CRBM):
         if self.use_pearson:
             loss += pearson_loss * 20  # * pearson_multiplier
 
-        if self.use_spearman:
-            loss += spearman_loss  # * pearson_multiplier
+        # if self.use_spearman:
+        #     loss += spearman_loss  # * pearson_multiplier
 
         if self.use_lst_sqrs:
             loss += lst_sq_loss
@@ -682,10 +774,10 @@ class CRBM_net(CRBM):
             logs["train_pearson_loss"] = pearson_loss.detach()
             self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        if self.use_spearman:
-            logs["train_spearman_corr"] = spearman_correlation.detach()
-            logs["train_spearman_loss"] = spearman_loss.detach()
-            self.log("ptl/train_spearman_corr", logs["train_spearman_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # if self.use_spearman:
+        #     logs["train_spearman_corr"] = spearman_correlation.detach()
+        #     logs["train_spearman_loss"] = spearman_loss.detach()
+        #     self.log("ptl/train_spearman_corr", logs["train_spearman_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         if self.use_network:
             logs[f"train_{self.network_loss_type}_loss"] = net_loss.detach()
@@ -736,11 +828,11 @@ class CRBM_net(CRBM):
             loss_scalars[f"Pearson Loss"] = pearson_loss
             metric_scalars["Train Pearson Corr"] = pearson_corr
 
-        if self.use_spearman:
-            spearman_corr = torch.stack([x["train_spearman_corr"] for x in outputs]).mean()
-            spearman_loss = torch.stack([x["train_spearman_loss"] for x in outputs]).mean()
-            loss_scalars[f"Spearman Loss"] = spearman_loss
-            metric_scalars["Train Spearman Corr"] = spearman_corr
+        # if self.use_spearman:
+        #     spearman_corr = torch.stack([x["train_spearman_corr"] for x in outputs]).mean()
+        #     spearman_loss = torch.stack([x["train_spearman_loss"] for x in outputs]).mean()
+        #     loss_scalars[f"Spearman Loss"] = spearman_loss
+        #     metric_scalars["Train Spearman Corr"] = spearman_corr
 
         self.logger.experiment.add_scalars("Loss", loss_scalars, self.current_epoch)
 
@@ -773,8 +865,8 @@ class CRBM_net(CRBM):
 
             pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
 
-        if self.use_spearman:
-            spearman_correlation = spearman((-1 * free_energy).unsqueeze(0).cpu(), (fitness_targets).unsqueeze(0).cpu())
+        # if self.use_spearman:
+        #     spearman_correlation = spearman((-1 * free_energy).unsqueeze(0).cpu(), (fitness_targets).unsqueeze(0).cpu())
 
         # pearson_loss = 1 - pearson_correlation
 
@@ -799,10 +891,10 @@ class CRBM_net(CRBM):
             self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True,
                      logger=True)
 
-        if self.use_spearman:
-            batch_out["val_spearman_corr"] = spearman_correlation.detach()
-            self.log("ptl/val_spearman_corr", batch_out["val_spearman_corr"], on_step=False, on_epoch=True, prog_bar=True,
-                     logger=True)
+        # if self.use_spearman:
+        #     batch_out["val_spearman_corr"] = spearman_correlation.detach()
+        #     self.log("ptl/val_spearman_corr", batch_out["val_spearman_corr"], on_step=False, on_epoch=True, prog_bar=True,
+        #              logger=True)
 
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
@@ -830,9 +922,9 @@ class CRBM_net(CRBM):
             avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
             metrics["val_pearson_corr"] = avg_pearson
 
-        if self.use_spearman:
-            avg_spearman = torch.stack([x['val_spearman_corr'] for x in outputs]).mean()
-            metrics["val_spearman_corr"] = avg_spearman
+        # if self.use_spearman:
+        #     avg_spearman = torch.stack([x['val_spearman_corr'] for x in outputs]).mean()
+        #     metrics["val_spearman_corr"] = avg_spearman
 
         self.logger.log_metrics(metrics, self.current_epoch)
         # self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
@@ -901,11 +993,12 @@ class CRBM_net(CRBM):
 
 
 if __name__ == '__main__':
-    network_config = {"network_epochs": 200, "network_lr": 0.005, "network_lr_final": 0.0005, "network_weight_decay": 0.001,
-                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/cov/en_avg_g3.fasta", "weights": "fasta",
-                      "network_layers": 2, "network_dr": 0.01, "network_layers": 3, "predictor_network": "conv", "fcn_start_size": 500,
-                      "conv_start_channels": 16, "conv_end_channels": 4, "fcn_dropout": 0.05, "network_loss": "mse",
-                      "use_fds": True,
+    network_config = {"network_epochs": 200, "network_lr": 0.0005, "network_lr_final": 0.0005, "network_weight_decay": 0.001,
+                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/exo/caris_train.fasta", "weights": "fasta",
+                    "network_dr": 0.01, "network_layers": 3, "predictor_network": "fcn", "fcn_start_size": 500,
+                      "conv_start_channels": 16, "conv_end_channels": 4, "fcn_dropout": 0.05, "network_loss": "nll", "network_objective": "classification",
+                      "network_class_number": 2, "label_spacing": [0., 0.15, 1.0],
+                      "use_fds": False,
                       "fds_kernel": "gaussian",
                       "fds_ks": 5,
                       "fds_sigma": 2,
@@ -918,42 +1011,74 @@ if __name__ == '__main__':
 
 
     train = False
-    r = "g3_t5"
+    # r = "g3_t5"
+    r = "crbm_en_exo"
 
     if train:
         import rbm_torch.analysis.analysis_methods as am
 
-        mdir = "/mnt/D1/globus/cov_trained_crbms/"
+        # mdir = "/mnt/D1/globus/cov_trained_crbms/"
+
+        mdir = f"./datasets/exo/trained_crbms/"
         # r = "g3_t5"
         #
-        checkp, version_dir = am.get_checkpoint_path(r, rbmdir=mdir)
+        checkp, version_dir = am.get_checkpoint_path(r, rbmdir=mdir, version=182)
         #
         device = torch.device("cuda")
         fp = FitnessPredictor(checkp, network_config, debug=True)
         fp.to(device)
 
-        logger = TensorBoardLogger("./datasets/cov/trained_crbms/", name=f"fitness_predictor_{r}")
+        logger = TensorBoardLogger("./datasets/exo/trained_crbms/", name=f"fitness_predictor_{r}")
         plt = Trainer(max_epochs=network_config['network_epochs'], logger=logger, accelerator="cuda", devices=1)
         plt.fit(fp)
+
+        fp.classification_tables()
     else:
         # Evaluate how model did
-        check = f"./datasets/cov/trained_crbms/fitness_predictor_{r}/version_33/checkpoints/epoch=127-step=7808.ckpt"
+        check = f"./datasets/exo/trained_crbms/fitness_predictor_{r}/version_34/checkpoints/epoch=199-step=800.ckpt"
         fp = FitnessPredictor.load_from_checkpoint(check)
         fp.eval()
 
         from rbm_torch.utils.utils import fasta_read
         import pandas as pd
-        seqs, folds, chars, q = fasta_read("./datasets/cov/en_avg_g3.fasta", "dna", threads=4)
+        # seqs, folds, chars, q = fasta_read("./datasets/exo/en_avg_g3.fasta", "dna", threads=4)
+        dataset_file = "./datasets/exo/caris_train.fasta"
+        ev = "./datasets/exo/pev_n.fasta"
+        el = "./datasets/exo/pel_n.fasta"
 
-        df = pd.DataFrame({"sequence": seqs, "copy_num": folds})
+        ds_seqs, ds_folds, ds_chars, ds_q = fasta_read(dataset_file, "dna", threads=4)
+        ev_seqs, ev_folds, ev_chars, ev_q = fasta_read(ev, "dna", threads=4)
+        el_seqs, el_folds, el_chars, el_q = fasta_read(el, "dna", threads=4)
 
-        ss, fit_vals = fp.predict(df)
+        ds_df = pd.DataFrame({"sequence": ds_seqs, "copy_num": ds_folds})
+        ev_df = pd.DataFrame({"sequence": ev_seqs, "copy_num": ev_folds})
+        el_df = pd.DataFrame({"sequence": el_seqs, "copy_num": el_folds})
 
-        # print(fit_vals)
+        ds_ss, ds_fit_vals = fp.predict(ds_df)
+        ev_ss, ev_fit_vals = fp.predict(ev_df)
+        el_ss, el_fit_vals = fp.predict(el_df)
 
         import matplotlib.pyplot as plt
-        plt.scatter(folds, fit_vals, alpha=0.3, s=2)
+
+        plt.scatter(ds_folds, ds_fit_vals, alpha=0.3, s=2, c="blue")
+        ev_folds = [0.05 for x in ev_fit_vals]
+        el_folds = [0.9 for x in el_fit_vals]
+        plt.scatter(ev_folds, ev_fit_vals, alpha=0.3, s=2, c="green")
+        plt.scatter(el_folds, el_fit_vals, alpha=0.3, s=2, c="red")
         plt.show()
+
+        print(ev_fit_vals.count(0)/len(ev_fit_vals), ev_fit_vals.count(1)/len(ev_fit_vals))
+        print(el_fit_vals.count(0)/len(el_fit_vals), el_fit_vals.count(1)/len(el_fit_vals))
+
+        # df = pd.DataFrame({"sequence": seqs, "copy_num": folds})
+        #
+        # ss, fit_vals = fp.predict(df)
+        #
+        # # print(fit_vals)
+        #
+        # import matplotlib.pyplot as plt
+        # plt.scatter(folds, fit_vals, alpha=0.3, s=2)
+        # plt.show()
 
     # check = "./datasets/cov/trained_crbms/en_net/version_1/checkpoints/epoch=1499-step=12000.ckpt"
     #

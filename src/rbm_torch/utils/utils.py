@@ -39,7 +39,7 @@ import pandas as pd
 import types
 import json
 from torch.utils.data import Dataset
-import torchsort
+
 
 # from sklearn.model_selection import train_test_split
 # import json
@@ -103,7 +103,7 @@ def load_run_file(runfile):
         exit(1)
 
     # Get info needed for all models
-    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm"]
+    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm"]
 
     config = run_data["config"]
 
@@ -114,7 +114,7 @@ def load_run_file(runfile):
     weights = None
     if run_data["weights"] == "fasta":
         weights = "fasta"  # All weights are already in the processed fasta files
-    elif run_data["weights"] is None or run_data["weights"] == "None":
+    elif run_data["weights"] is None or run_data["weights"] in ["None", "none", "equal"]:
         pass
     else:
         ## Assumes weight file to be in same directory as our data files.
@@ -144,21 +144,23 @@ def load_run_file(runfile):
     return run_data, config
 
 
-def corrcoef(target, pred):
-    pred_n = pred - pred.mean()
-    target_n = target - target.mean()
-    pred_n = pred_n / pred_n.norm()
-    target_n = target_n / target_n.norm()
-    return (pred_n * target_n).sum()
-
-
-def spearman(target, pred, regularization="l2", regularization_strength=1.0):
-    pred = torchsort.soft_rank(
-        pred,
-        regularization=regularization,
-        regularization_strength=regularization_strength,
-    )
-    return corrcoef(target, pred / pred.shape[-1])
+##### Needed if you want a spearman correlation loss function
+# import torchsort
+# def corrcoef(target, pred):
+#     pred_n = pred - pred.mean()
+#     target_n = target - target.mean()
+#     pred_n = pred_n / pred_n.norm()
+#     target_n = target_n / target_n.norm()
+#     return (pred_n * target_n).sum()
+#
+#
+# def spearman(target, pred, regularization="l2", regularization_strength=1.0):
+#     pred = torchsort.soft_rank(
+#         pred,
+#         regularization=regularization,
+#         regularization_strength=regularization_strength,
+#     )
+#     return corrcoef(target, pred / pred.shape[-1])
 #
 
 
@@ -167,7 +169,7 @@ class Categorical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, molecule='protein', device='cpu', one_hot=False):
+    def __init__(self, dataset, q, weights=None, max_length=20, molecule='protein', device='cpu', one_hot=False, labels=False):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -203,6 +205,10 @@ class Categorical(Dataset):
             # all equally weighted
             self.train_weights = np.asarray([1. for x in range(self.total)])
 
+        self.labels = labels
+        if self.labels:
+            self.train_labels = self.dataset.label.to_numpy()
+
     def __getitem__(self, index):
 
         # self.count += 1
@@ -213,7 +219,11 @@ class Categorical(Dataset):
         model_input = self.train_data[index]  # either vector of integers for categorical or one hot vector
         weight = self.train_weights[index]
 
-        return seq, model_input, weight
+        if self.labels:
+            label = self.train_labels[index]
+            return seq, model_input, weight, label
+        else:
+            return seq, model_input, weight
 
     def categorical(self, seq_dataset):
         return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)
@@ -635,25 +645,24 @@ def suggest_conv_size(input_shape, padding_max=3, dilation_max=4, stride_max=5):
 
 
 # used by crbm to initialize weight sizes
-def pool1d_dim(input_shape, pool_topology, v_num):
+def pool1d_dim(input_shape, pool_topology):
     [batch_size, h_number, convolutions] = input_shape
     stride = pool_topology["stride"]
     padding = pool_topology["padding"]
     kernel = pool_topology["kernel"]
     # dilation = pool_topology["dilation"]
     dilation = 1
-    h_num = pool_topology["number"]
 
     pool_out_num = int(math.floor((convolutions + padding * 2 - dilation * (kernel - 1) - 1) / stride + 1))
 
     # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
     un_pool_out_size = (pool_out_num - 1) * stride - 2 * padding + 1 * (kernel - 1) + 1
 
-    # Pad for the unsampled visible units (depends on stride, and tensor size)
-    output_padding = v_num - un_pool_out_size
+    # Pad for the unsampled convolutions (depends on stride, and tensor size)
+    output_padding = convolutions - un_pool_out_size
 
     if output_padding != 0:
-        print("Cannot create full reconstruction, please choose differnt pool topology")
+        print("Cannot create full reconstruction, please choose different pool topology")
 
     pool_out_size = (batch_size, h_number, pool_out_num)
     reconstruction_size = (batch_size, h_number, un_pool_out_size)

@@ -12,6 +12,7 @@ from rbm_torch.models.crbm import CRBM
 from rbm_torch.models.crbm_experimental import ExpCRBM, pCRBM
 from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
+from rbm_torch.models.pool_crbm import pool_CRBM
 
 from rbm_torch.utils.utils import load_run_file
 
@@ -55,6 +56,8 @@ if __name__ == '__main__':
         model = pCRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "net_crbm":
         model = CRBM_net(config, debug=debug_flag, precision=config["precision"])
+    elif model_type == "pool_crbm":
+        model = pool_CRBM(config, debug=debug_flag, precision=config["precision"])
     else:
         print(f"Model Type {model_type} is not supported")
         exit(1)
