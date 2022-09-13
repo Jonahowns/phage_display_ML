@@ -36,6 +36,9 @@ class pool_CRBM(LightningModule):
         self.fasta_file = config['fasta_file']
         self.validation_size = config['validation_set_size']
         self.test_size = config['test_set_size']
+        assert self.validation_size < 1.0
+        assert self.test_size < 1.0
+
         self.molecule = config['molecule']  # can be protein, rna or dna currently
         assert self.molecule in ["dna", "rna", "protein"]
 
@@ -160,9 +163,12 @@ class pool_CRBM(LightningModule):
         if self.use_pearson:
             self.pearson_xvar = config["pearson_xvar"] # label or fitness_value
 
-        if self.pearson_xvar == "label" or self.stratify:
+            assert self.pearson_xvar in ["values", "labels"]
+
+        if self.pearson_xvar == "labels" or self.stratify:
             self.label_spacing = config["label_spacing"]
             self.label_groups = config["label_groups"]
+            assert len(self.label_spacing) - 1 == self.label_groups
 
 
         self.use_batch_norm = config["use_batch_norm"]
@@ -952,7 +958,7 @@ class pool_CRBM(LightningModule):
             training_weights = None
 
         labels = False
-        if self.pearson_xvar == "label":
+        if self.pearson_xvar == "labels":
             labels = True
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
@@ -987,7 +993,7 @@ class pool_CRBM(LightningModule):
             validation_weights = None
 
         labels = False
-        if self.pearson_xvar == "label":
+        if self.pearson_xvar == "labels":
             labels = True
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
@@ -1019,7 +1025,7 @@ class pool_CRBM(LightningModule):
                 exit(1)
 
     def validation_step(self, batch, batch_idx):
-        if self.pearson_xvar == "label":
+        if self.pearson_xvar == "labels":
             seqs, one_hot, seq_weights, labels = batch
         else:
             seqs, one_hot, seq_weights = batch
@@ -1032,7 +1038,7 @@ class pool_CRBM(LightningModule):
             if self.pearson_xvar == "values":
                 # correlation coefficient between free energy and fitness values
                 vy = seq_weights - torch.mean(seq_weights)
-            elif self.pearson_xvar == "label":
+            elif self.pearson_xvar == "labels":
                 labels = labels.double()
                 vy = labels - torch.mean(labels)
 
@@ -1186,7 +1192,7 @@ class pool_CRBM(LightningModule):
         return logs
 
     def training_step_CD_free_energy(self, batch, batch_idx):
-        if self.pearson_xvar == "label":
+        if self.pearson_xvar == "labels":
             seqs, one_hot, seq_weights, labels = batch
         else:
             seqs, one_hot, seq_weights = batch
@@ -1215,7 +1221,7 @@ class pool_CRBM(LightningModule):
             if self.pearson_xvar == "values":
                 # correlation coefficient between free energy and fitness values
                 vy = seq_weights - torch.mean(seq_weights)
-            elif self.pearson_xvar == "label":
+            elif self.pearson_xvar == "labels":
                 labels = labels.double()
                 vy = labels - torch.mean(labels)
 

@@ -298,17 +298,26 @@ class Categorical(Dataset):
 class HiddenInputs(Categorical):
 
     # Takes in torch tensor of hidden inputs as input_tensor and fitness_values as tensor of the fitness values
-    def __init__(self, crbm, dataset, q, fitness_values, max_length=20, molecule='protein', device='cpu', one_hot=False):
+    def __init__(self, crbm, dataset, q, fitness_values, max_length=20, molecule='protein', device='cpu', one_hot=False, input_batch_size=10000):
         super().__init__(dataset, q, weights=fitness_values, max_length=max_length, molecule=molecule, device=device, one_hot=one_hot)
-        self.input_tensor = self.make_input_tensor(crbm)
+        self.input_tensor = self.make_input_tensor(crbm, batch_size=input_batch_size)
         self.fitness_values = fitness_values
 
 
-    def make_input_tensor(self, crbm):
+    def make_input_tensor(self, crbm, batch_size=10000):
         with torch.no_grad():
             input_tensor = self.train_data.to(crbm.device)
-            ih = crbm.compute_output_v(input_tensor)
-            return torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy()
+            batches = input_tensor.shape[0] // batch_size + 1
+            input_batches = []
+            for i in range(batches):
+                if i != batches - 1:
+                    ih = crbm.compute_output_v(input_tensor[i*batch_size:(i+1)*batch_size])
+                else:
+                    ih = crbm.compute_output_v(input_tensor[i * batch_size:])
+                input_batches.append(torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy())
+            return np.concatenate(input_batches, axis=0)
+            # ih = crbm.compute_output_v(input_tensor)
+            # return torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy()
         # return d.to(self.device)
 
     def __getitem__(self, index):

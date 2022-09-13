@@ -257,7 +257,7 @@ class FitnessPredictor(LightningModule):
 
         return torch.utils.data.DataLoader(
             train_reader,
-            batch_size=self.crbm.batch_size,
+            batch_size=5000,
             num_workers=self.crbm.worker_num,  # Set to 0 if debug = True
             pin_memory=self.crbm.pin_mem,
             shuffle=True
@@ -279,7 +279,7 @@ class FitnessPredictor(LightningModule):
 
         return torch.utils.data.DataLoader(
             val_reader,
-            batch_size=self.crbm.batch_size,
+            batch_size=5000,
             num_workers=self.crbm.worker_num,  # Set to 0 to view tensors while debugging
             pin_memory=self.crbm.pin_mem,
             shuffle=False
@@ -994,10 +994,10 @@ class CRBM_net(CRBM):
 
 if __name__ == '__main__':
     network_config = {"network_epochs": 200, "network_lr": 0.0005, "network_lr_final": 0.0005, "network_weight_decay": 0.001,
-                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/exo/caris_train.fasta", "weights": "fasta",
-                    "network_dr": 0.01, "network_layers": 3, "predictor_network": "fcn", "fcn_start_size": 500,
-                      "conv_start_channels": 16, "conv_end_channels": 4, "fcn_dropout": 0.05, "network_loss": "nll", "network_objective": "classification",
-                      "network_class_number": 2, "label_spacing": [0., 0.15, 1.0],
+                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/cov/en_avg_full.fasta", "weights": "fasta",
+                    "network_dr": 0.1, "network_layers": 3, "predictor_network": "fcn", "fcn_start_size": 500,
+                      "conv_start_channels": 16, "conv_end_channels": 4, "fcn_dropout": 0.1, "network_loss": "nll", "network_objective": "classification",
+                      "network_class_number": 2, "label_spacing": [0., 0.13, 1.1],
                       "use_fds": False,
                       "fds_kernel": "gaussian",
                       "fds_ks": 5,
@@ -1010,19 +1010,20 @@ if __name__ == '__main__':
                       }
 
 
-    train = False
+    train = True
     # r = "g3_t5"
-    r = "crbm_en_exo"
+    # r = "crbm_en_exo"
+    r = "all_t2"
 
     if train:
         import rbm_torch.analysis.analysis_methods as am
 
-        # mdir = "/mnt/D1/globus/cov_trained_crbms/"
+        mdir = "/mnt/D1/globus/cov_trained_crbms/"
 
-        mdir = f"./datasets/exo/trained_crbms/"
+        # mdir = f"./datasets/exo/trained_crbms/"
         # r = "g3_t5"
         #
-        checkp, version_dir = am.get_checkpoint_path(r, rbmdir=mdir, version=182)
+        checkp, version_dir = am.get_checkpoint_path(r, rbmdir=mdir, version=3)
         #
         device = torch.device("cuda")
         fp = FitnessPredictor(checkp, network_config, debug=True)
