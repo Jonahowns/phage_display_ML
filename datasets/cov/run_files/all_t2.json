@@ -13,7 +13,7 @@
           "use_pearson": true,
           "pearson_xvar": "values",
           "stratify_datasets": true,
-          "label_spacing": [0, 0.1, 1.0],
+          "label_spacing": [0, 0.1, 1.1],
           "label_groups": 2,
           "v_num": 40,
           "q": 5,
