@@ -37,8 +37,22 @@
           "data_worker_num": 4,
           "convolution_topology": {
               "hidden_31": {
-              "number": 200,
+              "number": 50,
               "kernelx": 31,
+              "kernely": 5,
+              "stridex": 1,
+              "stridey": 1,
+              "paddingx": 0,
+              "paddingy": 0,
+              "dilationx": 1,
+              "dilationy": 1,
+              "output_paddingx": 0,
+              "output_paddingy": 0,
+              "weight": 1.0
+            },
+            "hidden_15": {
+              "number": 25,
+              "kernelx": 15,
               "kernely": 5,
               "stridex": 1,
               "stridey": 1,
