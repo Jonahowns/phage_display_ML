@@ -908,7 +908,7 @@ class pool_CRBM(LightningModule):
             all_data["label"] = labels
 
             if self.test_size > 0.:
-                available_data, test_data = train_test_split(all_data, test_size=self.test_size, stratify=all_data.label.tolist(), random_state=self.seed)
+                available_data, self.test_data = train_test_split(all_data, test_size=self.test_size, stratify=all_data.label.tolist(), random_state=self.seed)
             else:
                 available_data = all_data
 
