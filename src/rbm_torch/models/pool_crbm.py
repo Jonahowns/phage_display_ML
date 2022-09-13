@@ -16,7 +16,7 @@ from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
 from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
-from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm2D  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
+from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
 
 
 
@@ -188,8 +188,8 @@ class pool_CRBM(LightningModule):
             self.unpools.append(nn.MaxUnpool1d(pool_kernel, stride=pool_stride, padding=pool_padding))
 
             if self.use_batch_norm:
-                setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
-                setattr(self, f"batch_norm_{key}", BatchNorm2D(affine=False, momentum=0.1))
+                setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
+                setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
 
 
             # Convolution Weights
