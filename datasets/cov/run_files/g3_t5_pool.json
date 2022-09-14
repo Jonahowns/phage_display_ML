@@ -10,6 +10,8 @@
           "v_num": 40,
           "q": 5,
           "molecule": "dna",
+          "validation_set_size": 0.15,
+          "test_set_size": 0.1,
           "epochs": 1200,
           "precision": "single",
           "seed": 0,
