@@ -103,7 +103,7 @@ def load_run_file(runfile):
         exit(1)
 
     # Get info needed for all models
-    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm"]
+    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm"]
 
     config = run_data["config"]
 
@@ -711,6 +711,31 @@ def conv2d_dim(input_shape, conv_topology):
     return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
 
 
+def conv1d_dim(input_shape, conv_topology):
+    [batch_size, input_channels, v_num] = input_shape
+
+    stride = conv_topology["stride"]
+    padding = conv_topology["padding"]
+    kernel = conv_topology["kernel"]
+    dilation = conv_topology["dilation"]
+    h_num = conv_topology["number"]
+
+    # Copied From https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
+    convx_num = int(math.floor((v_num + padding*2 - dilation * (kernel-1) - 1)/stride + 1))
+
+    # Copied from https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+    recon_x = (convx_num - 1) * stride - 2 * padding + dilation * (kernel - 1) + 1
+
+    # Pad for the unsampled visible units (depends on stride, and tensor size)
+    output_padding = v_num - recon_x
+
+    # Size of Convolution Filters
+    weight_size = (h_num, input_channels, kernel)
+
+    # Size of Hidden unit Inputs h_uk
+    conv_output_size = (batch_size, h_num, convx_num)
+
+    return {"weight_shape": weight_size, "conv_shape": conv_output_size, "output_padding": output_padding}
 
 
 ######### Data Reading Methods #########

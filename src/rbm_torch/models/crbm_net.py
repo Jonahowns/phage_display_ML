@@ -133,7 +133,7 @@ class FitnessPredictor(LightningModule):
                 network.append(nn.Sigmoid())
             elif self.network_objective == "classification":
                 network.append(nn.Linear(fcn_size[-1], self.class_number, dtype=torch.get_default_dtype()))
-                network.append(nn.LogSoftmax())
+                network.append(nn.LogSoftmax(dim=1))
 
         elif self.network_type == "conv":
 
@@ -993,11 +993,11 @@ class CRBM_net(CRBM):
 
 
 if __name__ == '__main__':
-    network_config = {"network_epochs": 200, "network_lr": 0.0005, "network_lr_final": 0.0005, "network_weight_decay": 0.001,
-                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/cov/en_avg_full.fasta", "weights": "fasta",
+    network_config = {"network_epochs": 200, "network_lr": 0.005, "network_lr_final": 0.0005, "network_weight_decay": 0.001,
+                      "network_decay_after": 0.75, "network_optimizer": "AdamW", "fasta_file": "./datasets/cov/en_avg_g3.fasta", "weights": "fasta",
                     "network_dr": 0.1, "network_layers": 3, "predictor_network": "fcn", "fcn_start_size": 500,
                       "conv_start_channels": 16, "conv_end_channels": 4, "fcn_dropout": 0.1, "network_loss": "nll", "network_objective": "classification",
-                      "network_class_number": 2, "label_spacing": [0., 0.13, 1.1],
+                      "network_class_number": 2, "label_spacing": [0., 0.2, 1.1],
                       "use_fds": False,
                       "fds_kernel": "gaussian",
                       "fds_ks": 5,
