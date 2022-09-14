@@ -9,7 +9,7 @@
   "config": {"fasta_file": "",
           "validation_set_size": 0.15,
           "test_set_size": 0.0,
-          "use_batch_norm": true,
+          "use_batch_norm": false,
           "use_pearson": false,
           "pearson_xvar": "values",
           "stratify_datasets": false,
