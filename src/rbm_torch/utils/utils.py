@@ -103,7 +103,7 @@ def load_run_file(runfile):
         exit(1)
 
     # Get info needed for all models
-    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm"]
+    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm"]
 
     config = run_data["config"]
 
@@ -900,6 +900,10 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
             # Also need to fix up parameter hidden_layer_W
             # tmp_model_hidden_layer_W = getattr(tmp_model, "hidden_layer_W")
             tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
+
+            if "pool" in name:
+                tmp_model.pools = tmp_model.pools * 2
+                tmp_model.unpools = tmp_model.unpools * 2
 
             # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
             for key in tmp_model.hidden_convolution_keys:

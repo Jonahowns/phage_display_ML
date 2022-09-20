@@ -17,6 +17,318 @@ import math
 from torch.utils.data import Dataset
 
 from rbm_torch.models.crbm import CRBM
+from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
+
+# q should be 1 on config
+class binary_pool_class_CRBM(pool_class_CRBM):
+    def __init__(self, config, dataset="mnist", debug=False):
+        super().__init__(config, debug=debug)
+        self.dataset = dataset
+        self.v_num = config["v_num"]
+
+    def transform_v(self, I):
+        return (I+getattr(self, "fields").squeeze(-1))>0
+
+    def energy_v(self, config, remove_init=False):
+        if remove_init:
+            return -1.*(config * ((getattr(self, "fields") - getattr(self, "fields0")).unsqueeze(0).squeeze(-1)))
+        else:
+            # return -torch.mm(config, getattr(self, "fields").squeeze(-1))
+            return -1.*(config * getattr(self, "fields").unsqueeze(0).squeeze(-1)).sum((2, 1))
+
+    def random_init_config_v(self, custom_size=False, zeros=False):
+        if custom_size:
+            size = (*custom_size, self.v_num)
+        else:
+            size = (self.batch_size, self.v_num)
+
+        if zeros:
+            return torch.zeros(size, device=self.device)
+        else:
+            ### might need rewriting
+            return self.sample_from_inputs_v(torch.zeros(size, device=self.device).flatten(0, -3), beta=0).reshape(size)
+
+    def logpartition_v(self, inputs, beta=1):
+        if beta == 1:
+            return torch.log(1 + torch.exp(getattr(self, "fields").unsqueeze(0).squeeze(-1) + inputs)).sum(1)
+        else:
+            return torch.log(1 + torch.exp((beta * getattr(self, "fields")).unsqueeze(0).squeeze(-1) + (1 - beta) * getattr(self, "fields0")).unsqueeze(0).squeeze(-1) + beta * inputs).sum(1)
+
+    def logpartition_h(self, inputs, beta=1):
+        # Input is list of matrices I_uk
+        marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            if beta == 1:
+                a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                theta_plus = (getattr(self, f'{i}_theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                theta_minus = (getattr(self, f'{i}_theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+            else:
+                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
+                                0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
+                1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
+            marginal[iid] = y.sum((2, 1)) # sum over uk
+            # marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
+        return marginal.sum(0)
+
+    # def compute_output_v_for_h(self, X):  # X is the one hot vector
+    #     outputs = []
+    #     # total_weights = hidden_layer_W.sum()
+    #     self.max_inds = []
+    #     self.min_inds = []
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
+    #         weights = getattr(self, f"{i}_W")
+    #         conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), weights, stride=self.convolution_topology[i]["stride"],
+    #                         padding=self.convolution_topology[i]["padding"],
+    #                         dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
+    #
+    #         max_pool, max_inds = self.pools[iid](conv.abs())
+    #
+    #         max_conv_values = torch.gather(conv, 2, max_inds)
+    #         max_pool *= max_conv_values / max_conv_values.abs()
+    #
+    #         self.max_inds.append(max_inds)
+    #
+    #         out = max_pool.squeeze(2)
+    #
+    #         outputs.append(out)
+    #
+    #     return outputs
+    #
+    # ## Compute Input for Visible Layer from Hidden dReLU
+    # def compute_output_h_for_v(self, Y):  # from h_uk (B, hidden_num)
+    #     outputs = []
+    #     nonzero_masks = []
+    #     # hidden_layer_W = getattr(self, "hidden_layer_W")
+    #     # total_weights = hidden_layer_W.sum()
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         reconst = self.unpools[iid](Y[iid].unsqueeze(2), self.max_inds[iid])
+    #
+    #         # convx = self.convolution_topology[i]["convolution_dims"][2]
+    #         outputs.append(F.conv_transpose2d((reconst).unsqueeze(3), getattr(self, f"{i}_W"),
+    #                                           stride=self.convolution_topology[i]["stride"],
+    #                                           padding=self.convolution_topology[i]["padding"],
+    #                                           dilation=self.convolution_topology[i]["dilation"],
+    #                                           output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
+    #         # outputs[-1] *= hidden_layer_W[iid] / total_weights
+    #         nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()) * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
+    #         # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
+    #     if len(outputs) > 1:
+    #         # Returns mean output from all hidden layers, zeros are ignored
+    #         mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
+    #         return torch.sum(torch.stack(outputs), 0) / mean_denominator
+    #     else:
+    #         return outputs[0]
+
+    def mean_v(self, psi, beta=1):
+        if beta == 1:
+            return torch.special.expit(psi + getattr(self, "fields").unsqueeze(0).squeeze(-1))
+        else:
+            return torch.special.expit(beta * psi + getattr(self, "fields0").unsqueeze(0).squeeze(-1) + beta * (getattr(self, "fields").unsqueeze(0).squeeze(-1) - getattr(self, "fields0").unsqueeze(0).squeeze(-1)))
+
+    def sample_from_inputs_v(self, psi, beta=1):
+        return (torch.randn(psi.shape, device=self.device) < self.mean_v(psi, beta=beta)).double()
+
+    def setup(self, stage=None):
+        if self.dataset == "mnist":
+            PATH_DATASETS = os.environ.get("PATH_DATASETS", "../..")
+            self.train_reader = MNIST(PATH_DATASETS, train=True, download=True, transform=transforms.ToTensor())
+            self.val_reader = MNIST(PATH_DATASETS, train=False, download=True, transform=transforms.ToTensor())
+
+    def on_train_start(self):
+        pass
+
+    def train_dataloader(self, init_fields=True):
+        if init_fields:
+            with torch.no_grad():
+                tmp_fields = torch.randn((*self.v_num, self.q), device=self.device)
+                self.fields += tmp_fields
+                self.fields0 += tmp_fields
+
+
+        return torch.utils.data.DataLoader(
+            self.train_reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=True
+        )
+
+    def val_dataloader(self, init_fields=True):
+        return torch.utils.data.DataLoader(
+            self.val_reader,
+            batch_size=self.batch_size,
+            num_workers=self.worker_num,  # Set to 0 if debug = True
+            pin_memory=self.pin_mem,
+            shuffle=False
+        )
+
+    def training_step(self, batch, batch_idx):
+        x, labels = batch
+        x_neg, h_neg, y_neg, x_pos, h_pos, y_pos = self(x.squeeze(1), labels)
+
+        F_v = self.free_energy(x_pos).mean(0)  # free energy of training data
+        F_vp = self.free_energy(x_neg).mean(0)  # free energy of gibbs sampled visible states
+        cd_loss = F_v - F_vp
+
+        # Regularization Terms
+        reg1 = self.lf / (2 * math.prod(self.v_num)) * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        # reg3 = torch.zeros((1,), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            # reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+
+        # Calculate Loss
+        loss = cd_loss + reg1 + reg2  # + reg3
+
+        logs = {"loss": loss,
+                "free_energy_diff": cd_loss.detach(),
+                "train_free_energy": F_v.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                # "distance_reg": reg3.detach()
+                }
+
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return logs
+
+    def validation_step(self, batch, batch_idx):
+
+        x, labels = batch  # we ignore the labels for now as this is an unsupervised model
+        x_neg, h_neg, x_pos, h_pos = self(x.squeeze(1))
+
+        F_v = self.free_energy(x_pos).mean(0)  # free energy of training data
+        F_vp = self.free_energy(x_neg).mean(0)  # free energy of gibbs sampled visible states
+
+        cd_loss = F_v - F_vp
+
+        # Calculate Loss
+        loss = cd_loss  # + reg1 + reg2 + reg3
+
+        logs = {"loss": loss,
+                "free_energy_diff": cd_loss.detach(),
+                "val_free_energy": F_v.detach(),
+                # "field_reg": reg1.detach(),
+                # "weight_reg": reg2.detach(),
+                # "distance_reg": reg3.detach()
+                }
+
+        self.log("ptl/val_free_energy", logs["val_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return logs
+
+    def forward(self, X):
+        with torch.no_grad():  # only use last sample for gradient calculation, Enabled to minimize memory usage, hopefully won't have much effect on performance
+            fantasy_v, fantasy_h = self.markov_step(X)
+            for _ in range(self.mc_moves - 2):
+                fantasy_v, fantasy_h = self.markov_step(fantasy_v)
+
+        V_neg, fantasy_h = self.markov_step(fantasy_v)
+
+        # V_neg, h_neg, V_pos, h_pos
+        return V_neg, self.sample_from_inputs_h(self.compute_output_v(V_neg)), X, self.sample_from_inputs_h(self.compute_output_v(X))
+
+    ## Gibbs Sampling of dReLU hidden layer
+    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
+        h_uks = []
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            if beta == 1:
+                a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0).unsqueeze(2).unsqueeze(3)
+            else:
+                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+                psi[iid] *= beta
+
+            if nancheck:
+                nans = torch.isnan(psi[iid])
+                if nans.max():
+                    nan_unit = torch.nonzero(nans.max(0))[0]
+                    print('NAN IN INPUT')
+                    print('Hidden units', nan_unit)
+
+            psi_plus = (-psi[iid]).add(theta_plus).div(torch.sqrt(a_plus))
+            psi_minus = psi[iid].add(theta_minus).div(torch.sqrt(a_minus))
+
+            etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
+            etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
+
+            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
+            nans = torch.isnan(p_plus)
+
+            if True in nans:
+                p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+            p_minus = 1 - p_plus
+
+            is_pos = torch.rand(psi[iid].shape, device=self.device) < p_plus
+
+            rmax = torch.zeros(p_plus.shape, device=self.device)
+            rmin = torch.zeros(p_plus.shape, device=self.device)
+            rmin[is_pos] = torch.erf(psi_plus[is_pos].mul(self.invsqrt2))  # Part of Phi(x)
+            rmax[is_pos] = 1  # pos values rmax set to one
+            rmin[~is_pos] = -1  # neg samples rmin set to -1
+            rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).mul(self.invsqrt2))  # Part of Phi(x)
+
+            h = torch.zeros(psi[iid].shape, dtype=torch.float64, device=self.device)
+            tmp = (rmax - rmin > 1e-14)
+            h = self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
+            h[is_pos] -= psi_plus[is_pos]
+            h[~is_pos] += psi_minus[~is_pos]
+            h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
+            h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
+            h_uks.append(h)
+        return h_uks
+
+    def training_epoch_end(self, outputs):
+        # These are detached
+        avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
+        avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
+        field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
+        weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
+        # free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
+        # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
+
+        self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
+                                                           "CD_Loss": avg_dF,
+                                                           "W_reg": weight_reg,
+                                                           "field_reg": field_reg,
+                                                           # "Train_pseudo_likelihood": pseudo_likelihood,
+                                                           # "Train Free Energy": free_energy,
+                                                           }, self.current_epoch)
+
+        for name, p in self.named_parameters():
+            self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+
+    def validation_epoch_end(self, outputs):
+        # avg_pl = torch.stack([x['val_pseudo_likelihood'] for x in outputs]).mean()
+        # self.logger.experiment.add_scalar("Validation pseudo_likelihood", avg_pl, self.current_epoch)
+        avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
+        val_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
+        self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
+        self.logger.experiment.add_scalar("Validation Loss", val_loss, self.current_epoch)
+
+
+
+
+
+
+
+
 
 # q should be 1 on config
 class BinaryCRBM(CRBM):

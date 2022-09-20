@@ -43,31 +43,38 @@ def data_with_weights_plot(crbm, dataframe, hidden_key, hidden_unit_numbers, kdi
     beta, W = utils.get_beta_and_W(crbm, hidden_key, include_gaps=False)   # Get Beta and sort hidden Units by Frobenius Norms
     order = np.argsort(beta)[::-1]
 
-    ### Reduction of the k dimension, or alternatively view all
-    if kdim in ["mean", "sum"]:
-        if kdim == "mean":
-            input_W_hiddens = input_W_hiddens.mean(2)
-        if kdim == "sum":
-            input_W_hiddens = input_W_hiddens.sum(2)
+    if "pool" not in crbm._get_name():
+        ### Reduction of the k dimension, or alternatively view all
+        if kdim in ["mean", "sum"]:
+            if kdim == "mean":
+                input_W_hiddens = input_W_hiddens.mean(2)
+            if kdim == "sum":
+                input_W_hiddens = input_W_hiddens.sum(2)
+            gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
+            grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
+            # Make Figure
+            fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+        elif kdim == "full":
+            convx = input_W_hiddens.shape[2]
+            subcol_num = convx // 2
+            if convx - (subcol_num*2) != 0:
+                even = False
+                # Uneven column sizes, add extra plot which we won't use
+                grid_names = [[f"weight{i}", [[f"cgf{i}_{j}" for j in range(0, convx//2 + 1)], [f"cgf{i}_{j}" for j in range(convx//2 + 1, convx + 1)]]] for i in range(len(hidden_unit_numbers))]
+            else:
+                even = True
+                grid_names = [[f"weight{i}", [[f"cgf{i}_{j}" for j in range(0, convx//2)], [f"cgf{i}_{j}" for j in range(convx//2, convx)]]] for i in range(len(hidden_unit_numbers))]
+            # Make Figure
+            fig, axd = plt.subplot_mosaic(grid_names, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
+        else:
+            print(f"Kdim argument must be mean, sum, or full. {kdim} Not Supported")
+            exit(-1)
+    else:
         gs_kw = dict(width_ratios=[3, 1], height_ratios=[1 for x in hidden_unit_numbers])
         grid_names = [[f"weight{i}", f"cgf{i}"] for i in range(len(hidden_unit_numbers))]
         # Make Figure
-        fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
-    elif kdim == "full":
-        convx = input_W_hiddens.shape[2]
-        subcol_num = convx // 2
-        if convx - (subcol_num*2) != 0:
-            even = False
-            # Uneven column sizes, add extra plot which we won't use
-            grid_names = [[f"weight{i}", [[f"cgf{i}_{j}" for j in range(0, convx//2 + 1)], [f"cgf{i}_{j}" for j in range(convx//2 + 1, convx + 1)]]] for i in range(len(hidden_unit_numbers))]
-        else:
-            even = True
-            grid_names = [[f"weight{i}", [[f"cgf{i}_{j}" for j in range(0, convx//2)], [f"cgf{i}_{j}" for j in range(convx//2, convx)]]] for i in range(len(hidden_unit_numbers))]
-        # Make Figure
-        fig, axd = plt.subplot_mosaic(grid_names, figsize=(10, 5*len(hidden_unit_numbers)), constrained_layout=True)
-    else:
-        print(f"Kdim argument must be mean, sum, or full. {kdim} Not Supported")
-        exit(-1)
+        fig, axd = plt.subplot_mosaic(grid_names, gridspec_kw=gs_kw, figsize=(10, 5 * len(hidden_unit_numbers)), constrained_layout=True)
+
 
     # Prepare Line Data to be plot, must be either cgf or mean
     if data == "cgf":

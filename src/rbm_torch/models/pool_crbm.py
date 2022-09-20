@@ -74,6 +74,17 @@ class pool_CRBM(LightningModule):
         self.l1_2 = config['l1_2']  # regularization on weights, ex. 0.25
         self.lf = config['lf']  # regularization on fields, ex. 0.001
         self.ld = config['ld']
+        self.lgap = config['lgap']
+        self.lbs = config['lbs']
+
+        self.use_test_regularization = False
+        if "use_test_regularization" in config.keys():
+            self.use_test_regularization = config["use_test_regularization"]
+        if self.use_test_regularization:
+
+
+            self.ldiv = config['ldiv']
+            self.cos = nn.CosineSimilarity(dim=1)
         self.seed = config['seed']
 
         # All weights are scaled by this muliplier
@@ -238,8 +249,8 @@ class pool_CRBM(LightningModule):
         self.meminfo = meminfo
 
     @property
-    def h_layer_num(self):
-        return len(self.hidden_convolution_keys)
+    def h_num(self):
+        return sum([self.convolution_topology[x]["number"] for x in self.hidden_convolution_keys])
 
     # Initializes Members for both PT and gen_data functions
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
@@ -384,7 +395,6 @@ class pool_CRBM(LightningModule):
             return self.sample_from_inputs_v(torch.zeros(size, device=self.device).flatten(0, -3), beta=0).reshape(size)
 
     ## Random Config of Hidden dReLU States
-    # N_PT and nchains arguments are used only for generating data currently
     def random_init_config_h(self, zeros=False, custom_size=False):
         config = []
         for iid, i in enumerate(self.hidden_convolution_keys):
@@ -465,11 +475,11 @@ class pool_CRBM(LightningModule):
                     a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
                     psi[kid] *= beta
 
-                if psi[kid].dim() == 3:
-                    a_plus = a_plus.unsqueeze(2)
-                    a_minus = a_minus.unsqueeze(2)
-                    theta_plus = theta_plus.unsqueeze(2)
-                    theta_minus = theta_minus.unsqueeze(2)
+                # if psi[kid].dim() == 3:
+                #     a_plus = a_plus.unsqueeze(2)
+                #     a_minus = a_minus.unsqueeze(2)
+                #     theta_plus = theta_plus.unsqueeze(2)
+                #     theta_minus = theta_minus.unsqueeze(2)
 
                 psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
                 psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
@@ -499,14 +509,14 @@ class pool_CRBM(LightningModule):
                 a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
                 psi *= beta
 
-            if psi.dim() == 3:
-                a_plus = a_plus.unsqueeze(2)
-                a_minus = a_minus.unsqueeze(2)
-                theta_plus = theta_plus.unsqueeze(2)
-                theta_minus = theta_minus.unsqueeze(2)
+            # if psi.dim() == 3:
+            #     a_plus = a_plus.unsqueeze(2)
+            #     a_minus = a_minus.unsqueeze(2)
+            #     theta_plus = theta_plus.unsqueeze(2)
+            #     theta_minus = theta_minus.unsqueeze(2)
 
-            psi_plus = (psi[:, :, 1] + theta_plus) / torch.sqrt(a_plus)  #  min pool
-            psi_minus = (psi[:, :, 0] + theta_minus) / torch.sqrt(a_minus)  # max pool
+            psi_plus = (psi + theta_plus) / torch.sqrt(a_plus)  #  min pool
+            psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)  # max pool
 
             etg_plus = self.erf_times_gauss(psi_plus)
             etg_minus = self.erf_times_gauss(psi_minus)
@@ -652,7 +662,7 @@ class pool_CRBM(LightningModule):
         # return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
 
     ## Gibbs Sampling of dReLU hidden layer
-    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [max, min]
+    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [input]
         h_uks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
             if beta == 1:
@@ -1123,17 +1133,45 @@ class pool_CRBM(LightningModule):
         cd_loss = E_p - E_n
 
         # Regularization Terms
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-        reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device)
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))  # regularization on visible biases
+        reg2 = torch.zeros((1,), device=self.device)  # regularization on Weight Matrix
+        reg3 = torch.zeros((1,), device=self.device)  # regularization on Distance b/t hidden nodes (are they learning different things)
+
+        bs_loss = torch.zeros((1,), device=self.device)   # encourages weights to use both positive and negative contributions
+        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
+        div_loss = torch.zeros((1,), device=self.device)  # discourages weights with long range similarities
+
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+            W = getattr(self, f"{i}_W")
+            x = torch.sum(torch.abs(W), (3, 2, 1)).square()
             reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
             reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
+            if self.use_test_regularization:
+                denom = torch.sum(torch.abs(W), (3, 2, 1))
+                zeroW = torch.zeros_like(W, device=self.device)
+                Wpos = torch.maximum(W, zeroW)
+                Wneg = torch.minimum(W, zeroW)
+                bs_loss += self.lbs * torch.abs(Wpos.sum(1, 2, 3)/denom - torch.abs(Wneg.sum(1, 2, 3))/denom)
+
+                gap_loss += self.lgap * W[:, :, :, -1].sum()
+
+                halfx = W.shape[2] // 2
+                A = W.squeeze(1)[:, :halfx].flatten(start_dim=1)
+                B = W.squeeze(1)[:, halfx:2*halfx].flatten(start_dim=1)
+                similarity = self.cos(A, B).mean()
+                div_loss += self.ldiv * torch.maximum(similarity, torch.tensor(0., device=self.device))
+
+
+
+
+
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3
+        if self.use_test_regularization:
+            loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss + div_loss
+        else:
+            loss = cd_loss + reg1 + reg2 + reg3
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
