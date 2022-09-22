@@ -884,26 +884,32 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
     name = tmp_model._get_name()
     if "CRBM" in name:
         setattr(tmp_model, "fields", torch.nn.Parameter(getattr(tmp_model, "fields") * beta, requires_grad=False))
+        if "class" in name:
+            setattr(tmp_model, "y_bias", torch.nn.Parameter(getattr(tmp_model, "y_bias") * beta, requires_grad=False))
 
         if which == 'joint':
             param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
+            if "class" in name:
+                param_keys.append("M")
             for key in tmp_model.hidden_convolution_keys:
                 for pkey in param_keys:
                     setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}") * beta, requires_grad=False))
         elif which == "marginal":
             param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            if "class" in name:
+                param_keys.append("M")
             new_convolution_keys = copy.deepcopy(tmp_model.hidden_convolution_keys)
 
             # Setup Steps for editing the hidden layer topology of our model
             setattr(tmp_model, "convolution_topology", copy.deepcopy(model.convolution_topology))
             tmp_model_conv_topology = getattr(tmp_model, "convolution_topology")  # Get and edit tmp_model_conv_topology
-            # Also need to fix up parameter hidden_layer_W
-            # tmp_model_hidden_layer_W = getattr(tmp_model, "hidden_layer_W")
-            tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
 
             if "pool" in name:
-                tmp_model.pools = tmp_model.pools * 2
-                tmp_model.unpools = tmp_model.unpools * 2
+                tmp_model.pools = tmp_model.pools * beta
+                tmp_model.unpools = tmp_model.unpools * beta
+            else:
+                # Also need to fix up parameter hidden_layer_W
+                tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
 
             # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
             for key in tmp_model.hidden_convolution_keys:
@@ -945,6 +951,8 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
 
 def gen_data_zeroT(model, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
     tmp_model = copy.deepcopy(model)
+    if "class" in tmp_model._get_name():
+        print("Zero Temp Generation of Data not available for classification CRBM")
     with torch.no_grad():
         if which == 'joint':
             tmp_model.markov_step = types.MethodType(markov_step_zeroT_joint, tmp_model)

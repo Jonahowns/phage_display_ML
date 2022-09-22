@@ -76,15 +76,6 @@ class pool_CRBM(LightningModule):
         self.ld = config['ld']
         self.lgap = config['lgap']
         self.lbs = config['lbs']
-
-        self.use_test_regularization = False
-        if "use_test_regularization" in config.keys():
-            self.use_test_regularization = config["use_test_regularization"]
-        if self.use_test_regularization:
-
-
-            self.ldiv = config['ldiv']
-            self.cos = nn.CosineSimilarity(dim=1)
         self.seed = config['seed']
 
         # All weights are scaled by this muliplier
@@ -162,12 +153,12 @@ class pool_CRBM(LightningModule):
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
 
         # Hidden Layer Weights, Two options (1) provided weights or (2) learns the weights as a model parameter
-        try:
-            hidden_layer_weights = [v['weight'] for x, v in self.convolution_topology.items()]
-            self.register_parameter("hidden_layer_W", nn.Parameter(torch.tensor(hidden_layer_weights, device=self.device), requires_grad=False))
-        except KeyError:
-            print("Hidden layer weights not provided or incomplete. Attempting to learn instead.")
-            self.register_parameter("hidden_layer_W", nn.Parameter(torch.ones((len(self.hidden_convolution_keys)), device=self.device), requires_grad=True))
+        # try:
+        #     hidden_layer_weights = [v['weight'] for x, v in self.convolution_topology.items()]
+        #     self.register_parameter("hidden_layer_W", nn.Parameter(torch.tensor(hidden_layer_weights, device=self.device), requires_grad=False))
+        # except KeyError:
+        #     print("Hidden layer weights not provided or incomplete. Attempting to learn instead.")
+        #     self.register_parameter("hidden_layer_W", nn.Parameter(torch.ones((len(self.hidden_convolution_keys)), device=self.device), requires_grad=True))
 
         self.use_pearson = config["use_pearson"]
         self.pearson_xvar = "none"
@@ -249,8 +240,8 @@ class pool_CRBM(LightningModule):
         self.meminfo = meminfo
 
     @property
-    def h_num(self):
-        return sum([self.convolution_topology[x]["number"] for x in self.hidden_convolution_keys])
+    def h_layer_num(self):
+        return len(self.hidden_convolution_keys)
 
     # Initializes Members for both PT and gen_data functions
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
@@ -533,7 +524,7 @@ class pool_CRBM(LightningModule):
     ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
     def compute_output_v(self, X):  # X is the one hot vector
         outputs = []
-        hidden_layer_W = getattr(self, "hidden_layer_W")
+        # hidden_layer_W = getattr(self, "hidden_layer_W")
         # total_weights = hidden_layer_W.sum()
         self.max_inds = []
         self.min_inds = []
@@ -617,7 +608,7 @@ class pool_CRBM(LightningModule):
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
             # outputs[-1] *= hidden_layer_W[iid] / total_weights
-            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()) * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
+            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype())) # * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
             # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored

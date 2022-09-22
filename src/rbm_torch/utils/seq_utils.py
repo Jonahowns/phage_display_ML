@@ -81,3 +81,34 @@ def prune_similar_sequences(dataframe, hamming_threshold=0, molecule="protein"):
     dataframe = dataframe.iloc[selected_indices, :]
     dataframe.reset_index(drop=True, inplace=True)
     return dataframe
+
+
+def prune_similar_sequences_df(df1, df2, hamming_threshold=0, molecule="protein"):
+    """generate subset of sequences in df1 that are at least x mutations away from all sequences in df2"""
+    df1.reset_index(drop=True, inplace=True)
+    df1_seqs = df1["sequence"].tolist()
+    df1_index = df1.index.tolist()
+
+    df1_cat = seq_to_cat(df1_seqs, molecule=molecule)
+    X = df1_cat.numpy().astype(np.int8)
+
+    df2.reset_index(drop=True, inplace=True)
+    df2_seqs = df2["sequence"].tolist()
+    df2_index = df2.index.tolist()
+
+    df2_cat = seq_to_cat(df2_seqs, molecule=molecule)
+    Y = df2_cat.numpy().astype(np.int8)
+
+    seq_len = len(df1_seqs[0])
+    dist_matrix = pairwise_distances(X, Y, metric="hamming") * seq_len
+
+    min_distances = dist_matrix.min(1)
+
+    keep = min_distances > hamming_threshold
+
+    dataframe = df1.iloc[keep, :]
+
+    print(f"Kept {len(dataframe.index.__len__())} of {df1.index.__len__()} in df1")
+
+    dataframe.reset_index(drop=True, inplace=True)
+    return dataframe
