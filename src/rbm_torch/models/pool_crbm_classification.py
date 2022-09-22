@@ -504,7 +504,7 @@ class pool_class_CRBM(pool_CRBM):
         # D_vp = self.free_energy_discriminative(V_neg_oh, y_neg).mean()
         discriminative_cd_loss = D_v
 
-        hybrid_loss_function = 5*((1 + self.alpha) * discriminative_cd_loss + self.alpha * unsupervised_cd_loss)
+        hybrid_loss_function = 20*((1 + self.alpha) * discriminative_cd_loss + self.alpha * unsupervised_cd_loss)
 
         # if self.meminfo:
         #     print("GPU Allocated After CD_Loss:", torch.cuda.memory_allocated(0))
