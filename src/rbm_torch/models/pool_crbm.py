@@ -535,58 +535,30 @@ class pool_CRBM(LightningModule):
                             padding=self.convolution_topology[i]["padding"],
                             dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
 
-            # w_zero = torch.zeros_like(weights.squeeze(1), device=self.device)
-            #
-            # W_pos = torch.max(weights.squeeze(1), w_zero)
-            # W_neg = torch.min(weights.squeeze(1), w_zero)
-            #
-            # # inds are thrown away
-            # pos_max, _ = W_pos.max(2)
-            # neg_max, _ = W_neg.min(2)
-            #
-            # pos_max_total = pos_max.sum(1)
-            # neg_max_total = neg_max.sum(1)
-            #
-            # is_neg = conv < 0
-            #
-            # pos_max_expanded = pos_max_total.expand(conv.shape[0], -1).unsqueeze(2).expand(-1, -1, conv.shape[-1])
-            # divisor = pos_max_expanded.clone()
-            #
-            # neg_max_expanded = neg_max_total.clone().abs().expand(conv.shape[0], -1)
-            # neg_max_expanded_2 = neg_max_expanded.clone().unsqueeze(2).expand(-1, -1, conv.shape[-1])
-            # neg_max_expanded_3 = neg_max_expanded_2.clone()
-            # divisor[is_neg] = neg_max_expanded_3[is_neg]
-            #
-            # conv = conv.div(divisor)
-            # conv[~is_neg] = conv[~is_neg]/pos_max_total
-            # conv[is_neg] = conv[is_neg]/neg_max_total.abs()
-
             max_pool, max_inds = self.pools[iid](conv.abs())
 
-            max_conv_values = torch.gather(conv, 2, max_inds)
+            flat_conv = conv.flatten(start_dim=2)
+            max_conv_values = flat_conv.gather(2, index=max_inds.flatten(start_dim=2)).view_as(max_inds)
+
+            # max_conv_values = torch.gather(conv, 2, max_inds)
             max_pool *= max_conv_values/max_conv_values.abs()
-            # min_pool, min_inds = self.pools[iid](-1 * conv)
 
             self.max_inds.append(max_inds)
-            # self.min_inds.append(min_inds)
 
-            # pos_out = max_pool > min_pool
-            #
-            # out = torch.cat([max_pool, -1*min_pool], dim=2)
-            out = max_pool.squeeze(2)
+            out = max_pool.flatten(start_dim=2)
 
             if self.use_batch_norm:
                 batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
                 out = batch_norm(out)  # apply batch norm
 
-            outputs.append(out)
+            outputs.append(out.squeeze(2))
 
         return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h(self, Y):  # from h_uk (B, hidden_num)
         outputs = []
-        nonzero_masks = []
+        # nonzero_masks = []
         # hidden_layer_W = getattr(self, "hidden_layer_W")
         # total_weights = hidden_layer_W.sum()
         for iid, i in enumerate(self.hidden_convolution_keys):
@@ -598,22 +570,25 @@ class pool_CRBM(LightningModule):
             # max_reconst = self.unpools[iid](Y_pos.unsqueeze(2), self.max_inds[iid])
             # min_reconst = -1*self.unpools[iid](Y_neg.unsqueeze(2), self.min_inds[iid])
 
-            reconst = self.unpools[iid](Y[iid].unsqueeze(2), self.max_inds[iid])
+            reconst = self.unpools[iid](Y[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
+
+            if reconst.ndim == 3:
+                reconst.unsqueeze_(3)
 
 
             # convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv_transpose2d((reconst).unsqueeze(3), getattr(self, f"{i}_W"),
+            outputs.append(F.conv_transpose2d(reconst, getattr(self, f"{i}_W"),
                                               stride=self.convolution_topology[i]["stride"],
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
             # outputs[-1] *= hidden_layer_W[iid] / total_weights
-            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype())) # * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
+            # nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype())) # * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
             # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored
-            mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
-            return torch.sum(torch.stack(outputs), 0) / mean_denominator
+            # mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
+            return torch.sum(torch.stack(outputs), 0)  # / mean_denominator
         else:
             return outputs[0]
 

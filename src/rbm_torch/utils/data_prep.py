@@ -71,13 +71,15 @@ def summary_np(nparray):
     """
     return f"{nparray.max()}, {nparray.min()}, {nparray.mean()}, {np.median(nparray)}"
 
-def log_scale(listofnumbers, base=1):
+def log_scale(listofnumbers, eps=1, base=math.e):
     """ Return log(x+base) for each number x in provided list
 
     Parameters
     ----------
     listofnumbers: list,
         list of float values
+    eps: float, optional, default=1
+        value added to each log operation to avoid 0 values ex. log(1) = 0
     base: float, optional, default=1
         value added to each log operation to avoid 0 values ex. log(1) = 0
 
@@ -86,7 +88,7 @@ def log_scale(listofnumbers, base=1):
     data: np array
         log of value+base for value in parameter listofnumbers
     """
-    return np.asarray([math.log(x + base) for x in listofnumbers])
+    return np.asarray([math.log(x + eps, base) for x in listofnumbers])
 
 def quick_hist(x, outfile=None, yscale="log", bins=100):
     """ Make histogram of values, and save to file

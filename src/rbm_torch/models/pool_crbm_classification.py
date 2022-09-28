@@ -273,27 +273,30 @@ class pool_class_CRBM(pool_CRBM):
 
             max_pool, max_inds = self.pools[iid](conv.abs())
 
-            max_conv_values = torch.gather(conv, 2, max_inds)
+            flat_conv = conv.flatten(start_dim=2)
+            max_conv_values = flat_conv.gather(2, index=max_inds.flatten(start_dim=2)).view_as(max_inds)
+
+            # max_conv_values = torch.gather(conv, 2, max_inds)
             max_pool *= max_conv_values/max_conv_values.abs()
 
             self.max_inds.append(max_inds)
 
-            out = max_pool.squeeze(2)
+            out = max_pool.flatten(start_dim=2)
 
             if self.use_batch_norm:
                 batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
                 out = batch_norm(out)  # apply batch norm
 
-            outputs.append(out)
+            outputs.append(out.squeeze(2))
 
         return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h_for_v(self, Y):  # from h_uk (B, hidden_num)
         outputs = []
-        nonzero_masks = []
+        # nonzero_masks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            reconst = self.unpools[iid](Y[iid].unsqueeze(2), self.max_inds[iid])
+            reconst = self.unpools[iid](Y[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
 
 
             # convx = self.convolution_topology[i]["convolution_dims"][2]
@@ -303,12 +306,12 @@ class pool_class_CRBM(pool_CRBM):
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
 
-            nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()))  # * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
+            # nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()))  # * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
 
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored
-            mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
-            return torch.sum(torch.stack(outputs), 0) / mean_denominator
+            # mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
+            return torch.sum(torch.stack(outputs), 0)   # / mean_denominator
         else:
             return outputs[0]
 
@@ -493,6 +496,7 @@ class pool_class_CRBM(pool_CRBM):
 
         # F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
         # free_energy = self.free_energy(V_pos_oh)
+        free_energy = self.free_energy(V_pos_oh)
         F_v = (self.free_energy(V_pos_oh) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
         # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
         F_vp = (self.free_energy(V_neg_oh) * seq_weights.abs()).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
@@ -505,6 +509,20 @@ class pool_class_CRBM(pool_CRBM):
         discriminative_cd_loss = D_v
 
         hybrid_loss_function = 20*((1 + self.alpha) * discriminative_cd_loss + self.alpha * unsupervised_cd_loss)
+
+        if self.use_pearson:
+            if self.pearson_xvar == "values":
+                # correlation coefficient between free energy and fitness values
+                vy = seq_weights - torch.mean(seq_weights)
+            elif self.pearson_xvar == "labels":
+                labels = labels.double()
+                vy = labels - torch.mean(labels)
+
+            # correlation coefficient between free energy and fitness values/labels
+            vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+
+            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+            pearson_loss = (1 - pearson_correlation)  # * (self.current_epoch/self.epochs + 1) * 10
 
         # if self.meminfo:
         #     print("GPU Allocated After CD_Loss:", torch.cuda.memory_allocated(0))
@@ -564,6 +582,12 @@ class pool_class_CRBM(pool_CRBM):
         # y_input = self.compute_output_h_for_y(h_pos)
         # predicted_labels = self.sample_from_inputs_y(y_input)
 
+        if self.use_pearson:
+            loss += pearson_loss * 5  # * pearson_multiplier
+            logs["train_pearson_corr"] = pearson_correlation.detach()
+            logs["train_pearson_loss"] = pearson_loss.detach()
+            self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
         acc = (predicted_labels == labels).double().mean()
         logs["acc"] = acc.detach()
         self.log("ptl/train_acc", logs["acc"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -574,6 +598,121 @@ class pool_class_CRBM(pool_CRBM):
 
         return logs
 
+    def training_step_PCD_free_energy(self, batch, batch_idx):
+        seqs, one_hot, seq_weights, labels = batch
+
+        if self.current_epoch == 0 and batch_idx == 0:
+            self.chain = [one_hot.detach()]
+        elif self.current_epoch == 0:
+            self.chain.append(one_hot.detach())
+
+        V_oh_neg, h_neg = self.forward_PCD(batch_idx)
+
+        free_energy = self.free_energy(one_hot)
+        F_v = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
+        # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
+        F_vp = (self.free_energy(V_oh_neg) * seq_weights.abs()).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
+        free_energy_diff = F_v - F_vp
+        # cd_loss = (free_energy_diff/torch.abs(free_energy_diff)) * torch.log(torch.abs(free_energy_diff) + 10)
+        unsupervised_cd_loss = free_energy_diff
+
+        D_v = self.free_energy_discriminative(one_hot, labels).mean()
+        # D_vp = self.free_energy_discriminative(V_neg_oh, y_neg).mean()
+        discriminative_cd_loss = D_v
+
+        hybrid_loss_function = 20 * ((1 + self.alpha) * discriminative_cd_loss + self.alpha * unsupervised_cd_loss)
+
+        if self.use_pearson:
+            if self.pearson_xvar == "values":
+                # correlation coefficient between free energy and fitness values
+                vy = seq_weights - torch.mean(seq_weights)
+            elif self.pearson_xvar == "labels":
+                labels = labels.double()
+                vy = labels - torch.mean(labels)
+
+            # correlation coefficient between free energy and fitness values/labels
+            vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+
+            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+            pearson_loss = (1 - pearson_correlation)  # * (self.current_epoch/self.epochs + 1) * 10
+
+        # if self.meminfo:
+        #     print("GPU Allocated After CD_Loss:", torch.cuda.memory_allocated(0))
+
+        # Regularization Terms
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        reg2 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device)
+
+        bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
+        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
+        div_loss = torch.zeros((1,), device=self.device)  # discourages weights with long range similarities
+
+        for iid, i in enumerate(self.hidden_convolution_keys):
+            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            W = getattr(self, f"{i}_W")
+            x = torch.sum(torch.abs(W), (3, 2, 1)).square()
+            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
+
+            denom = torch.sum(torch.abs(W), (3, 2, 1))
+            zeroW = torch.zeros_like(W, device=self.device)
+            Wpos = torch.maximum(W, zeroW)
+            Wneg = torch.minimum(W, zeroW)
+            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).mean()
+
+        label_probs = self.compute_class_probabilities(one_hot)
+        predicted_labels = label_probs.argmax(0)
+        # class_loss = self.closs(torch.swapaxes(label_probs, 0, 1), labels)
+
+        # Calculate Loss
+        loss = hybrid_loss_function + reg1 + reg2 + reg3 + gap_loss + bs_loss  # + class_loss
+
+        # Debugging
+        # nancheck = torch.isnan(torch.tensor([cd_loss, F_v, F_vp, reg1, reg2, reg3], device=self.device))
+        # if True in nancheck:
+        #     print(nancheck)
+        #     torch.save(V_pos_oh, "vpos_err.pt")
+        #     torch.save(V_neg_oh, "vneg_err.pt")
+        #     torch.save(one_hot, "oh_err.pt")
+        #     torch.save(seq_weights, "seq_weights_err.pt")
+
+        # Calculate Loss
+        # loss = cd_loss + reg1 + reg2 + reg3
+
+        logs = {"loss": loss,
+                "free_energy_diff": hybrid_loss_function.detach(),
+                "train_free_energy": F_v.detach(),
+                "field_reg": reg1.detach(),
+                "weight_reg": reg2.detach(),
+                "distance_reg": reg3.detach()
+                }
+
+        # y_input = self.compute_output_h_for_y(h_pos)
+        # predicted_labels = self.sample_from_inputs_y(y_input)
+
+        if self.use_pearson:
+            loss += pearson_loss * 10  # * pearson_multiplier
+            logs["train_pearson_corr"] = pearson_correlation.detach()
+            logs["train_pearson_loss"] = pearson_loss.detach()
+            self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        acc = (predicted_labels == labels).double().mean()
+        logs["acc"] = acc.detach()
+        self.log("ptl/train_acc", logs["acc"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        return logs
+
+
+
+
+
+
+
     def validation_step(self, batch, batch_idx):
 
         seqs, one_hot, seq_weights, labels = batch
@@ -583,11 +722,27 @@ class pool_class_CRBM(pool_CRBM):
         free_energy = self.free_energy(one_hot)
         free_energy_avg = (free_energy * seq_weights).sum() / seq_weights.abs().sum()
 
+        if self.use_pearson:
+            if self.pearson_xvar == "values":
+                # correlation coefficient between free energy and fitness values
+                vy = seq_weights - torch.mean(seq_weights)
+            elif self.pearson_xvar == "labels":
+                labels = labels.double()
+                vy = labels - torch.mean(labels)
+
+            vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values or with higher label values
+            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+
 
         batch_out = {
             # "val_pseudo_likelihood": pseudo_likelihood.detach()
             "val_free_energy": free_energy_avg.detach()
         }
+
+        if self.use_pearson:
+            batch_out["val_pearson_corr"] = pearson_correlation.detach()
+            self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True,
+                     logger=True)
 
         predicted_labels = self.label_prediction(one_hot)
         acc = (predicted_labels == labels).double().mean()

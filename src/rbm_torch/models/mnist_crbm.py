@@ -19,12 +19,34 @@ from torch.utils.data import Dataset
 from rbm_torch.models.crbm import CRBM
 from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
 
+from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D
+
 # q should be 1 on config
 class binary_pool_class_CRBM(pool_class_CRBM):
     def __init__(self, config, dataset="mnist", debug=False):
         super().__init__(config, debug=debug)
         self.dataset = dataset
         self.v_num = config["v_num"]
+
+        self.pools = []
+        self.unpools = []
+
+        for key in self.hidden_convolution_keys:
+            # Set information about the convolutions that will be useful
+            dims = conv2d_dim([self.batch_size, 1, *self.v_num], self.convolution_topology[key])
+            # self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
+            # self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
+            # self.convolution_topology[key]["output_padding"] = dims["output_padding"]
+
+            # deal with pool and unpool initialization
+            pool_input_size = dims["conv_shape"]
+
+            pool_kernel = (pool_input_size[2], pool_input_size[3])
+            pool_stride = 1
+            pool_padding = 0
+
+            self.pools.append(nn.MaxPool2d(pool_kernel, stride=(pool_stride, pool_stride), return_indices=True, padding=(pool_padding, pool_padding)))
+            self.unpools.append(nn.MaxUnpool2d(pool_kernel, stride=(pool_stride, pool_stride), padding=(pool_padding, pool_padding)))
 
     def transform_v(self, I):
         return (I+getattr(self, "fields").squeeze(-1))>0
@@ -54,26 +76,26 @@ class binary_pool_class_CRBM(pool_class_CRBM):
         else:
             return torch.log(1 + torch.exp((beta * getattr(self, "fields")).unsqueeze(0).squeeze(-1) + (1 - beta) * getattr(self, "fields0")).unsqueeze(0).squeeze(-1) + beta * inputs).sum(1)
 
-    def logpartition_h(self, inputs, beta=1):
-        # Input is list of matrices I_uk
-        marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            if beta == 1:
-                a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                theta_plus = (getattr(self, f'{i}_theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                theta_minus = (getattr(self, f'{i}_theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-            else:
-                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
-                                0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
-                1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
-            marginal[iid] = y.sum((2, 1)) # sum over uk
-            # marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
-        return marginal.sum(0)
+    # def logpartition_h(self, inputs, beta=1):
+    #     # Input is list of matrices I_uk
+    #     marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         if beta == 1:
+    #             a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #             a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #             theta_plus = (getattr(self, f'{i}_theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #             theta_minus = (getattr(self, f'{i}_theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #         else:
+    #             theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #             theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #             a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #             a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+    #         y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
+    #                             0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
+    #             1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
+    #         marginal[iid] = y.sum((2, 1)) # sum over uk
+    #         # marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
+    #     return marginal.sum(0)
 
     # def compute_output_v_for_h(self, X):  # X is the one hot vector
     #     outputs = []
@@ -170,7 +192,7 @@ class binary_pool_class_CRBM(pool_class_CRBM):
 
     def training_step(self, batch, batch_idx):
         x, labels = batch
-        x_neg, h_neg, y_neg, x_pos, h_pos, y_pos = self(x.squeeze(1), labels)
+        x_neg, h_neg, x_pos, h_pos = self.forward(x.squeeze(1))
 
         F_v = self.free_energy(x_pos).mean(0)  # free energy of training data
         F_vp = self.free_energy(x_neg).mean(0)  # free energy of gibbs sampled visible states
@@ -186,8 +208,16 @@ class binary_pool_class_CRBM(pool_class_CRBM):
             reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
             # reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
 
+        D_v = self.free_energy_discriminative(x_pos, labels).mean()
+        discriminative_cd_loss = D_v
+
+        hybrid_loss_function = 20 * ((1 + self.alpha) * discriminative_cd_loss + self.alpha * cd_loss)
+
+        label_probs = self.compute_class_probabilities(x_pos)
+        predicted_labels = label_probs.argmax(0)
+
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2  # + reg3
+        loss = hybrid_loss_function + reg1 + reg2  # + reg3
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -197,102 +227,43 @@ class binary_pool_class_CRBM(pool_class_CRBM):
                 # "distance_reg": reg3.detach()
                 }
 
+        acc = (predicted_labels == labels).double().mean()
+        logs["acc"] = acc.detach()
+        self.log("ptl/train_acc", logs["acc"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", hybrid_loss_function, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
 
     def validation_step(self, batch, batch_idx):
 
         x, labels = batch  # we ignore the labels for now as this is an unsupervised model
-        x_neg, h_neg, x_pos, h_pos = self(x.squeeze(1))
+        # x_neg, h_neg, x_pos, h_pos = self.forward(x.squeeze(1))
 
-        F_v = self.free_energy(x_pos).mean(0)  # free energy of training data
-        F_vp = self.free_energy(x_neg).mean(0)  # free energy of gibbs sampled visible states
+        xd = x.squeeze(1)
+        F_v = self.free_energy(xd).mean(0)  # free energy of training data
 
-        cd_loss = F_v - F_vp
+        cd_loss = F_v
 
         # Calculate Loss
         loss = cd_loss  # + reg1 + reg2 + reg3
 
         logs = {"loss": loss,
-                "free_energy_diff": cd_loss.detach(),
                 "val_free_energy": F_v.detach(),
                 # "field_reg": reg1.detach(),
                 # "weight_reg": reg2.detach(),
                 # "distance_reg": reg3.detach()
                 }
 
+        predicted_labels = self.label_prediction(xd)
+        acc = (predicted_labels == labels).double().mean()
+        logs["acc"] = acc.detach()
+        self.log("ptl/val_acc", logs["acc"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
         self.log("ptl/val_free_energy", logs["val_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
-
-    def forward(self, X):
-        with torch.no_grad():  # only use last sample for gradient calculation, Enabled to minimize memory usage, hopefully won't have much effect on performance
-            fantasy_v, fantasy_h = self.markov_step(X)
-            for _ in range(self.mc_moves - 2):
-                fantasy_v, fantasy_h = self.markov_step(fantasy_v)
-
-        V_neg, fantasy_h = self.markov_step(fantasy_v)
-
-        # V_neg, h_neg, V_pos, h_pos
-        return V_neg, self.sample_from_inputs_h(self.compute_output_v(V_neg)), X, self.sample_from_inputs_h(self.compute_output_v(X))
-
-    ## Gibbs Sampling of dReLU hidden layer
-    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
-        h_uks = []
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            if beta == 1:
-                a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0).unsqueeze(2).unsqueeze(3)
-            else:
-                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-                psi[iid] *= beta
-
-            if nancheck:
-                nans = torch.isnan(psi[iid])
-                if nans.max():
-                    nan_unit = torch.nonzero(nans.max(0))[0]
-                    print('NAN IN INPUT')
-                    print('Hidden units', nan_unit)
-
-            psi_plus = (-psi[iid]).add(theta_plus).div(torch.sqrt(a_plus))
-            psi_minus = psi[iid].add(theta_minus).div(torch.sqrt(a_minus))
-
-            etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
-            etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
-
-            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
-            nans = torch.isnan(p_plus)
-
-            if True in nans:
-                p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-            p_minus = 1 - p_plus
-
-            is_pos = torch.rand(psi[iid].shape, device=self.device) < p_plus
-
-            rmax = torch.zeros(p_plus.shape, device=self.device)
-            rmin = torch.zeros(p_plus.shape, device=self.device)
-            rmin[is_pos] = torch.erf(psi_plus[is_pos].mul(self.invsqrt2))  # Part of Phi(x)
-            rmax[is_pos] = 1  # pos values rmax set to one
-            rmin[~is_pos] = -1  # neg samples rmin set to -1
-            rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).mul(self.invsqrt2))  # Part of Phi(x)
-
-            h = torch.zeros(psi[iid].shape, dtype=torch.float64, device=self.device)
-            tmp = (rmax - rmin > 1e-14)
-            h = self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
-            h[is_pos] -= psi_plus[is_pos]
-            h[~is_pos] += psi_minus[~is_pos]
-            h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
-            h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
-            h_uks.append(h)
-        return h_uks
 
     def training_epoch_end(self, outputs):
         # These are detached
@@ -322,9 +293,11 @@ class binary_pool_class_CRBM(pool_class_CRBM):
         self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
         self.logger.experiment.add_scalar("Validation Loss", val_loss, self.current_epoch)
 
-
-
-
+    def on_before_zero_grad(self, optimizer):
+        super().on_before_zero_grad(optimizer)
+        with torch.no_grad():
+            for key in self.hidden_convolution_keys:
+                getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
 
 
 
@@ -737,20 +710,28 @@ class BinaryClassifier(LightningModule):
 
 
 
-mnist_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "classifier_epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 4, "lr": 0.00001,
+# mnist_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "classifier_epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 4, "lr": 0.00001,
+#                         "lr_final": None, "decay_after": 0.75, "sequence_weights": None, "optimizer": "AdamW", "weight_decay": 0.02, "data_worker_num": 4, "fasta_file": "", "molecule": "dna",
+#                         "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 800.0, "lf": 50.0, "ld": 10.0, "classifier_lr": 0.005, "classifier_lr_final": 0.0005, "classifier_decay_after": 0.75,
+#                         "classifier_weight_decay": 0.02, "classifier_optimizer": "AdamW",
+#                         "convolution_topology": {
+#                             "hidden20x20": {"number": 30, "kernel": (20, 20), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
+#                         }}
+
+mnist_class_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 2, "lr": 0.001,
                         "lr_final": None, "decay_after": 0.75, "sequence_weights": None, "optimizer": "AdamW", "weight_decay": 0.02, "data_worker_num": 4, "fasta_file": "", "molecule": "dna",
-                        "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 800.0, "lf": 50.0, "ld": 10.0, "classifier_lr": 0.005, "classifier_lr_final": 0.0005, "classifier_decay_after": 0.75,
-                        "classifier_weight_decay": 0.02, "classifier_optimizer": "AdamW",
+                        "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 20.0, "lf": 50.0, "ld": 10.0, "lgap" : 0.0, "lbs": 0.0, "classes": 10, "validation_set_size": 0.0,
+                        "test_set_size": 0.0, "use_pearson": False, "stratify_datasets": False, "use_batch_norm": False, "alpha": 0.0,
                         "convolution_topology": {
-                            "hidden20x20": {"number": 30, "kernel": (20, 20), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
+                            "hidden20x20": {"number": 200, "kernel": (15, 15), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
                         }}
 
 if __name__ == "__main__":
     # binary_crbm = BinaryCRBM(mnist_default_config, dataset="mnist")
 
-    config = mnist_default_config
+    config = mnist_class_default_config
     config["epochs"] = 100
-    config["classifier_epochs"] = 50
+    # config["classifier_epochs"] = 50
 
     # binary_classifier = BinaryClassifier(mnist_default_config, dataset="mnist", train_crbm=False, debug=True)
     # binary_classifier.train_crbm(0)
@@ -770,8 +751,9 @@ if __name__ == "__main__":
     #     out = binary_crbm.training_step(batch, i)
     #     print("hi")
 
-    binary_crbm = BinaryCRBM(mnist_default_config, dataset="mnist", debug=True)
+    binary_crbm = binary_pool_class_CRBM(mnist_class_default_config, dataset="mnist", debug=False)
 
     logger = TensorBoardLogger('../../tb_logs/', name="mnist_crbm")
-    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1)  # gpus=1,
+    plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=1, accelerator="cuda")  # gpus=1,
+    # plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")
     plt.fit(binary_crbm)

@@ -103,7 +103,7 @@ def load_run_file(runfile):
         exit(1)
 
     # Get info needed for all models
-    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm"]
+    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm", "pool_regression_crbm"]
 
     config = run_data["config"]
 
