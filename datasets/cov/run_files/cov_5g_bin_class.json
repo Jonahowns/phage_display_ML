@@ -36,7 +36,7 @@
           "sequence_weights": "None",
           "optimizer": "AdamW",
           "weight_decay": 0.001,
-          "l1_2": 20,
+          "l1_2": 40,
           "lf": 20,
           "ld": 20,
           "data_worker_num": 4,
