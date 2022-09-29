@@ -14,7 +14,7 @@ from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
 from rbm_torch.models.pool_crbm import pool_CRBM
 from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
-from rbm_torch.models.pool_crbm_regression import pool_regression_CRBM
+# from rbm_torch.models.pool_crbm_regression import pool_regression_CRBM
 from rbm_torch.models.composition_crbm import comp_CRBM
 
 from rbm_torch.utils.utils import load_run_file
@@ -63,8 +63,8 @@ if __name__ == '__main__':
         model = pool_CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pool_class_crbm":
         model = pool_class_CRBM(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == "pool_regression_crbm":
-        model = pool_regression_CRBM(config, debug=debug_flag, precision=config["precision"])
+    # elif model_type == "pool_regression_crbm":
+    #     model = pool_regression_CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "comp_crbm":
         model = comp_CRBM(config, debug=debug_flag, precision=config["precision"])
     else:
