@@ -25,7 +25,7 @@
           "v_num": 40,
           "q": 5,
           "molecule": "dna",
-          "epochs": 300,
+          "epochs": 2000,
           "precision": "single",
           "seed": 0,
           "batch_size": 12500,
@@ -43,8 +43,8 @@
           "ld": 20,
           "data_worker_num": 4,
          "convolution_topology": {
-           "hidden_15": {
-             "number": 50,
+           "hidden_35": {
+             "number": 100,
              "kernelx": 15,
              "kernely": 5,
              "stridex": 1,
