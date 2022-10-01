@@ -174,6 +174,9 @@ class pool_CRBM(LightningModule):
 
 
         self.use_batch_norm = config["use_batch_norm"]
+        self.dr = 0.
+        if "dr" in config.keys():
+            self.dr = config["dr"]
 
         self.pools = []
         self.unpools = []
@@ -550,6 +553,9 @@ class pool_CRBM(LightningModule):
             if self.use_batch_norm:
                 batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
                 out = batch_norm(out)  # apply batch norm
+
+            if self.dr > 0.:
+                out = F.dropout(out, p=self.dr, training=self.training)
 
             outputs.append(out.squeeze(2))
 
@@ -1242,11 +1248,23 @@ class pool_CRBM(LightningModule):
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
+
+        bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
+        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
+
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            W = getattr(self, f"{i}_W")
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
             reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
             reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
+
+            denom = torch.sum(torch.abs(W), (3, 2, 1))
+            zeroW = torch.zeros_like(W, device=self.device)
+            Wpos = torch.maximum(W, zeroW)
+            Wneg = torch.minimum(W, zeroW)
+            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).mean()
 
         # Debugging
         # nancheck = torch.isnan(torch.tensor([cd_loss, F_v, F_vp, reg1, reg2, reg3], device=self.device))
@@ -1258,10 +1276,7 @@ class pool_CRBM(LightningModule):
         #     torch.save(seq_weights, "seq_weights_err.pt")
 
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3
-
-        if self.use_pearson:
-            loss += pearson_loss * 50  # * pearson_multiplier
+        loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -1272,6 +1287,8 @@ class pool_CRBM(LightningModule):
                 }
 
         if self.use_pearson:
+            loss += pearson_loss * 10  # * pearson_multiplier
+            logs["loss"] = loss
             logs["train_pearson_corr"] = pearson_correlation.detach()
             logs["train_pearson_loss"] = pearson_loss.detach()
             self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
@@ -1285,8 +1302,10 @@ class pool_CRBM(LightningModule):
         return logs
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
-        # seqs, V_pos, one_hot, seq_weights = batch
-        seqs, one_hot, seq_weights = batch
+        if self.pearson_xvar == "labels":
+            seqs, one_hot, seq_weights, labels = batch
+        else:
+            seqs, one_hot, seq_weights = batch
 
         if self.current_epoch == 0 and batch_idx == 0:
             self.chain = [one_hot.detach()]
@@ -1300,22 +1319,50 @@ class pool_CRBM(LightningModule):
         del h_neg
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
+        free_energy = self.free_energy(one_hot)
+        F_v = (free_energy * seq_weights).sum() / seq_weights.sum()  # free energy of training data
         F_vp = (self.free_energy(V_oh_neg) * seq_weights).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
         cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+
+        if self.use_pearson:
+            if self.pearson_xvar == "values":
+                # correlation coefficient between free energy and fitness values
+                vy = seq_weights - torch.mean(seq_weights)
+            elif self.pearson_xvar == "labels":
+                labels = labels.double()
+                vy = labels - torch.mean(labels)
+
+            # correlation coefficient between free energy and fitness values/labels
+            vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
+
+            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
+            pearson_loss = (1 - pearson_correlation)  # * (self.current_epoch/self.epochs + 1) * 10
+
 
         # Regularization Terms
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
+
+        bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
+        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
+
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
+            W = getattr(self, f"{i}_W")
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
             reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
             reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
+
+            denom = torch.sum(torch.abs(W), (3, 2, 1))
+            zeroW = torch.zeros_like(W, device=self.device)
+            Wpos = torch.maximum(W, zeroW)
+            Wneg = torch.minimum(W, zeroW)
+            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).mean()
 
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3
+        loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -1324,6 +1371,13 @@ class pool_CRBM(LightningModule):
                 "weight_reg": reg2.detach(),
                 "distance_reg": reg3.detach()
                 }
+
+        if self.use_pearson:
+            loss += pearson_loss * 10  # * pearson_multiplier
+            logs["loss"] = loss
+            logs["train_pearson_corr"] = pearson_correlation.detach()
+            logs["train_pearson_loss"] = pearson_loss.detach()
+            self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)

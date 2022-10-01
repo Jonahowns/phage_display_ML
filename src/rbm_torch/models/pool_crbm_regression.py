@@ -140,10 +140,11 @@ class FeatureNet(nn.Module):
 
         x_out = self.pcrbm.compute_output_v(x)
         # hidden = self.pcrbm.sample_from_inputs_h(x_out)
-        hidden = self.logpartition_h_ind(x_out)
+        # hidden = self.logpartition_h_ind(x_out)
 
-        # x_feature = torch.cat(x_out, 1)
-        x_feature = self.batchnorm(hidden/self.hidden_dim)
+        x_feature = torch.cat(x_out, 1)
+        # x_feature = self.batchnorm(hidden/self.hidden_dim)
+        # x_feature = hidden/self.hidden_dim
 
         return x_feature
 
@@ -157,7 +158,7 @@ class RegressionNet(LightningModule):
         # self.create_model_dirs()
 
         input_dim = 1
-        self.sample_num = 100
+        self.sample_num = 256
 
         self.feature_net = FeatureNet(config, debug=debug, precision=precision)
         hidden_dim = self.feature_net.hidden_dim
@@ -228,10 +229,11 @@ class RegressionNet(LightningModule):
 
         loss_mdn_nll = torch.mean(-torch.log(q_ys))
 
-        loss = loss_ebm_nce + loss_mdn_kl
+        loss = loss_ebm_nce + loss_mdn_nll
 
         self.log("loss_nce", loss_ebm_nce.detach(), prog_bar=True, on_epoch=True)
-        self.log("loss_kl", loss_mdn_kl.detach(), prog_bar=True, on_epoch=True)
+        # self.log("loss_kl", loss_mdn_kl.detach(), prog_bar=True, on_epoch=True)
+        self.log("loss_nll", loss_mdn_nll.detach(), prog_bar=True, on_epoch=True)
         return loss
 
     def predict_y(self, x):
@@ -263,7 +265,25 @@ class RegressionNet(LightningModule):
         return
 
     def configure_optimizers(self):
-        return self.feature_net.pcrbm.configure_optimizers()
+        optim = self.feature_net.pcrbm.optimizer(self.parameters(), lr=self.feature_net.pcrbm.lr, weight_decay=self.feature_net.pcrbm.wd)
+
+        # Exponential Weight Decay after set amount of epochs (set by decay_after)
+        decay_gamma = (self.feature_net.pcrbm.lrf / self.feature_net.pcrbm.lr) ** (1 / (self.feature_net.pcrbm.epochs * (1 - self.feature_net.pcrbm.decay_after)))
+        decay_milestone = math.floor(self.feature_net.pcrbm.decay_after * self.feature_net.pcrbm.epochs)
+        my_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optim, milestones=[decay_milestone], gamma=decay_gamma)
+        # my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decay_gamma)
+        optim_dict = {"lr_scheduler": my_lr_scheduler,
+                      "optimizer": optim}
+        return optim_dict
+
+    def on_before_zero_grad(self, optimizer):
+        with torch.no_grad():
+            for key in self.feature_net.pcrbm.hidden_convolution_keys:
+                for param in ["gamma+", "gamma-"]:
+                    getattr(self.feature_net.pcrbm, f"{key}_{param}").data.clamp_(0.05, 1.0)
+                for param in ["theta+", "theta-"]:
+                    getattr(self.feature_net.pcrbm, f"{key}_{param}").data.clamp_(0.0, 1.0)
+                getattr(self.feature_net.pcrbm, f"{key}_W").data.clamp_(-1.0, 1.0)
 
 if __name__ == "__main__":
     from rbm_torch.utils.utils import load_run_file
@@ -274,7 +294,7 @@ if __name__ == "__main__":
     run_data, config = load_run_file(run_file)
     config["fasta_file"] = "/home/jonah/PycharmProjects/phage_display_ML/datasets/cov/late_5gmax.fasta"
 
-    debug = True
+    debug = False
     model = RegressionNet(config, debug=debug, precision="single")
 
     logger = TensorBoardLogger("/home/jonah/PycharmProjects/phage_display_ML/regression_test/", name="crbm_regression")

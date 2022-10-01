@@ -584,6 +584,7 @@ class pool_class_CRBM(pool_CRBM):
 
         if self.use_pearson:
             loss += pearson_loss * 10  # * pearson_multiplier
+            logs["loss"] = loss
             logs["train_pearson_corr"] = pearson_correlation.detach()
             logs["train_pearson_loss"] = pearson_loss.detach()
             self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
