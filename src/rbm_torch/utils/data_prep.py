@@ -134,6 +134,57 @@ def scale_values_np(vals, min=0.05, max=0.95):
     nscaler = MinMaxScaler(feature_range=(min, max))
     return nscaler.fit_transform(vals.reshape(-1, 1))
 
+def weight_transform(copy_nums, max_cutoff=None, exponent_base=math.e, exponent_min=-1, exponent_max=1):
+    if max_cutoff is not None:
+        return np.power(exponent_base, scale_values_np(log_scale([x if x < max_cutoff else max_cutoff for x in copy_nums], eps=1.0), min=exponent_min, max=exponent_max).squeeze(1))
+    else:
+        return np.power(exponent_base, scale_values_np(log_scale(copy_nums, eps=1.0), min=exponent_min, max=exponent_max).squeeze(1))
+
+def pearson_transform(copy_nums, max_cutoff=None):
+    if max_cutoff is not None:
+        return scale_values_np(log_scale([x if x < max_cutoff else max_cutoff for x in copy_nums], eps=1.0, base=10.0), min=0.1, max=1.0).squeeze(1)
+    else:
+        return scale_values_np(log_scale(copy_nums, eps=1.0, base=10.0), min=0.1, max=1.0).squeeze(1)
+    # fitness_vals = scale_values_np(log_scale(copy_nums, base=10.0, eps=2.0), min=0.01, max=1.0)
+    # return fitness_vals.squeeze(1).tolist()
+
+def enrichment_averge(df, round_names, min_diff=1, max_diff=None, diff_weights=None, round_weights=None):
+    round_number = len(round_names)
+
+    if max_diff is None:
+        max_diff = round_number-1
+
+    if diff_weights is None:
+        diff_weights = [1. for x in range(min_diff, max_diff+1)]
+
+    if round_weights is None:
+        round_weights = [1. for x in range(len(round_names))]
+
+    # first let's remove all the nan values in the dataframe, set nan values as the minimum normalized count for each round
+    for r in round_names:
+        df[r] = df[r].fillna(df[r].min())
+
+    # Get fold value for round differences
+    fold_keys = {diff: [] for diff in range(min_diff, max_diff+1)}
+    for i in range(round_number):
+        for j in range(round_number):
+            if i >= j or j - i < min_diff or j - i > max_diff:
+                continue
+            fold_column_name = f"fold_{round_names[j]}v{round_names[i]}"
+            fold_keys[j-i].append(fold_column_name)
+            # fold_diffs.append(j-i)
+            df[fold_column_name] = df[round_names[j]]/df[round_names[i]] * (round_weights[j] + round_weights[i])
+
+    diff_keys = []
+    for i in range(min_diff, max_diff+1):
+        diff_avg_key = f"fold_diff{i}_avg"
+        df[diff_avg_key] = df[fold_keys[i]].sum(axis=1).div(len(fold_keys[i])).mul(diff_weights[i-1])
+        diff_keys.append(diff_avg_key)
+
+    df["Final_Fold_Avg"] = df[diff_keys].sum(axis=1).div(len(diff_keys))
+
+    return df
+
 
 # Intended to be run on an already processed fasta file with no duplicates, uniform length, and affinites denoted in the fasta file
 def scale_weights(fasta_file_in, fasta_out_dir, neighbor_pickle_file, molecule="protein", threads=12, precision=5, scale_log=True, copynum_coeff=1.0, neighbor_coeff=1.0, normalize_threshold="median"):
@@ -736,3 +787,22 @@ def prepare_data_files(datatype, master_df, target_dir, character_conversion=Non
             for key, value in character_conversion.items():
                 r_seqs = [x.replace(key, value) for x in r_seqs]
         extractor(r_seqs, dt['clusters'], dt["cluster_indices"], target_dir+round, r_copynum, uniform_length=True, position_indx=dt["gap_position_indices"])
+
+
+def remove_gaps_in_dist(dist_vals, bin_size=0.2):
+    """returns distribution without gaps in it"""
+    min_v = np.min(dist_vals)
+    max_v = np.max(dist_vals)
+
+    current_val = min_v
+    while current_val < max_v:
+        gt = dist_vals >= current_val
+        lt = dist_vals < current_val + bin_size
+        in_bin = lt & gt
+
+        if np.count_nonzero(in_bin) == 0.:
+            dist_vals[gt] -= bin_size
+        else:
+            current_val = current_val + bin_size
+
+    return dist_vals

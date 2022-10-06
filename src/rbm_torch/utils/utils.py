@@ -112,8 +112,8 @@ def load_run_file(runfile):
 
     # Deal with weights
     weights = None
-    if run_data["weights"] == "fasta":
-        weights = "fasta"  # All weights are already in the processed fasta files
+    if "fasta" in run_data["weights"]:
+        weights = run_data["weights"]  # All weights are already in the processed fasta files
     elif run_data["weights"] is None or run_data["weights"] in ["None", "none", "equal"]:
         pass
     else:
@@ -165,11 +165,38 @@ def load_run_file(runfile):
 
 
 
+def label_samples(w8s, label_spacing, label_groups):
+    if type(label_spacing) is list:
+        bin_edges = label_spacing
+    else:
+        if label_spacing == "log":
+            bin_edges = np.geomspace(np.min(w8s), np.max(w8s), label_groups + 1)
+        elif label_spacing == "lin":
+            bin_edges = np.linspace(np.min(w8s), np.max(w8s), label_groups + 1)
+        else:
+            print(f"pearson label spacing option {label_spacing} not supported!")
+            exit()
+    bin_edges = bin_edges[1:]
+
+    def assign_label(x):
+        bin_edge = bin_edges[0]
+        idx = 0
+        while x > bin_edge:
+            idx += 1
+            bin_edge = bin_edges[idx]
+
+        return idx
+
+
+    labels = list(map(assign_label, w8s))
+    return labels
+
+
 class Categorical(Dataset):
 
     # Takes in pd dataframe with sequences and weights of sequences (key: "sequences", weights: "sequence_count")
     # Also used to calculate the independent fields for parameter fields initialization
-    def __init__(self, dataset, q, weights=None, max_length=20, molecule='protein', device='cpu', one_hot=False, labels=False):
+    def __init__(self, dataset, q, weights=None, max_length=20, molecule='protein', device='cpu', one_hot=False, labels=False, additional_data=None):
 
         # Drop Duplicates/ Reset Index from most likely shuffled sequences
         # self.dataset = dataset.reset_index(drop=True).drop_duplicates("sequence")
@@ -190,6 +217,10 @@ class Categorical(Dataset):
         # self.train_labels = self.dataset.binary.to_numpy()
         self.total = len(self.dataset.index)
         self.seq_data = self.dataset.sequence.to_numpy()
+
+        self.additional_data = None
+        if additional_data:
+            self.additional_data = additional_data
 
         if self.oh:
             self.train_data = self.one_hot(self.categorical(self.seq_data))
@@ -219,11 +250,15 @@ class Categorical(Dataset):
         model_input = self.train_data[index]  # either vector of integers for categorical or one hot vector
         weight = self.train_weights[index]
 
+        return_arr = [seq, model_input, weight]
         if self.labels:
             label = self.train_labels[index]
-            return seq, model_input, weight, label
-        else:
-            return seq, model_input, weight
+            return_arr.append(label)
+        if self.additional_data:
+            data = self.additional_data[index]
+            return_arr.append(data)
+
+        return return_arr
 
     def categorical(self, seq_dataset):
         return torch.tensor(list(map(lambda x: [self.base_to_id[y] for y in x], seq_dataset)), dtype=torch.long)

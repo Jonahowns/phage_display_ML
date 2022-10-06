@@ -16,8 +16,8 @@ from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
 from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
-from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
-
+from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D, label_samples  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
+from rbm_torch.utils.data_prep import weight_transform, pearson_transform
 
 
 class pool_CRBM(LightningModule):
@@ -89,6 +89,8 @@ class pool_CRBM(LightningModule):
         elif type(weights) == str:
             if weights == "fasta":  # Assumes weights are in fasta file
                 self.weights = "fasta"
+            elif weights == "fasta_processed":
+                self.weights = "fasta_processed"
         elif type(weights) == torch.tensor:
             self.weights = weights.numpy()
         elif type(weights) == np.ndarray:
@@ -554,10 +556,14 @@ class pool_CRBM(LightningModule):
                 batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
                 out = batch_norm(out)  # apply batch norm
 
+            out.squeeze_(2)
+
             if self.dr > 0.:
+                # dropout_mask = F.dropout(torch.ones((out.shape[1]), device=self.device))
+                # out = out * dropout_mask
                 out = F.dropout(out, p=self.dr, training=self.training)
 
-            outputs.append(out.squeeze(2))
+            outputs.append(out)
 
         return outputs
 
@@ -830,6 +836,7 @@ class pool_CRBM(LightningModule):
 
     ## Loads Data to be trained from provided fasta file
     def setup(self, stage=None):
+        self.additional_data = False
         if type(self.fasta_file) is str:
             self.fasta_file = [self.fasta_file]
 
@@ -842,7 +849,7 @@ class pool_CRBM(LightningModule):
                     threads = 1
                 else:
                     threads = self.worker_num
-                seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=True, threads=threads)
+                seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=False, threads=threads)
             except IOError:
                 print(f"Provided Fasta File '{file}' Not Found")
                 print(f"Current Directory '{os.getcwd()}'")
@@ -853,9 +860,11 @@ class pool_CRBM(LightningModule):
                     f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
                 exit(-1)
 
-            if type(self.weights) == str and self.weights == "fasta":
+            if type(self.weights) == str and "fasta" in self.weights:
                 weights = np.asarray(seq_read_counts)
                 data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
+            # elif type(self.weights) == str and self.weights == "fasta_process":
+            #     data = pd.DataFrame(data={'sequence': seqs, 'seq_count': seq_read_counts})
             else:
                 data = pd.DataFrame(data={'sequence': seqs})
 
@@ -867,56 +876,56 @@ class pool_CRBM(LightningModule):
 
         assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
 
+        stratify_labels = None
         if self.stratify or self.pearson_xvar == "label":
             w8s = all_data.seq_count.to_numpy()
-            # if self.pearson_xvar == "label":
-            if type(self.label_spacing) is list:
-                bin_edges = self.label_spacing
-            else:
-                if self.label_spacing == "log":
-                    bin_edges = np.geomspace(np.min(w8s), np.max(w8s), self.label_groups + 1)
-                elif self.label_spacing == "lin":
-                    bin_edges = np.linspace(np.min(w8s), np.max(w8s), self.label_groups + 1)
-                else:
-                    print(f"pearson label spacing option {self.label_spacing} not supported!")
-                    exit()
-            bin_edges = bin_edges[1:]
-
-            def assign_label(x):
-                bin_edge = bin_edges[0]
-                idx = 0
-                while x > bin_edge:
-                    idx += 1
-                    bin_edge = bin_edges[idx]
-
-                return idx
-
-            labels = list(map(assign_label, w8s))
+            labels = label_samples(w8s, self.label_spacing, self.label_groups)
 
             all_data["label"] = labels
+            stratify_labels = labels
 
-            if self.test_size > 0.:
-                available_data, self.test_data = train_test_split(all_data, test_size=self.test_size, stratify=all_data.label.tolist(), random_state=self.seed)
-            else:
-                available_data = all_data
+        if self.weights == "fasta_processed":
+            all_data["seq_count"] = weight_transform(all_data.seq_count.to_list(), exponent_base=3, exponent_min=-9, exponent_max=1)
 
-            self.training_data, self.validation_data = train_test_split(available_data, test_size=self.validation_size, stratify=available_data.label.tolist(), random_state=self.seed)
+            self.additional_data = True
+            all_data["additional_data"] = pearson_transform(all_data.seq_count.to_list())
 
+        if self.test_size > 0.:
+            available_data, self.test_data = train_test_split(all_data, test_size=self.test_size, stratify=stratify_labels, random_state=self.seed)
         else:
-            if self.test_size > 0.:
-                available_data, self.test_data = train_test_split(all_data, test_size=self.test_size, random_state=self.seed)
-            else:
-                available_data = all_data
+            available_data = all_data
 
-            self.training_data, self.validation_data = train_test_split(available_data, test_size=self.validation_size, random_state=self.seed)
+        self.training_data, self.validation_data = train_test_split(available_data, test_size=self.validation_size, stratify=stratify_labels, random_state=self.seed)
+
+        self.dataset_indices = {"train_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}
+        if self.test_size > 0:
+            self.dataset_indices ["test_indices"] = self.test_data.index.tolist()
+
+        # if self.weights == "fasta_processed":
+        #
+        #     def duplicate_seqs(dataset):
+        #         duplicate_num = [5 * math.floor(math.log(x+1, 2))**2 for x in dataset.seq_count.to_list()]
+        #         adj_counts = dataset.adjusted_weight.to_list()
+        #         seqs = dataset.sequence.to_list()
+        #         nseqs, naffs = [], []
+        #         for xid, x in enumerate(seqs):
+        #             nseqs += [x] * duplicate_num[xid]
+        #             naffs += [adj_counts[xid]] * duplicate_num[xid]
+        #         return pd.DataFrame(data={'sequence': nseqs, "seq_count": naffs})
+        #     weights = np.exp(dp.scale_values_np(log_cn, min=-5.0, max=1.0))
+        #
+        #
+        #
+        #     if self.test_size > 0.:
+        #         self.test_data = duplicate_seqs(self.test_data)
+        #     if self.validation_size > 0.:
+        #         self.validation_data = duplicate_seqs(self.validation_data)
+        #     self.training_data = duplicate_seqs(self.training_data)
 
     def on_train_start(self):
         # Log which sequences belong to each dataset
         with open(self.logger.log_dir + "/dataset_indices.json", "w") as f:
-            if self.test_size > 0.:
-                json.dump({"train_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list(), "test_indices": self.test_data.index.tolist()}, f)
-            else:
-                json.dump({"train_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}, f)
+            json.dump(self.dataset_indices, f)
 
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
@@ -934,17 +943,21 @@ class pool_CRBM(LightningModule):
     ## Loads Training Data
     def train_dataloader(self, init_fields=True):
         # Get Correct Weights
+        training_weights = None
         if "seq_count" in self.training_data.columns:
             training_weights = self.training_data["seq_count"].tolist()
-        else:
-            training_weights = None
+
+        additional_data = None
+        if "additional_data" in self.training_data.columns:
+            additional_data = self.training_data["additional_data"].tolist()
+
 
         labels = False
         if self.pearson_xvar == "labels":
             labels = True
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                   molecule=self.molecule, device=self.device, one_hot=True, labels=labels)
+                                   molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=additional_data)
 
         # initialize fields from data
         if init_fields:
@@ -969,17 +982,20 @@ class pool_CRBM(LightningModule):
 
     def val_dataloader(self):
         # Get Correct Validation weights
+        validation_weights = None
         if "seq_count" in self.validation_data.columns:
             validation_weights = self.validation_data["seq_count"].tolist()
-        else:
-            validation_weights = None
+
+        additional_data = None
+        if "additional_data" in self.validation_data.columns:
+            additional_data = self.validation_data["additional_data"].tolist()
 
         labels = False
         if self.pearson_xvar == "labels":
             labels = True
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                 molecule=self.molecule, device=self.device, one_hot=True, labels=labels)
+                                 molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=additional_data)
 
         return torch.utils.data.DataLoader(
             val_reader,
@@ -1007,8 +1023,12 @@ class pool_CRBM(LightningModule):
                 exit(1)
 
     def validation_step(self, batch, batch_idx):
+        if self.pearson_xvar == "labels" and self.additional_data:
+            seqs, one_hot, seq_weights, labels, additional_data = batch
         if self.pearson_xvar == "labels":
             seqs, one_hot, seq_weights, labels = batch
+        if self.additional_data:
+            seqs, one_hot, seq_weights, additional_data = batch
         else:
             seqs, one_hot, seq_weights = batch
 
@@ -1098,9 +1118,9 @@ class pool_CRBM(LightningModule):
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
         # Calculate CD loss
-        E_p = (self.energy(V_pos_oh, h_pos) * seq_weights).sum() / seq_weights.sum()  # energy of training data
+        E_p = (self.energy(V_pos_oh, h_pos) * seq_weights/seq_weights.sum()).sum()   # energy of training data
         # E_p = (self.energy(V_pos_oh, h_pos) * weights).sum()  # energy of training data
-        E_n = (self.energy(V_neg_oh, h_neg) * seq_weights).sum() / seq_weights.sum()  # energy of gibbs sampled visible states
+        E_n = (self.energy(V_neg_oh, h_neg) * seq_weights/seq_weights.sum()).sum()   # energy of gibbs sampled visible states
         # E_n = (self.energy(V_neg_oh, h_neg) * weights).sum()  # energy of gibbs sampled visible states
         cd_loss = E_p - E_n
 
@@ -1220,9 +1240,9 @@ class pool_CRBM(LightningModule):
 
         # F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
         free_energy = self.free_energy(V_pos_oh)
-        F_v = (self.free_energy(V_pos_oh) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
+        F_v = (self.free_energy(V_pos_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of training data
         # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
-        F_vp = (self.free_energy(V_neg_oh) * seq_weights.abs()).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
+        F_vp = (self.free_energy(V_neg_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of gibbs sampled visible states
         free_energy_diff = F_v - F_vp
         # cd_loss = (free_energy_diff/torch.abs(free_energy_diff)) * torch.log(torch.abs(free_energy_diff) + 10)
         cd_loss = free_energy_diff
@@ -1302,8 +1322,12 @@ class pool_CRBM(LightningModule):
         return logs
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
+        if self.pearson_xvar == "labels" and self.additional_data:
+            seqs, one_hot, seq_weights, labels, additional_data = batch
         if self.pearson_xvar == "labels":
             seqs, one_hot, seq_weights, labels = batch
+        if self.additional_data:
+            seqs, one_hot, seq_weights, additional_data = batch
         else:
             seqs, one_hot, seq_weights = batch
 
@@ -1327,7 +1351,11 @@ class pool_CRBM(LightningModule):
         if self.use_pearson:
             if self.pearson_xvar == "values":
                 # correlation coefficient between free energy and fitness values
-                vy = seq_weights - torch.mean(seq_weights)
+                if self.additional_data:
+                    vy = additional_data - torch.mean(additional_data)
+                else:
+                    vy = seq_weights - torch.mean(seq_weights)
+
             elif self.pearson_xvar == "labels":
                 labels = labels.double()
                 vy = labels - torch.mean(labels)
@@ -1373,7 +1401,7 @@ class pool_CRBM(LightningModule):
                 }
 
         if self.use_pearson:
-            loss += pearson_loss * 10  # * pearson_multiplier
+            loss += pearson_loss * 50  # * pearson_multiplier
             logs["loss"] = loss
             logs["train_pearson_corr"] = pearson_correlation.detach()
             logs["train_pearson_loss"] = pearson_loss.detach()

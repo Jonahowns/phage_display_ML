@@ -30,7 +30,7 @@ supported_colors = ["r", "orange", "y", "g", "b", "indigo", "violet", "m", "c", 
                     "chartreuse", "violet", "coral", "turqoise", "crimson", "tomato", "darkblue", "darkgreen", "teal", "fuchsia",
                     "gold", "silver", "sienna", "grey", "indigo", "salmon", "plum", "lavender", "orchid", "lime", "magenta", "navy"]
 
-def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molecule="protein", normalize_counts=False, normalization_denominator=1e6):
+def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molecule="protein", normalize_counts=False, normalization_denominator=1e6, drop_duplicates=True):
     """ Reads fasta files and returns pandas dataframe with their information
 
     Parameters
@@ -51,7 +51,7 @@ def fetch_data(fasta_names, dir="./", assignment_function=None, threads=1, molec
         contains data from provided fasta files with columns "sequence", "round", "assignment", and "copy_num"
     """
     for xid, x in enumerate(fasta_names):
-        seqs, counts, all_chars, q_data = utils.fasta_read(dir + x + ".fasta", molecule, drop_duplicates=True, threads=threads)
+        seqs, counts, all_chars, q_data = utils.fasta_read(dir + x + ".fasta", molecule, drop_duplicates=drop_duplicates, threads=threads)
         round_label = [x for i in range(len(seqs))]
         if assignment_function is not None:
             assignment = [assignment_function(i) for i in counts]

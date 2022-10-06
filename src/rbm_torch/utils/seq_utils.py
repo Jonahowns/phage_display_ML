@@ -1,8 +1,12 @@
 import pandas as pd
 from sklearn.metrics import pairwise_distances
+from sklearn.metrics.pairwise import pairwise_distances_chunked
 from rbm_torch.utils import utils
 import torch
 import numpy as np
+
+
+
 
 def cat_to_seq(categorical_tensor, molecule="protein"):
     base_to_id = utils.int_to_letter_dicts[molecule]
@@ -83,7 +87,7 @@ def prune_similar_sequences(dataframe, hamming_threshold=0, molecule="protein"):
     return dataframe
 
 
-def prune_similar_sequences_df(df1, df2, hamming_threshold=0, molecule="protein"):
+def prune_similar_sequences_df(df1, df2, hamming_threshold=0, molecule="protein", return_min_distances=False):
     """generate subset of sequences in df1 that are at least x mutations away from all sequences in df2"""
     df1.reset_index(drop=True, inplace=True)
     df1_seqs = df1["sequence"].tolist()
@@ -100,15 +104,25 @@ def prune_similar_sequences_df(df1, df2, hamming_threshold=0, molecule="protein"
     Y = df2_cat.numpy().astype(np.int8)
 
     seq_len = len(df1_seqs[0])
-    dist_matrix = pairwise_distances(X, Y, metric="hamming") * seq_len
 
-    min_distances = dist_matrix.min(1)
+    def reduce_func(D_chunk, start):
+        # print(D_chunk)
+        return np.asarray(D_chunk).min(1).tolist()
 
-    keep = min_distances > hamming_threshold
+    min_distances_chunked = pairwise_distances_chunked(X, Y, reduce_func=reduce_func, metric="hamming")
 
-    dataframe = df1.iloc[keep, :]
+    mdists = []
+    for n1 in min_distances_chunked:
+        mdists += n1
 
-    print(f"Kept {len(dataframe.index.__len__())} of {df1.index.__len__()} in df1")
+    if return_min_distances:
+        return [x* seq_len for x in mdists]
+    else:
+        keep = np.asarray(mdists)*seq_len > hamming_threshold
 
-    dataframe.reset_index(drop=True, inplace=True)
-    return dataframe
+        dataframe = df1.iloc[keep, :]
+
+        print(f"Kept {dataframe.index.__len__()} of {df1.index.__len__()} in df1")
+
+        dataframe.reset_index(drop=True, inplace=True)
+        return dataframe
