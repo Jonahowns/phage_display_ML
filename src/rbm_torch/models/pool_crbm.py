@@ -877,11 +877,14 @@ class pool_CRBM(LightningModule):
                     f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
                 exit(-1)
 
+            data = pd.DataFrame(data={'sequence': seqs, 'fasta_count': seq_read_counts})
+
             if type(self.weights) == str and "fasta" in self.weights:
                 weights = np.asarray(seq_read_counts)
-                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
-            else:
-                data = pd.DataFrame(data={'sequence': seqs})
+                data["seq_count"] = weights
+            #     data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
+            # else:
+            #     data = pd.DataFrame(data={'sequence': seqs})
 
             data_pds.append(data)
 
@@ -893,8 +896,9 @@ class pool_CRBM(LightningModule):
 
         # stratify_labels = None
         # if self.stratify or self.pearson_xvar == "label" or self.sampling_strategy == "stratified":
-        w8s = all_data.seq_count.to_numpy()
-        labels = label_samples(w8s, self.label_spacing, self.label_groups)
+
+        # w8s = all_data.seq_count.to_numpy()
+        labels = label_samples(all_data["fasta_count"], self.label_spacing, self.label_groups)
 
         all_data["label"] = labels
         # stratify_labels = labels
@@ -1003,11 +1007,9 @@ class pool_CRBM(LightningModule):
                 self.fields += initial_fields
                 self.fields0 += initial_fields
 
-            # Performance was almost identical whether shuffling or not
+        shuffle = True
         if self.sample_type == "pcd":
             shuffle = False
-        else:
-            shuffle = True
 
         if self.sampling_strategy == "stratified":
             return torch.utils.data.DataLoader(
