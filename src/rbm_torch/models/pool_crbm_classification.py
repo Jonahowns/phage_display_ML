@@ -528,27 +528,7 @@ class pool_class_CRBM(pool_CRBM):
         #     print("GPU Allocated After CD_Loss:", torch.cuda.memory_allocated(0))
 
         # Regularization Terms
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-        reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device)
-
-        bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
-        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
-        div_loss = torch.zeros((1,), device=self.device)  # discourages weights with long range similarities
-
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            W = getattr(self, f"{i}_W")
-            x = torch.sum(torch.abs(W), (3, 2, 1)).square()
-            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
-            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
-
-            denom = torch.sum(torch.abs(W), (3, 2, 1))
-            zeroW = torch.zeros_like(W, device=self.device)
-            Wpos = torch.maximum(W, zeroW)
-            Wneg = torch.minimum(W, zeroW)
-            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).mean()
+        reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
 
 
         label_probs = self.compute_class_probabilities(V_pos_oh)
@@ -574,9 +554,7 @@ class pool_class_CRBM(pool_CRBM):
         logs = {"loss": loss,
                 "free_energy_diff": hybrid_loss_function.detach(),
                 "train_free_energy": F_v.detach(),
-                "field_reg": reg1.detach(),
-                "weight_reg": reg2.detach(),
-                "distance_reg": reg3.detach()
+                **reg_dict
                 }
 
         # y_input = self.compute_output_h_for_y(h_pos)
@@ -641,27 +619,7 @@ class pool_class_CRBM(pool_CRBM):
         #     print("GPU Allocated After CD_Loss:", torch.cuda.memory_allocated(0))
 
         # Regularization Terms
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-        reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device)
-
-        bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
-        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
-        div_loss = torch.zeros((1,), device=self.device)  # discourages weights with long range similarities
-
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            W = getattr(self, f"{i}_W")
-            x = torch.sum(torch.abs(W), (3, 2, 1)).square()
-            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
-            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
-
-            denom = torch.sum(torch.abs(W), (3, 2, 1))
-            zeroW = torch.zeros_like(W, device=self.device)
-            Wpos = torch.maximum(W, zeroW)
-            Wneg = torch.minimum(W, zeroW)
-            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).mean()
+        reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
 
         label_probs = self.compute_class_probabilities(one_hot)
         predicted_labels = label_probs.argmax(0)
@@ -685,9 +643,7 @@ class pool_class_CRBM(pool_CRBM):
         logs = {"loss": loss,
                 "free_energy_diff": hybrid_loss_function.detach(),
                 "train_free_energy": F_v.detach(),
-                "field_reg": reg1.detach(),
-                "weight_reg": reg2.detach(),
-                "distance_reg": reg3.detach()
+                **reg_dict
                 }
 
         # y_input = self.compute_output_h_for_y(h_pos)

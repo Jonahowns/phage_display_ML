@@ -164,7 +164,7 @@ def get_likelihoods(likelihoodfile):
 
 
 # Plot Likelihoods as kde curves with each round in a new row
-def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False):
+def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False, yscale=None):
     colors = supported_colors
     plot_num = len(order)
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
@@ -173,12 +173,16 @@ def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelih
             axs.set_xlim(*xlim)
         y = sns.kdeplot(likeli[order[0]], shade=False, alpha=0.5, color=colors[0], ax=axs, label=labels[0], cumulative=cdf)
         y.set(xlabel=xaxislabel)
+        if yscale is not None:
+            axs.set_yscale(yscale)
         axs.legend()
     else:
         for xid, x in enumerate(order):
             if xlim is not None:
                 axs[xid].set_xlim(*xlim)
             y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], cumulative=cdf)
+            if yscale is not None:
+                axs[xid].set_yscale(yscale)
             if xid == len(order) - 1:
                 y.set(xlabel=xaxislabel)
             axs[xid].legend()
@@ -190,7 +194,7 @@ def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelih
 
 # Plot Likelihoods as kde curves with each round in a new row
 # order must be a list of lists defining what data to plot on each subplot, same for labels
-def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False, legend_font_size=10):
+def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False, legend_font_size=10, yscale=None):
     colors = supported_colors
     plot_num = len(order)
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
@@ -198,8 +202,13 @@ def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="lo
         if xlim is not None:
             if plot_num == 1:
                 axs.set_xlim(*xlim)
+                if yscale is not None:
+                    axs.set_yscale(yscale)
+
             else:
                 axs[xid].set_xlim(*xlim)
+                if yscale is not None:
+                    axs[xid].set_yscale(yscale)
 
         plot_ymax = 0.
         for yid, y in enumerate(x): # each label in the subplot labels

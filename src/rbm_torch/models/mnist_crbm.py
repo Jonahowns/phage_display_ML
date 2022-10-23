@@ -718,12 +718,12 @@ class BinaryClassifier(LightningModule):
 #                             "hidden20x20": {"number": 30, "kernel": (20, 20), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
 #                         }}
 
-mnist_class_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 1000, "mc_moves": 2, "lr": 0.001,
+mnist_class_default_config = {"v_num": (28, 28), "q": 1, "epochs": 100, "crbm_log_dir": "", "seed": randint(0, 100000, 1)[0], "batch_size": 200, "mc_moves": 2, "lr": 0.001,
                         "lr_final": None, "decay_after": 0.75, "sequence_weights": None, "optimizer": "AdamW", "weight_decay": 0.02, "data_worker_num": 4, "fasta_file": "", "molecule": "dna",
                         "loss_type": "free_energy", "sample_type": "gibbs", "l1_2": 20.0, "lf": 50.0, "ld": 10.0, "lgap" : 0.0, "lbs": 0.0, "classes": 10, "validation_set_size": 0.0,
                         "test_set_size": 0.0, "use_pearson": False, "stratify_datasets": False, "use_batch_norm": False, "alpha": 0.0,
                         "convolution_topology": {
-                            "hidden20x20": {"number": 200, "kernel": (15, 15), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
+                            "hidden20x20": {"number": 300, "kernel": (10, 10), "stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "output_padding": (0, 0), "weight": 1.0}
                         }}
 
 if __name__ == "__main__":

@@ -39,7 +39,9 @@ import pandas as pd
 import types
 import json
 from torch.utils.data import Dataset
-
+from sklearn.model_selection import StratifiedKFold
+from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
+from torch.utils.data.sampler import Sampler
 
 # from sklearn.model_selection import train_test_split
 # import json
@@ -93,6 +95,8 @@ aadict['.'] = -1
 letter_to_int_dicts = {"protein": aadict, "dna": dnadict, "rna": rnadict}
 int_to_letter_dicts = {"protein": aadict_inverse, "dna": dnadict_inverse, "rna": rnadict_inverse}
 
+optimizer_dict = {"SGD": SGD, "AdamW": AdamW, "Adadelta": Adadelta, "Adagrad": Adagrad}
+
 
 def load_run_file(runfile):
     try:
@@ -122,13 +126,23 @@ def load_run_file(runfile):
             with open(data_dir + run_data["weights"]) as f:
                 data = json.load(f)
             weights = np.asarray(data["weights"])
+
+            # Deal with Sampling Weights
+            try:
+                sampling_weights = np.asarray(data["sampling_weights"])
+            except KeyError:
+                sampling_weights = None
+
         except IOError:
             print(f"Could not load provided weight file {data_dir + run_data['weights']}")
             exit(-1)
 
+    config["sequence_weights"] = weights
+    config["sampling_weights"] = sampling_weights
+
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = data_dir + fasta_file
-    config["sequence_weights"] = weights
+
     seed = np.random.randint(0, 10000, 1)[0]
     config["seed"] = int(seed)
     if config["lr_final"] == "None":
@@ -142,6 +156,36 @@ def load_run_file(runfile):
 
     config["gpus"] = run_data["gpus"]
     return run_data, config
+
+
+def process_weights(weights):
+    w8s = None
+    if weights is None:
+        return None
+    elif type(weights) == str:
+        if weights == "fasta":  # Assumes weights are in fasta file
+            return "fasta"
+        else:
+            print(f"String Option {weights} not supported")
+            exit(1)
+    elif type(weights) == torch.tensor:
+        return weights.numpy()
+    elif type(weights) == np.ndarray:
+        return weights
+    else:
+        print(f"Provided Weights of type {type(weights)} Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
+        exit(1)
+
+def configure_optimizer(optimizer_str):
+    try:
+        return optimizer_dict[optimizer_str]
+    except KeyError:
+        print(f"Optimizer {optimizer_str} is not supported")
+        exit(1)
+
+
+
+
 
 
 ##### Needed if you want a spearman correlation loss function
@@ -163,6 +207,83 @@ def load_run_file(runfile):
 #     return corrcoef(target, pred / pred.shape[-1])
 #
 
+# adapted from https://github.com/pytorch/pytorch/issues/7359
+class WeightedSubsetRandomSampler:
+    r"""Samples elements from a given list of indices with given probabilities (weights), with replacement.
+
+    Arguments:
+        weights (sequence)   : a sequence of weights, not necessary summing up to one
+        num_samples (int): number of samples to draw
+    """
+
+    def __init__(self, weights, labels, group_fraction, batch_size, batches):
+        if not isinstance(batch_size, int):
+            raise ValueError("num_samples should be a non-negative integer "
+                             "value, but got num_samples={}".format(batch_size))
+        if not isinstance(batches, int):
+            raise ValueError("num_samples should be a non-negative integer "
+                             "value, but got num_samples={}".format(batches))
+
+        self.batch_size = batch_size
+        self.n_batches = batches
+
+        self.weights = torch.tensor(weights, dtype=torch.double)
+        self.labels = torch.tensor(labels, dtype=torch.long)
+        self.indices = torch.arange(0, self.weights.shape[0], 1)
+
+        self.replacement = True  # can't think of a good reason to have this off
+
+        self.label_set = list(set(labels))
+        self.sample_per_label = [math.floor(x*self.batch_size) for x in group_fraction]
+        # self.sample_per_label = self.num_samples // len(self.label_set)
+
+        self.label_weights, self.label_indices = [], []
+        for i in self.label_set:
+            lm = labels == i
+            self.label_indices.append(self.indices[lm])
+            self.label_weights.append(self.weights[lm])
+
+    def __iter__(self):
+        batch_samples = []
+        for i in range(self.n_batches):
+            samples = []
+            for j in range(len(self.label_set)):
+                samples.append(self.label_indices[j][torch.multinomial(self.label_weights[j], self.sample_per_label[j], self.replacement)])
+
+            batch_samples.append(torch.cat(samples, dim=0))
+
+        for bs in batch_samples:
+            yield bs
+
+    def __len__(self):
+        return self.n_batches
+
+
+# copied from https://discuss.pytorch.org/t/how-to-enable-the-dataloader-to-sample-from-each-class-with-equal-probability/911/6
+class StratifiedBatchSampler:
+    """Stratified batch sampling
+    Provides equal representation of target classes in each batch
+    """
+    def __init__(self, y, batch_size, shuffle=True):
+        if torch.is_tensor(y):
+            y = y.cpu().numpy()
+        assert len(y.shape) == 1, 'label array must be 1D'
+        self.n_batches = int(len(y) / batch_size)
+        self.skf = StratifiedKFold(n_splits=self.n_batches, shuffle=shuffle)
+        self.X = torch.randn(len(y), 1).numpy()
+        self.y = y
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        if self.shuffle:
+            self.skf.random_state = torch.randint(0, int(1e8), size=()).item()  # should be governed by globally set seed
+
+        for train_idx, test_idx in self.skf.split(self.X, self.y):
+            yield test_idx
+
+    def __len__(self):
+        # return len(self.y)
+        return self.n_batches
 
 
 def label_samples(w8s, label_spacing, label_groups):
@@ -186,7 +307,6 @@ def label_samples(w8s, label_spacing, label_groups):
             bin_edge = bin_edges[idx]
 
         return idx
-
 
     labels = list(map(assign_label, w8s))
     return labels
