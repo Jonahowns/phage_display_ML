@@ -5,6 +5,10 @@ from rbm_torch.utils import utils
 import torch
 import numpy as np
 
+from SetSimilaritySearch import all_pairs, SearchIndex
+import multiprocessing as mp
+from functools import partial
+import pickle
 
 
 
@@ -126,3 +130,57 @@ def prune_similar_sequences_df(df1, df2, hamming_threshold=0, molecule="protein"
 
         dataframe.reset_index(drop=True, inplace=True)
         return dataframe
+
+
+# Indexes cannot be modified!
+class LSHIndex:
+    def __init__(self):
+        self.index = None
+
+    def create_index(self, tokens, similarity_threshold=0.1, similarity_function="jaccard"):
+        if self.index is not None:
+            print("Index is already created and cannot be updated")
+        else:
+            self.index = SearchIndex(tokens, similarity_func_name=similarity_function, similarity_threshold=similarity_threshold)
+
+    def save_index(self, index, filename):
+        # open a file, where you ant to store the data
+        file = open(filename, 'wb')
+        # dump information to that file
+        pickle.dump(index, file)
+
+    def load_index(self, filename):
+        # open a file, where you stored the pickled data
+        file = open(filename, 'rb')
+        # dump information to that file
+        self.index = pickle.load(file)
+
+    def query(self, query_token):
+        return self.index.query(query_token)
+
+
+def tokenize(seq, k=5):
+    return [seq[i:i + k] for i in range(len(seq) - k + 1)]
+
+def create_tokens(seqs, token_function, cpus=1, k=5):
+    pool = mp.Pool(processes=cpus)
+    return pool.map(partial(token_function, k=k), seqs)
+
+# conver
+
+def calculate_pair_distances_lsh(tokens, similarity_function="jaccard", similarity_threshold=0.1):
+    """calculate pairwise distances of all sequences in dataframe using lsh scheme and return distance matrix"""
+    pairs = all_pairs(tokens, similarity_func_name=similarity_function, similarity_threshold=similarity_threshold)
+    sim_mat = np.zeros((len(tokens), len(tokens)))
+    sep = [*zip(*pairs)]
+    # make symmetric distance matrix
+    sim_mat[tuple(sep[:-1])] = sep[-1]
+    sim_mat[tuple(sep[-2::-1])] = sep[-1]
+    return 1. / (sim_mat + sim_mat[np.nonzero(sim_mat)].min())
+
+# Multidimensional Scaling -> Allows visualization of high dimensions based off a pairwise metric
+def mds_transform(pairwise_distances, dataframe, random_state=0):
+    from sklearn.manifold import MDS
+    mds = MDS(dissimilarity='precomputed', random_state=random_state)
+    # Get the embeddings
+    X = mds.fit_transform(pairwise_distances)
