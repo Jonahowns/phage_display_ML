@@ -40,7 +40,7 @@ import types
 import json
 from torch.utils.data import Dataset
 from sklearn.model_selection import StratifiedKFold
-from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
+from torch.optim import SGD, AdamW, Adagrad, Adadelta, Adam  # Supported Optimizers
 from torch.utils.data.sampler import Sampler
 
 # from sklearn.model_selection import train_test_split
@@ -95,7 +95,7 @@ aadict['.'] = -1
 letter_to_int_dicts = {"protein": aadict, "dna": dnadict, "rna": rnadict}
 int_to_letter_dicts = {"protein": aadict_inverse, "dna": dnadict_inverse, "rna": rnadict_inverse}
 
-optimizer_dict = {"SGD": SGD, "AdamW": AdamW, "Adadelta": Adadelta, "Adagrad": Adagrad}
+optimizer_dict = {"SGD": SGD, "AdamW": AdamW, "Adadelta": Adadelta, "Adagrad": Adagrad, "Adam": Adam}
 
 
 def load_run_file(runfile):
@@ -107,7 +107,7 @@ def load_run_file(runfile):
         exit(1)
 
     # Get info needed for all models
-    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm", "pool_regression_crbm"]
+    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm", "pool_regression_crbm", "variational_pool_crbm"]
 
     config = run_data["config"]
 
@@ -138,7 +138,10 @@ def load_run_file(runfile):
             exit(-1)
 
     config["sequence_weights"] = weights
-    config["sampling_weights"] = sampling_weights
+    try:
+        config["sampling_weights"] = sampling_weights
+    except UnboundLocalError:
+        pass
 
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = data_dir + fasta_file
@@ -216,7 +219,7 @@ class WeightedSubsetRandomSampler:
         num_samples (int): number of samples to draw
     """
 
-    def __init__(self, weights, labels, group_fraction, batch_size, batches):
+    def __init__(self, weights, labels, group_fraction, batch_size, batches, per_sample_replacement=False):
         if not isinstance(batch_size, int):
             raise ValueError("num_samples should be a non-negative integer "
                              "value, but got num_samples={}".format(batch_size))
@@ -231,7 +234,7 @@ class WeightedSubsetRandomSampler:
         self.labels = torch.tensor(labels, dtype=torch.long)
         self.indices = torch.arange(0, self.weights.shape[0], 1)
 
-        self.replacement = True  # can't think of a good reason to have this off
+        self.replacement = per_sample_replacement  # can't think of a good reason to have this on
 
         self.label_set = list(set(labels))
         self.sample_per_label = [math.floor(x*self.batch_size) for x in group_fraction]
@@ -466,9 +469,11 @@ class HiddenInputs(Categorical):
             input_batches = []
             for i in range(batches):
                 if i != batches - 1:
-                    ih = crbm.compute_output_v(input_tensor[i*batch_size:(i+1)*batch_size])
+                    ih = crbm.transform_h(crbm.compute_output_v(input_tensor[i * batch_size:(i + 1) * batch_size]))
+                    # ih = crbm.compute_output_v(input_tensor[i*batch_size:(i+1)*batch_size])
                 else:
-                    ih = crbm.compute_output_v(input_tensor[i * batch_size:])
+                    ih = crbm.transform_h(crbm.compute_output_v(input_tensor[i * batch_size:]))
+                    # ih = crbm.compute_output_v(input_tensor[i * batch_size:])
                 input_batches.append(torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy())
             return np.concatenate(input_batches, axis=0)
             # ih = crbm.compute_output_v(input_tensor)

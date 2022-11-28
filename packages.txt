@@ -22,6 +22,10 @@ pip install
 Tbparse
 globus-sdk
 torchsort # spearman calc
+// SetSimilaritySearch  # lsh in sequtils
+// bokeh # interactive plots
+tmap
+tmap-viz
 
 
 Hyperparameter libraies

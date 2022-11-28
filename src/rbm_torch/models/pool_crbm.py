@@ -59,7 +59,7 @@ class pool_CRBM(LightningModule):
             self.sampling_strategy = config["sampling_strategy"]
         except KeyError:
             self.sampling_strategy = "random"
-        assert self.sampling_strategy in ["random", "stratified", "weighted", "stratified_weighted"]
+        assert self.sampling_strategy in ["random", "stratified", "weighted", "stratified_weighted", "polar"]
 
         # Only used is sampling strategy is weighted
         try:
@@ -184,6 +184,11 @@ class pool_CRBM(LightningModule):
             self.group_fraction = config["group_fraction"]
         except KeyError:
             self.group_fraction = [1/self.label_groups for i in self.label_groups]
+
+        if self.sampling_strategy == "polar":
+            assert self.batch_size % 2 == 0
+            assert self.label_groups == 2
+            assert self.group_fraction == [0.5, 0.5]
 
         try:
             self.sample_multiplier = config["sample_multiplier"]
@@ -389,7 +394,7 @@ class pool_CRBM(LightningModule):
             config_minus = -1*torch.maximum(-con, zero)
 
             E[iid] = ((config_plus.square() * a_plus) / 2 + (config_minus.square() * a_minus) / 2 + (config_plus * theta_plus) + (config_minus * theta_minus)).sum(1)
-            # E[iid] *= (10/self.convolution_topology[i]["convolution_dims"][2]) # Normalize across different convolution sizes
+
         if E.shape[0] > 1:
             return E.sum(0)
         else:
@@ -581,25 +586,27 @@ class pool_CRBM(LightningModule):
                 out = F.dropout(out, p=self.dr, training=self.training)
 
             outputs.append(out)
+            if True in torch.isnan(out):
+                print("hi")
 
         return outputs
 
     ## Compute Input for Visible Layer from Hidden dReLU
-    def compute_output_h(self, Y):  # from h_uk (B, hidden_num)
+    def compute_output_h(self, h):  # from h_uk (B, hidden_num)
         outputs = []
         # nonzero_masks = []
         # hidden_layer_W = getattr(self, "hidden_layer_W")
         # total_weights = hidden_layer_W.sum()
         for iid, i in enumerate(self.hidden_convolution_keys):
 
-            # zero = torch.zeros_like(Y[iid], device=self.device)
-            # Y_pos = torch.maximum(Y[iid], zero)
-            # Y_neg = torch.maximum(-Y[iid], zero)
+            # zero = torch.zeros_like(h[iid], device=self.device)
+            # h_pos = torch.maximum(h[iid], zero)
+            # h_neg = torch.maximum(-h[iid], zero)
 
-            # max_reconst = self.unpools[iid](Y_pos.unsqueeze(2), self.max_inds[iid])
-            # min_reconst = -1*self.unpools[iid](Y_neg.unsqueeze(2), self.min_inds[iid])
+            # max_reconst = self.unpools[iid](h_pos.unsqueeze(2), self.max_inds[iid])
+            # min_reconst = -1*self.unpools[iid](h_neg.unsqueeze(2), self.min_inds[iid])
 
-            reconst = self.unpools[iid](Y[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
+            reconst = self.unpools[iid](h[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
 
             if reconst.ndim == 3:
                 reconst.unsqueeze_(3)
@@ -617,8 +624,13 @@ class pool_CRBM(LightningModule):
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored
             # mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
-            return torch.sum(torch.stack(outputs), 0)  # / mean_denominator
+            out = torch.sum(torch.stack(outputs), 0)
+            if True in torch.isnan(out):
+                print("hi")
+            return out  # / mean_denominator
         else:
+            if True in torch.isnan(outputs[0]):
+                print("hi")
             return outputs[0]
 
     ## Gibbs Sampling of Potts Visbile Layer
@@ -630,30 +642,41 @@ class pool_CRBM(LightningModule):
         else:
             cum_probas = beta * psi + beta * getattr(self, "fields").unsqueeze(0) + (1 - beta) * getattr(self, "fields0").unsqueeze(0)
 
-        cum_probas = self.cumulative_probabilities(cum_probas)
+        maxi, max_indices = cum_probas.max(-1)
+        maxi.unsqueeze_(2)
+        cum_probas -= maxi
+        cum_probas.exp_()
+        cum_probas[cum_probas > 1e9] = 1e9  # For numerical stability.
 
-        rng = torch.rand((datasize, self.v_num), dtype=torch.float64, device=self.device)
-        low = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        middle = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        high = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        high.fill_(self.q)
+        dist = torch.distributions.categorical.Categorical(probs=cum_probas)
+        return F.one_hot(dist.sample(), self.q)
 
-        in_progress = low < high
-        while True in in_progress:
-            # Original Method
-            middle[in_progress] = torch.floor((low[in_progress] + high[in_progress]) / 2).long()
-
-            middle_probs = torch.gather(cum_probas, 2, middle.unsqueeze(2)).squeeze(2)
-            comparisonfull = rng < middle_probs
-
-            gt = torch.logical_and(comparisonfull, in_progress)
-            lt = torch.logical_and(~comparisonfull, in_progress)
-            high[gt] = middle[gt]
-            low[lt] = torch.add(middle[lt], 1)
-
-            in_progress = low < high
-
-        return F.one_hot(high, self.q)
+        # F.multinomial
+        #
+        # cum_probas = self.cumulative_probabilities(cum_probas)
+        #
+        # rng = torch.rand((datasize, self.v_num), dtype=torch.float64, device=self.device)
+        # low = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
+        # middle = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
+        # high = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
+        # high.fill_(self.q)
+        #
+        # in_progress = low < high
+        # while True in in_progress:
+        #     # Original Method
+        #     middle[in_progress] = torch.floor((low[in_progress] + high[in_progress]) / 2).long()
+        #
+        #     middle_probs = torch.gather(cum_probas, 2, middle.unsqueeze(2)).squeeze(2)
+        #     comparisonfull = rng < middle_probs
+        #
+        #     gt = torch.logical_and(comparisonfull, in_progress)
+        #     lt = torch.logical_and(~comparisonfull, in_progress)
+        #     high[gt] = middle[gt]
+        #     low[lt] = torch.add(middle[lt], 1)
+        #
+        #     in_progress = low < high
+        #
+        # return F.one_hot(high, self.q)
         # return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
 
     ## Gibbs Sampling of dReLU hidden layer
@@ -711,6 +734,8 @@ class pool_CRBM(LightningModule):
             h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
             h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
             h_uks.append(h)
+            if True in torch.isnan(h):
+                print("hi")
         return h_uks
 
     ## Visible Potts Supporting Function
@@ -841,8 +866,26 @@ class pool_CRBM(LightningModule):
     #     return v, h, e
 
     ######################################################### Pytorch Lightning Functions
+
+    def on_after_backward(self):
+
+        for key in self.hidden_convolution_keys:
+            for param in ["gamma+", "gamma-", "theta+", "theta-", "W"]:
+                par = getattr(self, f"{key}_{param}")
+                grad = par.grad
+                if True in torch.isnan(par) or True in torch.isnan(grad):
+                    print("hi")
+        torch.nn.utils.clip_grad_norm_(self.parameters(), 100, norm_type=2.0, error_if_nonfinite=True)
+
+
     # Clamps hidden potential values to acceptable range
     def on_before_zero_grad(self, optimizer):
+        # for key in self.hidden_convolution_keys:
+        #     for param in ["gamma+", "gamma-", "theta+", "theta-", "W"]:
+        #         par = getattr(self, f"{key}_{param}")
+        #         grad = par.grad
+        #         if True in torch.isnan(par) or True in torch.isnan(grad):
+        #             print("hi")
         with torch.no_grad():
             for key in self.hidden_convolution_keys:
                 for param in ["gamma+", "gamma-"]:
@@ -877,6 +920,7 @@ class pool_CRBM(LightningModule):
                     f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
                 exit(-1)
 
+            seq_read_counts = np.asarray([math.log(x + 1.0, math.e) for x in seq_read_counts])
             data = pd.DataFrame(data={'sequence': seqs, 'fasta_count': seq_read_counts})
 
             if type(self.weights) == str and "fasta" in self.weights:
@@ -1026,7 +1070,7 @@ class pool_CRBM(LightningModule):
                 batch_size=self.batch_size,
                 pin_memory=self.pin_mem
             )
-        elif self.sampling_strategy == "stratified_weighted":
+        elif self.sampling_strategy == "stratified_weighted" or self.sampling_strategy == "polar":
             return torch.utils.data.DataLoader(
                 train_reader,
                 batch_sampler=WeightedSubsetRandomSampler(self.sampling_weights, self.training_data["label"].to_numpy(), self.group_fraction, self.batch_size, self.sample_multiplier),
@@ -1140,15 +1184,6 @@ class pool_CRBM(LightningModule):
         for key, value in outputs[0].items():
             result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
 
-        # avg_pl = torch.stack([x['val_pseudo_likelihood'] for x in outputs]).mean()
-        # self.logger.experiment.add_scalar("Validation pseudo_likelihood", avg_pl, self.current_epoch)
-        # avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
-        #
-        # scalars = {"Validation Free Energy": avg_fe}
-        # if self.use_pearson:
-        #     avg_pearson = torch.stack([x['val_pearson_corr'] for x in outputs]).mean()
-        #     scalars["val_pearson_corr"] = avg_pearson
-
         self.logger.experiment.add_scalars("Val Scalars", result_dict, self.current_epoch)
 
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
@@ -1159,31 +1194,6 @@ class pool_CRBM(LightningModule):
                 result_dict[key] = torch.stack([x[key].detach() for x in outputs]).mean()
             else:
                 result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
-
-
-        # avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
-        # avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
-        # field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
-        # weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
-        # distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
-        # free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
-        # # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
-
-        # all_scalars = {"Loss": avg_loss,
-        #                "CD_Loss": avg_dF,
-        #                "Field Reg": field_reg,
-        #                "Weight Reg": weight_reg,
-        #                "Distance Reg": distance_reg,
-        #                # "Train_pseudo_likelihood": pseudo_likelihood,
-        #                "Train Free Energy": free_energy,
-        #                }
-        #
-        #
-        # if self.use_pearson:
-        #     pearson_corr = torch.stack([x["train_pearson_corr"] for x in outputs]).mean()
-        #     pearson_loss = torch.stack([x["train_pearson_loss"] for x in outputs]).mean()
-        #     all_scalars[f"Pearson Loss"] = pearson_loss
-        #     all_scalars["Train Pearson Corr"] = pearson_corr
 
         self.logger.experiment.add_scalars("All Scalars", result_dict, self.current_epoch)
 
@@ -1198,29 +1208,70 @@ class pool_CRBM(LightningModule):
     def training_step_CD_energy(self, batch, batch_idx):
         seqs, one_hot, seq_weights = batch
 
-        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
-
-        # Calculate CD loss
-        E_p = (self.energy(V_pos_oh, h_pos) * seq_weights/seq_weights.sum()).sum()   # energy of training data
-        # E_p = (self.energy(V_pos_oh, h_pos) * weights).sum()  # energy of training data
-        E_n = (self.energy(V_neg_oh, h_neg) * seq_weights/seq_weights.sum()).sum()   # energy of gibbs sampled visible states
-        # E_n = (self.energy(V_neg_oh, h_neg) * weights).sum()  # energy of gibbs sampled visible states
-        cd_loss = E_p - E_n
-
         # Regularization Terms
         reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+
+        if self.sampling_strategy == "polar":
+            half_batch = self.batch_size // 2
+            V_neg_oh = one_hot[: half_batch]  # first half is sequences we don't like
+            V_neg_weights = seq_weights[: half_batch]
+            V_neg_weights = 1. / V_neg_weights
+            V_neg_weights = F.softmax(V_neg_weights, dim=0)
+
+            # shuffle around the negative tensor
+            shuffle_tensor = torch.randperm(half_batch)
+            V_neg_oh = V_neg_oh[shuffle_tensor]
+            V_neg_oh = V_neg_oh[shuffle_tensor]
+
+            V_pos_oh = one_hot[half_batch:]  # second half is sequences we do like
+            V_pos_weights = seq_weights[half_batch:]
+
+            # gibbs sampling
+            V_gs_neg_oh, h_gs_neg, V_pos_oh, h_pos = self(V_pos_oh)
+            h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg_oh))
+
+            E_gs = (self.energy(V_gs_neg_oh, h_gs_neg) * V_pos_weights / V_pos_weights.sum())
+            E_n = (self.energy(V_neg_oh, h_neg) * V_neg_weights / V_neg_weights.sum())
+            E_p = (self.energy(V_pos_oh, h_pos) * V_pos_weights / V_pos_weights.sum())
+
+
+            # free_energy_diff = (2 * E_p - E_n * 1.1 - E_gs * 0.9).sum()
+            energy_diff = (2*E_p - E_gs - E_n).sum()
+            cd_loss = energy_diff
+
+            energy_log = {
+                "energy_pos": E_p.sum().detach(),
+                "energy_neg": E_n.sum().detach(),
+                "energy_gibbs": E_gs.sum().detach(),
+                # "cd_gibbs": free_energy_diff_gibbs.detach(),
+                # "cd_polar": energy_diff.detach(),
+                "cd_loss": cd_loss.detach(),
+            }
+
+        else:
+            V_gs_neg_oh, h_gs_neg, V_pos_oh, h_pos = self(one_hot)
+            E_gs = (self.energy(V_gs_neg_oh, h_gs_neg) * seq_weights / seq_weights.sum())
+            E_p = (self.energy(V_pos_oh, h_pos) * seq_weights / seq_weights.sum())
+            cd_loss = (E_p - E_gs).sum()
+
+            energy_log = {
+                "energy_pos": E_p.sum().detach(),
+                "energy_neg": E_gs.sum().detach(),
+                "cd_loss": cd_loss.detach(),
+            }
+
 
         # Calculate Loss
         loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
 
         logs = {"loss": loss,
-                "free_energy_diff": cd_loss.detach(),
-                "train_free_energy": E_p.detach(),
+                "train_energy": E_p.sum().detach(),
+                **energy_log,
                 **reg_dict
                 }
 
-        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_energy", logs["train_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
 
@@ -1286,7 +1337,7 @@ class pool_CRBM(LightningModule):
                 }
 
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
 
@@ -1298,23 +1349,114 @@ class pool_CRBM(LightningModule):
         # if self.meminfo:
         #     print("GPU Allocated Training Step Start:", torch.cuda.memory_allocated(0))
 
-        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
+        if self.sampling_strategy == "polar":
+            half_batch = self.batch_size // 2
+            V_neg_oh = one_hot[: half_batch] # first half is sequences we don't like
+            V_neg_weights = seq_weights[: half_batch]
+            V_neg_weights = 1. / V_neg_weights
+            V_neg_weights = F.softmax(V_neg_weights, dim=0)
 
-        # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
+            # shuffle around the negative tensor
+            shuffle_tensor = torch.randperm(half_batch)
+            V_neg_oh = V_neg_oh[shuffle_tensor]
+            V_neg_oh = V_neg_oh[shuffle_tensor]
+
+
+            V_pos_oh = one_hot[half_batch:] # second half is sequences we do like
+            V_pos_weights = seq_weights[half_batch:]
+
+            #gibbs sampling
+            V_gs_neg_oh, h_gs_neg, V_pos_oh, h_pos = self(V_pos_oh)
+            # h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg_oh))
+
+            reconstruction_error = 1 - (V_pos_oh.argmax(-1) == V_gs_neg_oh.argmax(-1)).double().mean(-1)
+            V_pos_weights *= reconstruction_error
+
+            F_gs = self.free_energy(V_gs_neg_oh) * V_pos_weights / V_pos_weights.sum()
+
+            F_v = self.free_energy(V_pos_oh) * V_pos_weights / V_pos_weights.sum()  # free energy of training data
+            F_vp = self.free_energy(V_neg_oh) * V_neg_weights / V_neg_weights.sum() # free energy of gibbs sampled visible states
+
+
+
+            # # Average activities of hidden units
+            # hidden_exp_pos = torch.cat(self.mean_h(h_pos), dim=1)
+            # hidden_exp_neg = torch.cat(self.mean_h(h_neg), dim=1)
+            # hidden_exp_gs_neg = torch.cat(self.mean_h(h_gs_neg), dim=1)
+            #
+            # if True in torch.isnan(hidden_exp_pos) or True in torch.isnan(hidden_exp_neg) or True in torch.isnan(hidden_exp_gs_neg):
+            #     print("hi")
+            #
+            # # Make activities opposite of one another, we'll see how this works
+            # activity_distance_neg = (hidden_exp_pos + hidden_exp_neg).sum()
+            # activity_distance_gs = (hidden_exp_pos + hidden_exp_gs_neg).sum()
+            #
+            # # activity_loss = (activity_distance_neg + activity_distance_gs).abs() * 0.05
+            #
+            # activity_loss = activity_distance_gs.abs() * 0.05
+
+
+
+            #
+            # F_gs = self.free_energy(V_gs_neg_oh) * V_pos_weights
+            #
+            # F_v = self.free_energy(V_pos_oh) * V_pos_weights # free energy of training data
+            # F_vp = self.free_energy(V_neg_oh) * V_pos_weights  # free energy of gibbs sampled visible states
+
+
+
+            # F_gs = (self.free_energy(V_gs_neg_oh) * V_pos_weights / V_pos_weights.sum()).sum()
+            #
+            # F_v = (self.free_energy(V_pos_oh) * V_pos_weights / V_pos_weights.sum()).sum()  # free energy of training data
+            # F_vp = (self.free_energy(V_neg_oh) * V_neg_weights / V_neg_weights.sum()).sum()  # free energy of gibbs sampled visible states
+
+            epoch_fraction = self.current_epoch/self.epochs
+
+            free_energy_diff = (2*F_v - F_vp*1.1 - F_gs*0.9).sum()
+            # free_energy_diff = F_v - F_gs
+
+
+            # cd_loss = (0.2+epoch_fraction)*free_energy_diff + (1.4-epoch_fraction)*free_energy_diff_gibbs
+            cd_loss = free_energy_diff
+
+            free_energy_log = {
+                "free_energy_pos": F_v.sum().detach(),
+                "free_energy_neg": F_vp.sum().detach(),
+                "free_energy_gibbs": F_gs.sum().detach(),
+                # "cd_gibbs": free_energy_diff_gibbs.detach(),
+                "cd_polar": free_energy_diff.detach(),
+                "cd_loss": cd_loss.detach(),
+            }
+
+        else:
+            V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
+            free_energy = self.free_energy(V_pos_oh)
+            F_v = (self.free_energy(V_pos_oh) * seq_weights / seq_weights.sum()).sum()  # free energy of training data
+            F_vp = (self.free_energy(V_neg_oh) * seq_weights / seq_weights.sum()).sum()  # free energy of gibbs sampled visible states
+            free_energy_diff = F_v - F_vp
+            cd_loss = free_energy_diff
+
+            free_energy_log = {
+                "free_energy_pos": F_v.detach(),
+                "free_energy_neg": F_vp.detach(),
+                "cd_loss": cd_loss.detach(),
+            }
 
         # delete tensors not involved in loss calculation
         # pytorch garbage collection does not catch these
         del h_neg
         del h_pos
 
+        # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
+
         # F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
-        free_energy = self.free_energy(V_pos_oh)
-        F_v = (self.free_energy(V_pos_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of training data
-        # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
-        F_vp = (self.free_energy(V_neg_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of gibbs sampled visible states
-        free_energy_diff = F_v - F_vp
-        # cd_loss = (free_energy_diff/torch.abs(free_energy_diff)) * torch.log(torch.abs(free_energy_diff) + 10)
-        cd_loss = free_energy_diff
+        # free_energy = self.free_energy(V_pos_oh)
+        # F_v = (self.free_energy(V_pos_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of training data
+        # # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
+        # F_vp = (self.free_energy(V_neg_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of gibbs sampled visible states
+        # free_energy_diff = F_v - F_vp
+        # # cd_loss = (free_energy_diff/torch.abs(free_energy_diff)) * torch.log(torch.abs(free_energy_diff) + 10)
+        # cd_loss = free_energy_diff
 
         if self.use_pearson:
             if self.pearson_xvar == "values":
@@ -1349,8 +1491,8 @@ class pool_CRBM(LightningModule):
         loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
 
         logs = {"loss": loss,
-                "free_energy_diff": cd_loss.detach(),
-                "train_free_energy": F_v.detach(),
+                "train_free_energy": free_energy_diff.detach(),
+                **free_energy_log,
                 **reg_dict
                 }
 
@@ -1457,22 +1599,17 @@ class pool_CRBM(LightningModule):
         return V_neg, h_neg
 
     def forward(self, V_pos_ohe):
-
-        # Trying this out
-        # self.one_hot_tmp = torch.zeros_like(V_pos_ohe, device=self.device)
-
         if self.sample_type == "gibbs":
             # Gibbs sampling
             # pytorch lightning handles the device
-            with torch.no_grad():  # only use last sample for gradient calculation, Enabled to minimize memory usage, hopefully won't have much effect on performance
-                fantasy_v, fantasy_h = self.markov_step(V_pos_ohe)
-                for _ in range(self.mc_moves - 2):
-                    fantasy_v, fantasy_h = self.markov_step(fantasy_v)
+            fantasy_v, first_h = self.markov_step(V_pos_ohe)
+            # with torch.no_grad():  # only use last sample for gradient calculation, Enabled to minimize memory usage, hopefully won't have much effect on performance
+            for _ in range(self.mc_moves - 1):
+                fantasy_v, fantasy_h = self.markov_step(fantasy_v)
 
-            V_neg, fantasy_h = self.markov_step(fantasy_v)
-
+            # V_neg, fantasy_h = self.markov_step(fantasy_v)
             # V_neg, h_neg, V_pos, h_pos
-            return V_neg, self.sample_from_inputs_h(self.compute_output_v(V_neg)), V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
+            return fantasy_v, fantasy_h, V_pos_ohe, first_h
 
         elif self.sample_type == "pt":
             # Initialize_PT is called before the forward function is called. Therefore, N_PT will be filled

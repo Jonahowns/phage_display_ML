@@ -16,6 +16,8 @@ for pk in plot_keys:
     _VARS[f"plt_{pk}"] = False
     canvas_keys[pk] = f"canvas_{pk}"
 
+plt_fig_indices = {}
+fig_counter = 0
 
 plt.style.use('Solarize_Light2')
 
@@ -130,7 +132,7 @@ import rbm_torch.utils.data_prep as dp
 
 
 def assign_groups(distribution, boundaries):
-    group_maps = [((distribution > boundaries[i]) & (distribution <= boundaries[i + 1])) for i in range(len(boundaries) - 1)]
+    group_maps = [((distribution >= boundaries[i]) & (distribution < boundaries[i + 1])) for i in range(len(boundaries) - 1)]
     group_numbers = [np.count_nonzero(map) for map in group_maps]
     return group_numbers, group_maps
 
@@ -178,9 +180,12 @@ while True:
         tmp_key = "input"
         log_cn = dp.log_scale(copy_num, eps=1.)
         if _VARS[f'plt_{tmp_key}'] is False:
-            _VARS[f'plt_{tmp_key}'] = plt.figure()
+            _VARS[f'plt_{tmp_key}'] = plt.figure(fig_counter)
+            plt_fig_indices[tmp_key] = fig_counter
+            fig_counter += 1
         else:
             _VARS[f'fig_{tmp_key}'].get_tk_widget().forget()
+            plt.figure(plt_fig_indices[tmp_key])
             plt.clf()
         drawHist(log_cn)
         _VARS[f'fig_{tmp_key}'] = draw_figure(_VARS['window'][canvas_keys[tmp_key]].TKCanvas, _VARS[f'plt_{tmp_key}'])
@@ -208,9 +213,12 @@ while True:
 
         tmp_key = "sample"
         if _VARS[f'plt_{tmp_key}'] is False:
-            _VARS[f'plt_{tmp_key}'] = plt.figure()
+            _VARS[f'plt_{tmp_key}'] = plt.figure(fig_counter)
+            plt_fig_indices[tmp_key] = fig_counter
+            fig_counter += 1
         else:
             _VARS[f'fig_{tmp_key}'].get_tk_widget().forget()
+            plt.figure(plt_fig_indices[tmp_key])
             plt.clf()
 
         drawHist(log_cn, weights=sample_weights, bins=len(boundaries))
@@ -221,15 +229,18 @@ while True:
 
     elif event == "Apply Separators":
         separators = [float(b) for b in values["separators"].split()]
-        boundaries = [0.0, *separators, log_cn.max()]
+        boundaries = [0.0, *separators, log_cn.max() + 1.]
         # boundaries = [float(b) for b in boundaries]
         gnums, gmps = assign_groups(log_cn, boundaries)
 
         tmp_key = "group"
         if _VARS[f'plt_{tmp_key}'] is False:
-            _VARS[f'plt_{tmp_key}'] = plt.figure()
+            _VARS[f'plt_{tmp_key}'] = plt.figure(fig_counter)
+            plt_fig_indices[tmp_key] = fig_counter
+            fig_counter += 1
         else:
             _VARS[f'fig_{tmp_key}'].get_tk_widget().forget()
+            plt.figure(plt_fig_indices[tmp_key])
             plt.clf()
 
         drawHist(log_cn)
@@ -252,9 +263,12 @@ while True:
 
         tmp_key = "model_weight"
         if _VARS[f'plt_{tmp_key}'] is False:
-            _VARS[f'plt_{tmp_key}'] = plt.figure()
+            _VARS[f'plt_{tmp_key}'] = plt.figure(fig_counter)
+            plt_fig_indices[tmp_key] = fig_counter
+            fig_counter += 1
         else:
             _VARS[f'fig_{tmp_key}'].get_tk_widget().forget()
+            plt.figure(plt_fig_indices[tmp_key])
             plt.clf()
 
         drawPlot(flat_dist, flat_weights)
@@ -280,9 +294,12 @@ while True:
 
         tmp_key = "random_sample"
         if _VARS[f'plt_{tmp_key}'] is False:
-            _VARS[f'plt_{tmp_key}'] = plt.figure()
+            _VARS[f'plt_{tmp_key}'] = plt.figure(fig_counter)
+            plt_fig_indices[tmp_key] = fig_counter
+            fig_counter += 1
         else:
             _VARS[f'fig_{tmp_key}'].get_tk_widget().forget()
+            plt.figure(plt_fig_indices[tmp_key])
             plt.clf()
 
         drawHist(full_sample["log_copy_num"].to_numpy(), weights=full_sample["model_weights"])
