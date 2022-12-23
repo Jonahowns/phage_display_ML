@@ -135,6 +135,9 @@ def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="
                 fit_vals[x] = fitness_vals
             else:
                 seqs, likeli = model.predict(all_data[all_data[key] == x])
+        elif "vr" in model._get_name():
+            seqs, likeli, fitness_vals = model.predict(all_data[all_data[key] == x])
+            fit_vals[x] = fitness_vals
         elif "class" in model._get_name():
             seqs, likeli, label_pred = model.predict(all_data[all_data[key] == x])
             labels[x] = label_pred
@@ -148,6 +151,8 @@ def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="
             data = {'likelihoods': likelihoods, "sequences": sequences, "fitness_vals": fit_vals}
         else:
             data = {'likelihoods': likelihoods, "sequences": sequences}
+    elif "vr" in model._get_name():
+        data = {'likelihoods': likelihoods, "sequences": sequences, "fitness_vals": fit_vals}
     elif "class" in model._get_name():
         data = {'likelihoods': likelihoods, "sequences": sequences, "labels": labels}
     else:

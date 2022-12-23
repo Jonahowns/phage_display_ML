@@ -107,7 +107,7 @@ def load_run_file(runfile):
         exit(1)
 
     # Get info needed for all models
-    assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm", "pool_regression_crbm", "variational_pool_crbm"]
+    # assert run_data["model_type"] in ["rbm", "crbm", "exp_rbm", "exp_crbm", "net_crbm", "pcrbm", "pool_crbm", "comp_crbm", "pool_class_crbm", "pool_regression_crbm", "variational_pool_crbm"]
 
     config = run_data["config"]
 
@@ -115,7 +115,10 @@ def load_run_file(runfile):
     fasta_file = run_data["fasta_file"]
 
     # Deal with weights
+    # Deal with weights
     weights = None
+    config["sampling_weights"] = None
+    config["sample_stds"] = None
     if "fasta" in run_data["weights"]:
         weights = run_data["weights"]  # All weights are already in the processed fasta files
     elif run_data["weights"] is None or run_data["weights"] in ["None", "none", "equal"]:
@@ -123,25 +126,29 @@ def load_run_file(runfile):
     else:
         ## Assumes weight file to be in same directory as our data files.
         try:
-            with open(data_dir + run_data["weights"]) as f:
+            with open(run_data["data_dir"]+run_data["weights"]) as f:
                 data = json.load(f)
             weights = np.asarray(data["weights"])
 
             # Deal with Sampling Weights
             try:
                 sampling_weights = np.asarray(data["sampling_weights"])
+                config["sampling_weights"] = sampling_weights
             except KeyError:
                 sampling_weights = None
 
+            # Deal with Sample Stds
+            try:
+                sample_stds = np.asarray(data["sample_stds"])
+                config["sample_stds"] = sample_stds
+            except KeyError:
+                sample_stds = None
+
         except IOError:
-            print(f"Could not load provided weight file {data_dir + run_data['weights']}")
+            print(f"Could not load provided weight file {config['weights']}")
             exit(-1)
 
     config["sequence_weights"] = weights
-    try:
-        config["sampling_weights"] = sampling_weights
-    except UnboundLocalError:
-        pass
 
     # Edit config for dataset specific hyperparameters
     config["fasta_file"] = data_dir + fasta_file
@@ -162,7 +169,6 @@ def load_run_file(runfile):
 
 
 def process_weights(weights):
-    w8s = None
     if weights is None:
         return None
     elif type(weights) == str:
@@ -373,11 +379,11 @@ class Categorical(Dataset):
         model_input = self.train_data[index]  # either vector of integers for categorical or one hot vector
         weight = self.train_weights[index]
 
-        return_arr = [seq, model_input, weight]
+        return_arr = [index, seq, model_input, weight]
         if self.labels:
             label = self.train_labels[index]
             return_arr.append(label)
-        if self.additional_data:
+        if self.additional_data is not None:
             data = self.additional_data[index]
             return_arr.append(data)
 
@@ -409,6 +415,9 @@ class Categorical(Dataset):
         fields = torch.log((1 - eps) * out + eps / self.n_bases)
         fields -= fields.sum(1).unsqueeze(1) / self.n_bases
         return fields
+
+    def __len__(self):
+        return self.train_data.shape[0]
 
     # def distance(self, MSA):
     #     B = MSA.shape[0]
@@ -444,8 +453,7 @@ class Categorical(Dataset):
     #     #     num_neighbours[b] = 1 + ((MSA[b] != MSA).float().mean(1) < threshold).sum()
     #     return neighs
 
-    def __len__(self):
-        return self.train_data.shape[0]
+
 
     # def on_epoch_end(self):
     #     self.count = 0
@@ -1148,7 +1156,7 @@ def markov_step_zeroT_marginal(self, v,beta=1):
 
 def get_beta_and_W(model, hidden_key=None, include_gaps=False, separate_signs=False):
     name = model._get_name()
-    if "CRBM" in name:
+    if "CRBM" in name or "crbm" in name:
         if hidden_key is None:
             print("Must specify hidden key in get_beta_and_W for crbm")
             exit(-1)
@@ -1179,7 +1187,7 @@ def all_weights(model, name=None, rows=5, order_weights=True):
     if name is None:
         name = model._get_name()
 
-    if "CRBM" in model_name:
+    if "CRBM" in model_name or "crbm" in model_name:
         for key in model.hidden_convolution_keys:
             wdim = model.convolution_topology[key]["weight_dims"]
             kernelx = wdim[2]

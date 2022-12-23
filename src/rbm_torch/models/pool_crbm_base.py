@@ -19,40 +19,13 @@ from torch.autograd import Variable
 from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D, label_samples, process_weights, configure_optimizer, StratifiedBatchSampler, WeightedSubsetRandomSampler  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
 from rbm_torch.utils.data_prep import weight_transform, pearson_transform
 from torch.utils.data import WeightedRandomSampler
+from rbm_torch.models.base import Base
 
-class pool_CRBM(LightningModule):
+class pool_CRBM(Base):
     def __init__(self, config, debug=False, precision="double", meminfo=False):
-        super().__init__()
-
-        # Pytorch Basic Options #
-        ################################
-        self.seed = config['seed']
-        torch.manual_seed(self.seed)  # For reproducibility
-        supported_precisions = {"double": torch.float64, "single": torch.float32}
-        try:
-            torch.set_default_dtype(supported_precisions[precision])
-        except:
-            print(f"Precision {precision} not supported.")
-            exit(-1)
-        ################################
-
+        super().__init__(config, debug=debug, precision=precision)
 
         self.mc_moves = config['mc_moves']  # Number of MC samples to take to update hidden and visible configurations
-        self.batch_size = config['batch_size']  # Pretty self explanatory
-        self.epochs = config['epochs']  # number of training iterations, needed for our weight decay function
-
-        # Data Input Options #
-        ###########################################
-        self.fasta_file = config['fasta_file']
-        self.v_num = config['v_num']  # Number of visible nodes
-        self.q = config['q']  # Number of categories the input sequence has (ex. DNA:4 bases + 1 gap)
-        self.validation_size = config['validation_set_size']
-        self.test_size = config['test_set_size']
-        assert self.validation_size < 1.0
-        assert self.test_size < 1.0
-
-        self.molecule = config['molecule']  # can be protein, rna or dna currently
-        assert self.molecule in ["dna", "rna", "protein"]
 
         # Batch sampling strategy, can be random or stratified
         try:
@@ -67,64 +40,11 @@ class pool_CRBM(LightningModule):
         except KeyError:
             self.sampling_weights = None
 
-
-        # Sequence Weighting Weights
-        # Not pretty but necessary to either provide the weights or to import from the fasta file
-        # To import from the provided fasta file weights="fasta" in intialization of RBM
-        weights = config['sequence_weights']
-        self.weights = process_weights(weights)
-
         # Stratify the datasets, training, validationa, and test
         try:
             self.stratify = config["stratify_datasets"]
         except KeyError:
             self.stratify = False
-
-
-        ###########################################
-
-
-        # Dataloader Configuration Options #
-        ###########################################
-        # Sets worker number for both dataloaders
-        if debug:
-            self.worker_num = 0
-        else:
-            try:
-                self.worker_num = config["data_worker_num"]
-            except KeyError:
-                self.worker_num = cpu_count()
-
-        # Sets Pim Memory when GPU is being used
-        # this attribute is set in load_run_file
-        try:
-            if config["gpus"] > 0:
-                self.pin_mem = True
-            else:
-                self.pin_mem = False
-        except KeyError:
-            self.pin_mem = False
-        ###########################################
-
-
-        # Global Optimizer Settings #
-        ###########################################
-        # configure optimizer
-        optimizer = config['optimizer']
-        self.optimizer = configure_optimizer(optimizer)
-
-        self.lr = config['lr']
-        lr_final = config['lr_final']
-
-        if lr_final is None:
-            self.lrf = self.lr * 1e-2
-        else:
-            self.lrf = lr_final
-
-        self.wd = config['weight_decay']  # Put into weight decay option in configure_optimizer, l2 regularizer
-        self.decay_after = config['decay_after']  # hyperparameter for when the lr decay should occur
-        ###########################################
-
 
         # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
         # sample types control whether gibbs sampling, pcd, from the data points or parallel tempering from random configs are used
@@ -136,7 +56,6 @@ class pool_CRBM(LightningModule):
         assert self.loss_type in ['energy', 'free_energy']
         assert self.sample_type in ['gibbs', 'pt', 'pcd']
 
-
         # Regularization Options #
         ###########################################
         self.l1_2 = config['l1_2']  # regularization on weights, ex. 0.25
@@ -145,7 +64,6 @@ class pool_CRBM(LightningModule):
         self.lgap = config['lgap']
         self.lbs = config['lbs']
         ###########################################
-
 
         self.convolution_topology = config["convolution_topology"]
 
@@ -162,14 +80,7 @@ class pool_CRBM(LightningModule):
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
 
-        # Hidden Layer Weights, Two options (1) provided weights or (2) learns the weights as a model parameter
-        # try:
-        #     hidden_layer_weights = [v['weight'] for x, v in self.convolution_topology.items()]
-        #     self.register_parameter("hidden_layer_W", nn.Parameter(torch.tensor(hidden_layer_weights, device=self.device), requires_grad=False))
-        # except KeyError:
-        #     print("Hidden layer weights not provided or incomplete. Attempting to learn instead.")
-        #     self.register_parameter("hidden_layer_W", nn.Parameter(torch.ones((len(self.hidden_convolution_keys)), device=self.device), requires_grad=True))
-
+        # Should get rid of pearson crap soon
         self.use_pearson = config["use_pearson"]
         self.pearson_xvar = "none"
         if self.use_pearson:
@@ -178,8 +89,6 @@ class pool_CRBM(LightningModule):
             assert self.pearson_xvar in ["values", "labels"]
 
         # if self.pearson_xvar == "labels" or self.stratify or self.sampling_strategy == "stratified":
-        self.label_spacing = config["label_spacing"]
-        self.label_groups = len(self.label_spacing) - 1
         try:
             self.group_fraction = config["group_fraction"]
         except KeyError:
@@ -197,7 +106,6 @@ class pool_CRBM(LightningModule):
 
         assert len(self.label_spacing) - 1 == self.label_groups
         self.labels_in_batch = True
-
 
         self.use_batch_norm = config["use_batch_norm"]
         self.dr = 0.
@@ -651,34 +559,6 @@ class pool_CRBM(LightningModule):
         dist = torch.distributions.categorical.Categorical(probs=cum_probas)
         return F.one_hot(dist.sample(), self.q)
 
-        # F.multinomial
-        #
-        # cum_probas = self.cumulative_probabilities(cum_probas)
-        #
-        # rng = torch.rand((datasize, self.v_num), dtype=torch.float64, device=self.device)
-        # low = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        # middle = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        # high = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        # high.fill_(self.q)
-        #
-        # in_progress = low < high
-        # while True in in_progress:
-        #     # Original Method
-        #     middle[in_progress] = torch.floor((low[in_progress] + high[in_progress]) / 2).long()
-        #
-        #     middle_probs = torch.gather(cum_probas, 2, middle.unsqueeze(2)).squeeze(2)
-        #     comparisonfull = rng < middle_probs
-        #
-        #     gt = torch.logical_and(comparisonfull, in_progress)
-        #     lt = torch.logical_and(~comparisonfull, in_progress)
-        #     high[gt] = middle[gt]
-        #     low[lt] = torch.add(middle[lt], 1)
-        #
-        #     in_progress = low < high
-        #
-        # return F.one_hot(high, self.q)
-        # return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
-
     ## Gibbs Sampling of dReLU hidden layer
     def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [input]
         h_uks = []
@@ -737,16 +617,6 @@ class pool_CRBM(LightningModule):
             if True in torch.isnan(h):
                 print("hi")
         return h_uks
-
-    ## Visible Potts Supporting Function
-    def cumulative_probabilities(self, X, maxi=1e9):
-        max, max_indices = X.max(-1)
-        max.unsqueeze_(2)
-        X -= max
-        X.exp_()
-        X[X > maxi] = maxi  # For numerical stability.
-        X.cumsum_(-1)
-        return X / X[:, :, -1].unsqueeze(2)
 
     ## Hidden dReLU supporting Function
     def erf_times_gauss(self, X):  # This is the "characteristic" function phi
@@ -819,56 +689,8 @@ class pool_CRBM(LightningModule):
         self.count_swaps += 1
         return v, h, e
 
-    ## Markov Step for Parallel Tempering
-    # def markov_step_PT(self, v, h, e, N_PT):
-    #     for i, beta in zip(torch.arange(N_PT), self.betas):
-    #         v[i], htmp = self.markov_step(v[i], beta=beta)
-    #         for kid, k in self.hidden_convolution_keys:
-    #             h[kid][i] = htmp[kid]
-    #         e[i] = self.energy(v[i], h, hidden_sub_index=i)
-    #     return v, h, e
-    #
-    # def exchange_step_PT(self, v, h, e, N_PT, compute_energy=True):
-    #     if compute_energy:
-    #         for i in torch.arange(N_PT):
-    #             e[i] = self.energy(v[i], h, hidden_sub_index=i)
-    #
-    #     if self.record_swaps:
-    #         particle_id = torch.arange(N_PT).unsqueeze(1).expand(N_PT, v.shape[1])
-    #
-    #     betadiff = self.betas[1:] - self.betas[:-1]
-    #     for i in np.arange(self.count_swaps % 2, N_PT - 1, 2):
-    #         proba = torch.exp(betadiff[i] * e[i + 1] - e[i]).minimum(torch.ones_like(e[i]))
-    #         swap = torch.rand(proba.shape[0], device=self.device) < proba
-    #         if i > 0:
-    #             v[i:i + 2, swap] = torch.flip(v[i - 1: i + 1], [0])[:, swap]
-    #             for hid in range(self.h_layer_num):
-    #                 h[hid][i:i + 2, swap] = torch.flip(h[hid][i - 1: i + 1], [0])[:, swap]
-    #             e[i:i + 2, swap] = torch.flip(e[i - 1: i + 1], [0])[:, swap]
-    #             if self.record_swaps:
-    #                 particle_id[i:i + 2, swap] = torch.flip(particle_id[i - 1: i + 1], [0])[:, swap]
-    #         else:
-    #             v[i:i + 2, swap] = torch.flip(v[:i + 1], [0])[:, swap]
-    #             for hid in range(self.h_layer_num):
-    #                 h[hid][i:i + 2, swap] = torch.flip(h[hid][:i + 1], [0])[:, swap]
-    #             e[i:i + 2, swap] = torch.flip(e[:i + 1], [0])[:, swap]
-    #             if self.record_swaps:
-    #                 particle_id[i:i + 2, swap] = torch.flip(particle_id[:i + 1], [0])[:, swap]
-    #
-    #         if self.record_acceptance:
-    #             self.acceptance_rates[i] = swap.type(torch.get_default_dtype()).mean()
-    #             self.mav_acceptance_rates[i] = self.mavar_gamma * self.mav_acceptance_rates[i] + self.acceptance_rates[i] * (1 - self.mavar_gamma)
-    #
-    #     if self.record_swaps:
-    #         self.particle_id.append(particle_id)
-    #
-    #     self.count_swaps += 1
-    #     return v, h, e
-
     ######################################################### Pytorch Lightning Functions
-
     def on_after_backward(self):
-
         for key in self.hidden_convolution_keys:
             for param in ["gamma+", "gamma-", "theta+", "theta-", "W"]:
                 par = getattr(self, f"{key}_{param}")
@@ -894,138 +716,6 @@ class pool_CRBM(LightningModule):
                     getattr(self, f"{key}_{param}").data.clamp_(0.0, 1.0)
                 getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
 
-    ## Loads Data to be trained from provided fasta file
-    def setup(self, stage=None):
-        self.additional_data = False
-        if type(self.fasta_file) is str:
-            self.fasta_file = [self.fasta_file]
-
-        assert type(self.fasta_file) is list
-        data_pds = []
-
-        for file in self.fasta_file:
-            try:
-                if self.worker_num == 0:
-                    threads = 1
-                else:
-                    threads = self.worker_num
-                seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=False, threads=threads)
-            except IOError:
-                print(f"Provided Fasta File '{file}' Not Found")
-                print(f"Current Directory '{os.getcwd()}'")
-                exit()
-
-            if q_data != self.q:
-                print(
-                    f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
-                exit(-1)
-
-            seq_read_counts = np.asarray([math.log(x + 1.0, math.e) for x in seq_read_counts])
-            data = pd.DataFrame(data={'sequence': seqs, 'fasta_count': seq_read_counts})
-
-            if type(self.weights) == str and "fasta" in self.weights:
-                weights = np.asarray(seq_read_counts)
-                data["seq_count"] = weights
-            #     data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
-            # else:
-            #     data = pd.DataFrame(data={'sequence': seqs})
-
-            data_pds.append(data)
-
-        all_data = pd.concat(data_pds)
-        if type(self.weights) is np.ndarray:
-            all_data["seq_count"] = self.weights
-
-        assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
-
-        # stratify_labels = None
-        # if self.stratify or self.pearson_xvar == "label" or self.sampling_strategy == "stratified":
-
-        # w8s = all_data.seq_count.to_numpy()
-        labels = label_samples(all_data["fasta_count"], self.label_spacing, self.label_groups)
-
-        all_data["label"] = labels
-        # stratify_labels = labels
-
-        # else:
-        #     all_data["label"] = 0.
-
-
-        train_sets, val_sets, test_sets = [], [], []
-        for i in range(self.label_groups):
-            label_df = all_data[all_data["label"] == i]
-            if self.test_size > 0.:
-                # Split label df into train and test sets, taking into account duplicates
-                train_inds, test_inds = next(GroupShuffleSplit(test_size=self.test_size, n_splits=1, random_state=self.seed).split(label_df, groups=label_df['sequence']))
-                test_sets += label_df.index[test_inds].to_list()
-
-                # Further split training set into train and test set
-                train_inds, val_inds = next(GroupShuffleSplit(test_size=self.validation_size, n_splits=1, random_state=self.seed).split(label_df[train_inds], groups=label_df['sequence']))
-                train_sets += label_df.index[train_inds].to_list()
-                val_sets += label_df.index[val_inds].to_list()
-
-            else:
-                # Split label df into train and validation sets, taking into account duplicates
-                train_inds, val_inds = next(GroupShuffleSplit(test_size=self.validation_size, n_splits=1, random_state=self.seed).split(label_df, groups=label_df['sequence']))
-                train_sets += label_df.index[train_inds].to_list()
-                val_sets += label_df.index[val_inds].to_list()
-
-        self.training_data = all_data.iloc[train_sets]
-        self.validation_data = all_data.iloc[val_sets]
-
-        if self.sampling_weights is not None:
-            self.sampling_weights = self.sampling_weights[train_sets]
-
-        self.dataset_indices = {"train_indices": train_sets, "val_indices": val_sets}
-        if self.test_size > 0:
-            self.test_data = all_data.iloc[test_sets]
-            self.dataset_indices["test_indices"] = test_sets
-
-
-        # self.training_data, self.validation_data = train_test_split(available_data, test_size=self.validation_size, stratify=stratify_labels, random_state=self.seed)
-        #
-        # self.dataset_indices = {"train_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}
-        # if self.test_size > 0:
-        #     self.dataset_indices ["test_indices"] = self.test_data.index.tolist()
-
-
-        # if self.weights == "fasta_processed":
-        #     all_data["seq_count"] = weight_transform(all_data.seq_count.to_list(), exponent_base=3, exponent_min=-9, exponent_max=1)
-        #
-        #     self.additional_data = True
-        #     all_data["additional_data"] = pearson_transform(all_data.seq_count.to_list())
-
-        # if self.test_size > 0.:
-        #     available_data, self.test_data = train_test_split(all_data, test_size=self.test_size, stratify=stratify_labels, random_state=self.seed)
-        # else:
-        #     available_data = all_data
-        #
-        # self.training_data, self.validation_data = train_test_split(available_data, test_size=self.validation_size, stratify=stratify_labels, random_state=self.seed)
-        #
-        # self.dataset_indices = {"train_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}
-        # if self.test_size > 0:
-        #     self.dataset_indices ["test_indices"] = self.test_data.index.tolist()
-
-
-    def on_train_start(self):
-        # Log which sequences belong to each dataset
-        with open(self.logger.log_dir + "/dataset_indices.json", "w") as f:
-            json.dump(self.dataset_indices, f)
-
-    ## Sets Up Optimizer as well as Exponential Weight Decasy
-    def configure_optimizers(self):
-        optim = self.optimizer(self.parameters(), lr=self.lr, weight_decay=self.wd)
-        # optim = self.optimizer(self.weight_param)
-        # Exponential Weight Decay after set amount of epochs (set by decay_after)
-        decay_gamma = (self.lrf / self.lr) ** (1 / (self.epochs * (1 - self.decay_after)))
-        decay_milestone = math.floor(self.decay_after * self.epochs)
-        my_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optim, milestones=[decay_milestone], gamma=decay_gamma)
-        # my_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optim, T_max=10)
-        # my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decay_gamma)
-        optim_dict = {"lr_scheduler": my_lr_scheduler,
-                      "optimizer": optim}
-        return optim_dict
-
     ## Loads Training Data
     def train_dataloader(self, init_fields=True):
         # Get Correct Weights
@@ -1037,13 +727,16 @@ class pool_CRBM(LightningModule):
         # if "additional_data" in self.training_data.columns:
         #     additional_data = self.training_data["additional_data"].tolist()
 
+        training_stds = None
+        if "sample_std" in self.training_data.columns:
+            training_stds = self.training_data["sample_std"].tolist()
 
         labels = False
         if self.pearson_xvar == "labels":
             labels = True
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                   molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=None)
+                                   molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=training_stds)
 
         # initialize fields from data
         if init_fields:
@@ -1088,7 +781,6 @@ class pool_CRBM(LightningModule):
                 shuffle=shuffle
             )
 
-
     def val_dataloader(self):
         # Get Correct Validation weights
         validation_weights = None
@@ -1099,12 +791,16 @@ class pool_CRBM(LightningModule):
         # if "additional_data" in self.validation_data.columns:
         #     additional_data = self.validation_data["additional_data"].tolist()
 
+        validation_stds = None
+        if "sample_std" in self.validation_data.columns:
+            validation_stds = self.validation_data["sample_std"].tolist()
+
         labels = False
         if self.pearson_xvar == "labels":
             labels = True
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                 molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=None)
+                                 molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=validation_stds)
 
         if self.sampling_strategy == "stratified":
             return torch.utils.data.DataLoader(
@@ -1141,13 +837,13 @@ class pool_CRBM(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         if self.pearson_xvar == "labels" and self.additional_data:
-            seqs, one_hot, seq_weights, labels, additional_data = batch
+            inds, seqs, one_hot, seq_weights, labels, additional_data = batch
         if self.pearson_xvar == "labels":
-            seqs, one_hot, seq_weights, labels = batch
+            inds, seqs, one_hot, seq_weights, labels = batch
         if self.additional_data:
-            seqs, one_hot, seq_weights, additional_data = batch
+            inds, seqs, one_hot, seq_weights, additional_data = batch
         else:
-            seqs, one_hot, seq_weights = batch
+            inds, seqs, one_hot, seq_weights = batch
 
         # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy = self.free_energy(one_hot)
@@ -1180,26 +876,10 @@ class pool_CRBM(LightningModule):
         #
         return batch_out
 
-    def validation_epoch_end(self, outputs):
-        result_dict = {}
-        for key, value in outputs[0].items():
-            result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
-
-        self.logger.experiment.add_scalars("Val Scalars", result_dict, self.current_epoch)
 
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
     def training_epoch_end(self, outputs):
-        result_dict = {}
-        for key, value in outputs[0].items():
-            if key == "loss":
-                result_dict[key] = torch.stack([x[key].detach() for x in outputs]).mean()
-            else:
-                result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
-
-        self.logger.experiment.add_scalars("All Scalars", result_dict, self.current_epoch)
-
-        for name, p in self.named_parameters():
-            self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+        super().training_epoch_end(outputs)
 
         if self.meminfo:
             # print("GPU Reserved:", torch.cuda.memory_reserved(0))
@@ -1311,7 +991,7 @@ class pool_CRBM(LightningModule):
 
     # Not yet rewritten for CRBM
     def training_step_PT_free_energy(self, batch, batch_idx):
-        seqs, one_hot, seq_weights = batch
+        inds, seqs, one_hot, seq_weights = batch
 
         V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
 
@@ -1344,9 +1024,9 @@ class pool_CRBM(LightningModule):
 
     def training_step_CD_free_energy(self, batch, batch_idx):
         if self.pearson_xvar == "labels":
-            seqs, one_hot, seq_weights, labels = batch
+            inds, seqs, one_hot, seq_weights, labels = batch
         else:
-            seqs, one_hot, seq_weights = batch
+            inds, seqs, one_hot, seq_weights = batch
         # if self.meminfo:
         #     print("GPU Allocated Training Step Start:", torch.cuda.memory_allocated(0))
 
@@ -1443,21 +1123,6 @@ class pool_CRBM(LightningModule):
                 "cd_loss": cd_loss.detach(),
             }
 
-        # delete tensors not involved in loss calculation
-        # pytorch garbage collection does not catch these
-        del h_neg
-        del h_pos
-
-        # print("GPU Allocated After Forward:", torch.cuda.memory_allocated(0))
-
-        # F_v = (self.free_energy(V_pos_oh) * weights).sum()  # free energy of training data
-        # free_energy = self.free_energy(V_pos_oh)
-        # F_v = (self.free_energy(V_pos_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of training data
-        # # F_vp = (self.free_energy(V_neg_oh) * weights.abs()).sum() # free energy of gibbs sampled visible states
-        # F_vp = (self.free_energy(V_neg_oh) * seq_weights/seq_weights.sum()).sum()  # free energy of gibbs sampled visible states
-        # free_energy_diff = F_v - F_vp
-        # # cd_loss = (free_energy_diff/torch.abs(free_energy_diff)) * torch.log(torch.abs(free_energy_diff) + 10)
-        # cd_loss = free_energy_diff
 
         if self.use_pearson:
             if self.pearson_xvar == "values":
@@ -1514,13 +1179,13 @@ class pool_CRBM(LightningModule):
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
         if self.pearson_xvar == "labels" and self.additional_data:
-            seqs, one_hot, seq_weights, labels, additional_data = batch
+            inds, seqs, one_hot, seq_weights, labels, additional_data = batch
         if self.pearson_xvar == "labels":
-            seqs, one_hot, seq_weights, labels = batch
+            inds, seqs, one_hot, seq_weights, labels = batch
         if self.additional_data:
-            seqs, one_hot, seq_weights, additional_data = batch
+            inds, seqs, one_hot, seq_weights, additional_data = batch
         else:
-            seqs, one_hot, seq_weights = batch
+            inds, seqs, one_hot, seq_weights = batch
 
         if self.current_epoch == 0 and batch_idx == 0:
             self.chain = [one_hot.detach()]
@@ -1581,7 +1246,6 @@ class pool_CRBM(LightningModule):
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return logs
-
 
     def forward_PCD(self, batch_idx):
         # Gibbs sampling with Persistent Contrastive Divergence
@@ -1649,7 +1313,7 @@ class pool_CRBM(LightningModule):
         with torch.no_grad():
             likelihood = []
             for i, batch in enumerate(data_loader):
-                seqs, one_hot, seq_weights = batch
+                inds, seqs, one_hot, seq_weights = batch
                 likelihood += self.likelihood(one_hot).detach().tolist()
 
         return X.sequence.tolist(), likelihood
@@ -1668,7 +1332,7 @@ class pool_CRBM(LightningModule):
         saliency_maps = []
         self.eval()
         for i, batch in enumerate(data_loader):
-            seqs, one_hot, seq_weights = batch
+            inds, seqs, one_hot, seq_weights = batch
             one_hot_v = Variable(one_hot.type(torch.get_default_dtype()), requires_grad=True)
             V_neg, h_neg, V_pos, h_pos = self(one_hot_v)
             weights = seq_weights
@@ -1702,24 +1366,6 @@ class pool_CRBM(LightningModule):
             for iid, i in enumerate(self.hidden_convolution_keys):
                 W = getattr(self, f"{i}_W")
                 W[:, :, :, -1].fill_(fill)
-
-    # disabled until I figure out pseudo likelihood function
-    # def predict_psuedo(self, X):
-    #     reader = RBMCaterogical(X, weights=None, max_length=self.v_num, base_to_id=self.molecule, device=self.device)
-    #     data_loader = torch.utils.data.DataLoader(
-    #         reader,
-    #         batch_size=self.batch_size,
-    #         num_workers=self.worker_num,  # Set to 0 if debug = True
-    #         pin_memory=self.pin_mem,
-    #         shuffle=False
-    #     )
-    #     with torch.no_grad():
-    #         likelihood = []
-    #         for i, batch in enumerate(data_loader):
-    #             seqs, one_hot, seq_weights = batch
-    #             likelihood += self.pseudo_likelihood(one_hot).detach().tolist()
-    #
-    #     return X.sequence.tolist(), likelihood
 
     # Return param as a numpy array
     def get_param(self, param_name):

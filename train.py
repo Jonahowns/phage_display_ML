@@ -15,6 +15,7 @@ from rbm_torch.models.rbm_experimental import ExpRBM
 from rbm_torch.models.pool_crbm import pool_CRBM
 from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
 from rbm_torch.models.variational_pool_crbm import variational_pcrbm
+from rbm_torch.models.variational_pool_crbm import vr_pcrbm, hybrid_pcrbm
 from rbm_torch.models.composition_crbm import comp_CRBM
 
 from rbm_torch.utils.utils import load_run_file
@@ -65,6 +66,10 @@ if __name__ == '__main__':
         model = pool_class_CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "variational_pool_crbm":
         model = variational_pcrbm(config, debug=debug_flag, precision=config["precision"])
+    elif model_type == "vr_pcrbm":
+        model = vr_pcrbm(config, debug=debug_flag, precision=config["precision"])
+    elif model_type == "hybrid_pcrbm":
+        model = hybrid_pcrbm(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "comp_crbm":
         model = comp_CRBM(config, debug=debug_flag, precision=config["precision"])
     else:
