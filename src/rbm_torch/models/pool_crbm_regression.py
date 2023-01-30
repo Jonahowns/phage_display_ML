@@ -17,7 +17,7 @@ from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
 from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
-from rbm_torch.models.pool_crbm import pool_CRBM
+from rbm_torch.models.pool_crbm_base import pool_CRBM
 
 from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
 
@@ -86,14 +86,14 @@ class PredictorNet(nn.Module):
         x_feature = x_feature.reshape(batch_size*num_samples, -1) # (shape: (batch_size*num_samples, hidden_dim))
         y = y.reshape(batch_size*num_samples, -1) # (shape: (batch_size*num_samples, 1))
 
-        y_feature = F.relu(self.fc1_y(y)) # (shape: (batch_size*num_samples, hidden_dim))
+        y_feature = F.tanh(self.fc1_y(y)) # (shape: (batch_size*num_samples, hidden_dim))
         # y_feature = F.relu(self.fc2_y(y_feature)) # (shape: (batch_size*num_samples, hidden_dim))
 
         xy_feature = torch.cat([x_feature, y_feature], 1) # (shape: (batch_size*num_samples, 2*hidden_dim))
 
-        xy_feature = F.relu(self.fc1_xy(xy_feature)) # (shape: (batch_size*num_samples, hidden_dim))
+        xy_feature = F.tanh(self.fc1_xy(xy_feature)) # (shape: (batch_size*num_samples, hidden_dim))
         # xy_feature = F.relu(self.fc2_xy(xy_feature)) + xy_feature # (shape: (batch_size*num_samples, hidden_dim))
-        score = F.relu(self.fc2_xy(xy_feature)) # (shape: (batch_size*num_samples, hidden_dim))
+        score = F.tanh(self.fc2_xy(xy_feature)) # (shape: (batch_size*num_samples, hidden_dim))
         # score = self.fc3_xy(xy_feature) # (shape: (batch_size*num_samples, 1))
 
         score = score.view(batch_size, num_samples) # (shape: (batch_size, num_samples))
@@ -110,7 +110,7 @@ class FeatureNet(nn.Module):
         for key in self.pcrbm.hidden_convolution_keys:
             self.hidden_dim += self.pcrbm.convolution_topology[key]["number"]
 
-        self.batchnorm = nn.BatchNorm1d(self.hidden_dim, affine=False)
+        self.batch_norm = nn.BatchNorm1d(self.hidden_dim, affine=False)
 
     def logpartition_h_ind(self, inputs, beta=1):
         # Input is list of matrices I_uk
@@ -138,15 +138,15 @@ class FeatureNet(nn.Module):
     def forward(self, x):
         # (x has shape (batch_size, v_num, q))
 
-        x_out = self.pcrbm.compute_output_v(x)
+        # x_feature = self.pcrbm.free_energy(x)
         # hidden = self.pcrbm.sample_from_inputs_h(x_out)
-        # hidden = self.logpartition_h_ind(x_out)
+        free_energy_ind = self.pcrbm.energy_v(x).unsqueeze(1) - self.logpartition_h_ind(self.pcrbm.compute_output_v(x))
 
-        x_feature = torch.cat(x_out, 1)
+        # x_feature = torch.cat(crbm_energy, 1)
         # x_feature = self.batchnorm(hidden/self.hidden_dim)
         # x_feature = hidden/self.hidden_dim
 
-        return x_feature
+        return self.batch_norm(free_energy_ind)
 
 
 class RegressionNet(LightningModule):
@@ -184,11 +184,14 @@ class RegressionNet(LightningModule):
         return self.feature_net.pcrbm.setup()
 
     def training_step(self, batch, batch_idx):
-        seq, one_hot, seq_weights = batch
+        inds, seq, one_hot, seq_weights = batch
         xs = one_hot # (shape: (batch_size, 1))
         ys = seq_weights.unsqueeze(1).to(torch.get_default_dtype())  # (shape: (batch_size, 1))
 
         x_features = self.feature_net(xs)  # (shape: (batch_size, hidden_dim))
+        # if self.current_epoch < 50:
+        #     x_features = x_features.detach()
+
         means, log_sigma2s, weights = self.noise_net(x_features.detach())  # (all have shape: (batch_size, K))
         sigmas = torch.exp(log_sigma2s / 2.0)  # (shape: (batch_size, K))
 
@@ -232,12 +235,12 @@ class RegressionNet(LightningModule):
         loss = loss_ebm_nce + loss_mdn_nll
 
         self.log("loss_nce", loss_ebm_nce.detach(), prog_bar=True, on_epoch=True)
-        # self.log("loss_kl", loss_mdn_kl.detach(), prog_bar=True, on_epoch=True)
+        self.log("loss_kl", loss_mdn_kl.detach(), prog_bar=True, on_epoch=True)
         self.log("loss_nll", loss_mdn_nll.detach(), prog_bar=True, on_epoch=True)
         return loss
 
     def predict_y(self, x):
-        y_samples = torch.linspace(0.0, 1.0, self.sample_num, device=self.device)
+        y_samples = torch.linspace(0.0, 1.01, self.sample_num, device=self.device)
 
         x_features = self.feature_net(x)
         scores = self.predictor_net(x_features, y_samples.expand(x.shape[0], -1))  # (shape: (batch_size, num_samples))
@@ -250,7 +253,7 @@ class RegressionNet(LightningModule):
         return pred
 
     def validation_step(self, batch, batch_idx):
-        seqs, one_hot, seq_weights = batch
+        inds, seqs, one_hot, seq_weights = batch
 
         x = one_hot  # (shape: (batch_size, 1))
 
@@ -266,7 +269,6 @@ class RegressionNet(LightningModule):
 
     def configure_optimizers(self):
         optim = self.feature_net.pcrbm.optimizer(self.parameters(), lr=self.feature_net.pcrbm.lr, weight_decay=self.feature_net.pcrbm.wd)
-
         # Exponential Weight Decay after set amount of epochs (set by decay_after)
         decay_gamma = (self.feature_net.pcrbm.lrf / self.feature_net.pcrbm.lr) ** (1 / (self.feature_net.pcrbm.epochs * (1 - self.feature_net.pcrbm.decay_after)))
         decay_milestone = math.floor(self.feature_net.pcrbm.decay_after * self.feature_net.pcrbm.epochs)
@@ -292,7 +294,7 @@ if __name__ == "__main__":
     run_file = run_file_dir + "example_pool_crbm_regression.json"
 
     run_data, config = load_run_file(run_file)
-    config["fasta_file"] = "/home/jonah/PycharmProjects/phage_display_ML/datasets/cov/late_5gmax.fasta"
+    config["fasta_file"] = "/home/jonah/PycharmProjects/phage_display_ML/regression_model_comparison/cov/cov_z_full_norm.fasta"
 
     debug = False
     model = RegressionNet(config, debug=debug, precision="single")

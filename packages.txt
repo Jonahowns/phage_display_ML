@@ -26,6 +26,7 @@ torchsort # spearman calc
 // bokeh # interactive plots
 tmap
 tmap-viz
+ViennaRNA
 
 
 Hyperparameter libraies

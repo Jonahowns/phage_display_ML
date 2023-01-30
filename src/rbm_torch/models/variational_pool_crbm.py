@@ -364,17 +364,56 @@ class hybrid_pcrbm(pool_CRBM):
         self.feature_num = self.v_num - 7 + 1
         self.node_size = h_flat_size
 
-        self.node_conv_net = nn.Sequential(
-            nn.BatchNorm1d(self.node_size),
-            nn.ReLU())
+        # self.automatic_optimization = False
 
-        self.adjacency_net = nn.Sequential(*self.make_adj_net(depth=self.adj_depth))
+        # self.node_conv_net = nn.Sequential(
+        #     # nn.BatchNorm1d(self.node_size),
+        #     nn.ReLU())
 
-        self.predictor_net = nn.Sequential(*self.make_predictor_net(self.latent_dim, depth=self.predictor_depth))
+        # self.adjacency_net = nn.Sequential(*self.make_adj_net(depth=self.adj_depth))
+        #
+        # self.predictor_net = nn.Sequential(*self.make_predictor_net(self.latent_dim, depth=self.predictor_depth))
         # self.regression_loss = nn.MSELoss()
 
+        self.cnn = torch.nn.Sequential(
+            nn.ReLU(),
+            nn.Conv1d(1, 512, kernel_size=(20,), stride=(1,), padding=0),
+            nn.GELU(),
+            nn.BatchNorm1d(512),
+            nn.Conv1d(512, 256, kernel_size=(20,), stride=(1,), padding=0),
+            nn.GELU(),
+            nn.BatchNorm1d(256),
+            nn.Conv1d(256, 128, kernel_size=(10,), stride=(1,), padding=0),
+            nn.GELU(),
+            nn.BatchNorm1d(128),
+            nn.Conv1d(128, 64, kernel_size=(10,), stride=(1,), padding=0),
+            nn.GELU(),
+        )
+        self.cnn_lin = torch.nn.Sequential(
+            nn.BatchNorm1d(64*44),
+            nn.Linear(64*44, 512),
+            nn.GELU(),
+            nn.BatchNorm1d(512),
+            nn.Linear(512, 256),
+            nn.GELU(),
+            nn.BatchNorm1d(256),
+            nn.Linear(256, 128),
+            nn.GELU(),
+            nn.BatchNorm1d(128),
+            nn.Linear(128, 64),
+            nn.GELU(),
+            nn.BatchNorm1d(64),
+            nn.Linear(64, 32),
+            nn.GELU(),
+            nn.BatchNorm1d(32),
+            nn.Linear(32, 16),
+            nn.GELU(),
+            nn.BatchNorm1d(16),
+            nn.Linear(16, 1)
+        )
+
         # GCN Components
-        self.c1 = GATv2Conv(-1, self.latent_dim)
+        # self.c1 = GATv2Conv(-1, self.latent_dim)
         # self.c1 = GATv2Conv(-1, 3 * self.latent_dim)
         # self.c2 = GATv2Conv(3 * self.latent_dim, 2 * self.latent_dim)
         # self.c3 = GATv2Conv(2 * self.latent_dim, self.latent_dim)
@@ -382,7 +421,7 @@ class hybrid_pcrbm(pool_CRBM):
         # self.c5 = GATv2Conv(self.latent_dim, self.latent_dim)
         # self.c6 = GATv2Conv(self.latent_dim, self.latent_dim)
 
-        self.bn_c1 = torch.nn.BatchNorm1d(self.latent_dim)
+        # self.bn_c1 = torch.nn.BatchNorm1d(self.latent_dim)
         # self.bn_c1 = torch.nn.BatchNorm1d(3 * self.latent_dim)
         # self.bn_c2 = torch.nn.BatchNorm1d(2 * self.latent_dim)
         # self.bn_c3 = torch.nn.BatchNorm1d(self.latent_dim)
@@ -391,7 +430,7 @@ class hybrid_pcrbm(pool_CRBM):
         # self.bn_c6 = torch.nn.BatchNorm1d(self.latent_dim)
 
         # self.aggregator = tg.nn.PowerMeanAggregation(1.0, learn=False)
-        self.aggregator = tg.nn.MeanAggregation()
+        # self.aggregator = tg.nn.MeanAggregation()
 
         # self.predict_net = nn.Sequential(
         #     nn.Linear(self.node_size, self.node_size // 2),
@@ -401,11 +440,11 @@ class hybrid_pcrbm(pool_CRBM):
         #     nn.Linear(self.node_size // 2, 1)
         # )
 
-        self.combined_embedding_net = nn.Sequential(
-            nn.Linear(int(self.node_size*(self.node_size-1)/2), self.node_size),
-            nn.BatchNorm1d(self.node_size),
-            nn.ReLU()
-        )
+        # self.combined_embedding_net = nn.Sequential(
+        #     nn.Linear(int(self.node_size*(self.node_size-1)/2), self.node_size),
+        #     # nn.BatchNorm1d(self.node_size),
+        #     nn.ReLU()
+        # )
 
         self.save_hyperparameters()
 
@@ -428,7 +467,7 @@ class hybrid_pcrbm(pool_CRBM):
         x = self.c1(combined_embedding, edges)
         x = F.leaky_relu(x)
         x = F.dropout(x)
-        x = self.bn_c1(x)
+        # x = self.bn_c1(x)
 
         x = self.aggregator(x, torch.arange(0, nodes.shape[0], 1 / (self.node_size), device=self.device).long())
 
@@ -455,18 +494,25 @@ class hybrid_pcrbm(pool_CRBM):
 
         vneg, hneg, vpos, hpos = self(one_hot)
 
-        reconstruction_error = 1 - (one_hot.argmax(-1) == vneg.argmax(-1)).double().mean(-1)
-        cd_weights = reconstruction_error  # * seq_weights
+        # reconstruction_error = 1 - (one_hot.argmax(-1) == vneg.argmax(-1)).double().mean(-1)
+        # cd_weights = reconstruction_error  # * seq_weights
 
-        F_v = (self.free_energy(one_hot) * cd_weights / cd_weights.sum()).sum()  # free energy of training data
-        F_vp = (self.free_energy(vneg) * cd_weights / cd_weights.sum()).sum()  # free energy of gibbs sampled visible states
+        F_v = (self.free_energy(one_hot)).sum()  # free energy of training data
+        F_vp = (self.free_energy(vneg)).sum()  # free energy of gibbs sampled visible states
         free_energy_diff = F_v - F_vp
-        cd_loss = free_energy_diff / free_energy_diff.abs()
+        cd_loss = free_energy_diff  #/ free_energy_diff.abs()
 
-        gcn_preds = self.gcn_forward(one_hot)
+        # gcn_preds = self.gcn_forward(one_hot)
+        x = self.compute_output_v(one_hot)
+        x = torch.concat(x, dim=1)
+        zero = torch.zeros_like(x, device=self.device)
+        abs_x = torch.maximum(x, zero) + torch.minimum(x, zero).abs()
+        conv_out = self.cnn(abs_x.unsqueeze(1))
 
-        adj_start_epoch = 20
-        y_steps = 100
+        gcn_preds = self.cnn_lin(conv_out.flatten(1))
+
+        adj_start_epoch = 100
+        y_steps = 150
         if self.sample_stds is not None and self.current_epoch >= adj_start_epoch:
             if self.current_epoch == adj_start_epoch:
                 if batch_idx == 0:
@@ -475,7 +521,7 @@ class hybrid_pcrbm(pool_CRBM):
             else:
                 current_y = self.ystar[inds]
 
-            ys = self.adjust_labels(gcn_preds, current_y, seq_weights, stds, steps=y_steps)
+            ys = self.adjust_labels(gcn_preds, current_y, seq_weights, stds, steps=y_steps, stds_allowed=2.0)
             if True in torch.isnan(ys):
                 print("Label Adjustment Produced Nan")
                 exit(1)
@@ -488,9 +534,13 @@ class hybrid_pcrbm(pool_CRBM):
 
         gcn_mse = self.mse_loss(gcn_preds, ys)
         gcn_robust = self.robust_loss(gcn_preds, ys, -1, 2 * stds)
-        gcn_mae = (gcn_preds - ys).abs().mean()
+        gcn_mae = (gcn_preds - ys).abs().mean() #+ self.current_epoch/self.epochs
 
-        loss = gcn_mae + cd_loss + reg1 + reg2 + reg3 + bs_loss
+        loss = gcn_mae + 0.1*cd_loss + reg1 + reg2 + reg3 + bs_loss
+
+        # opt = self.optimizers()
+        # opt.step(None, loss_array=[gcn_mae, cd_loss], ranks=[1, 1], feature_map=None)
+        # opt.zero_grad()
 
         # loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss - std_dev_h + regression_loss*1000 + elbo
         # loss = regression_loss + elbo + cd_loss + reg1 + reg2 + bs_loss
@@ -501,6 +551,7 @@ class hybrid_pcrbm(pool_CRBM):
                 "train_gcn_mae": gcn_mae.detach(),
                 "train_gcn_robust": gcn_robust.detach(),
                 "diff_y_l2": diff_y_l2.detach(),
+                "cd_loss": cd_loss.detach(),
                 **reg_dict
                 }
 
@@ -530,7 +581,13 @@ class hybrid_pcrbm(pool_CRBM):
         free_energy_diff = F_v - F_vp
         cd_loss = free_energy_diff / free_energy_diff.abs()
 
-        gcn_preds = self.gcn_forward(one_hot)
+        x = self.compute_output_v(one_hot)
+        x = torch.concat(x, dim=1)
+        zero = torch.zeros_like(x, device=self.device)
+        abs_x = torch.maximum(x, zero) + torch.minimum(x, zero).abs()
+        conv_out = self.cnn(abs_x.unsqueeze(1))
+
+        gcn_preds = self.cnn_lin(conv_out.flatten(1))
 
         gcn_mse = self.mse_loss(gcn_preds, seq_weights)
         gcn_mae = (gcn_preds - seq_weights).abs().mean()
@@ -538,7 +595,7 @@ class hybrid_pcrbm(pool_CRBM):
 
         loss = gcn_mae + cd_loss + reg1 + reg2 + reg3 + bs_loss
 
-        logs = {"loss": loss,
+        logs = {"loss": [gcn_mae, cd_loss],
                 "val_free_energy": F_v.detach(),
                 "val_gcn_mse": gcn_mse.detach(),
                 "val_gcn_mae": gcn_mae.detach(),
@@ -569,7 +626,7 @@ class hybrid_pcrbm(pool_CRBM):
         for i in range(depth - 1):
             network.append(nn.Dropout(self.dr))
             network.append(nn.Linear(fcn_size[i], fcn_size[i + 1], dtype=torch.get_default_dtype()))
-            network.append(nn.BatchNorm1d(fcn_size[i + 1]))
+            # network.append(nn.BatchNorm1d(fcn_size[i + 1]))
             network.append(nn.LeakyReLU())
 
         network.append(nn.Dropout(self.dr))
@@ -614,20 +671,22 @@ class hybrid_pcrbm(pool_CRBM):
 
         return global_edges.T.long()
 
-    def adjust_labels(self, preds, current_labels, original_labels, stds, steps=2, lr=0.1):
+    def adjust_labels(self, preds, current_labels, original_labels, stds, steps=2, lr=0.1, stds_allowed=1.):
         ystar = torch.nn.Parameter(current_labels.detach().clone())
         p = preds.detach().clone()
         ol = original_labels.detach().clone()
         cl = current_labels.detach().clone()
 
-        max_dev = ol + stds
-        min_dev = ol - stds
+        adj_stds = stds*stds_allowed
+
+        max_dev = ol + adj_stds
+        min_dev = ol - adj_stds
 
         optimizer = torch.optim.SGD(lr=lr, params=[ystar])
         loss = p - ystar
         for _ in range(steps):
-            likeli = 1 / stds * math.sqrt(2 * math.pi) * torch.exp(-torch.pow((ystar - cl) / (2 * stds), 2)) * (1 + torch.erf(loss * (ystar - cl) / (stds * math.sqrt(2))))
-            log_likeli = torch.log(likeli) * stds
+            likeli = 1 / adj_stds * math.sqrt(2 * math.pi) * torch.exp(-torch.pow((ystar - cl) / (2 * adj_stds), 2)) * (1 + torch.erf(loss * (ystar - cl) / (adj_stds * math.sqrt(2))))
+            log_likeli = torch.log(likeli) * adj_stds
             nll_loss = -log_likeli.mean()
             optimizer.zero_grad()
             nll_loss.backward()

@@ -167,20 +167,18 @@ class Base(LightningModule):
 
         # else:
         #     all_data["label"] = 0.
-
-
         train_sets, val_sets, test_sets = [], [], []
         for i in range(self.label_groups):
             label_df = all_data[all_data["label"] == i]
             if self.test_size > 0.:
                 # Split label df into train and test sets, taking into account duplicates
-                train_inds, test_inds = next(GroupShuffleSplit(test_size=self.test_size, n_splits=1, random_state=self.seed).split(label_df, groups=label_df['sequence']))
+                not_test_inds, test_inds = next(GroupShuffleSplit(test_size=self.test_size, n_splits=1, random_state=self.seed).split(label_df, groups=label_df['sequence']))
                 test_sets += label_df.index[test_inds].to_list()
 
                 # Further split training set into train and test set
-                train_inds, val_inds = next(GroupShuffleSplit(test_size=self.validation_size, n_splits=1, random_state=self.seed).split(label_df[train_inds], groups=label_df['sequence']))
-                train_sets += label_df.index[train_inds].to_list()
-                val_sets += label_df.index[val_inds].to_list()
+                train_inds, val_inds = next(GroupShuffleSplit(test_size=self.validation_size, n_splits=1, random_state=self.seed).split(label_df.iloc[not_test_inds], groups=label_df.iloc[not_test_inds]['sequence']))
+                train_sets += label_df.iloc[not_test_inds].index[train_inds].to_list()
+                val_sets += label_df.iloc[not_test_inds].index[val_inds].to_list()
 
             else:
                 # Split label df into train and validation sets, taking into account duplicates

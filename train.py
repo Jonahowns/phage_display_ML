@@ -12,7 +12,7 @@ from rbm_torch.models.crbm import CRBM
 from rbm_torch.models.crbm_experimental import ExpCRBM, pCRBM
 from rbm_torch.models.crbm_net import CRBM_net
 from rbm_torch.models.rbm_experimental import ExpRBM
-from rbm_torch.models.pool_crbm import pool_CRBM
+from rbm_torch.models.pool_crbm_base import pool_CRBM
 from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
 from rbm_torch.models.variational_pool_crbm import variational_pcrbm
 from rbm_torch.models.variational_pool_crbm import vr_pcrbm, hybrid_pcrbm
