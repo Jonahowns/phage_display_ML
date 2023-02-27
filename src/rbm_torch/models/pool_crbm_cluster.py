@@ -1,28 +1,10 @@
-import time
-import pandas as pd
-import math
-import json
-import numpy as np
-from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
-from pytorch_lightning.loggers import TensorBoardLogger
-from sklearn.model_selection import train_test_split, GroupShuffleSplit
+from pool_crbm_base import pool_CRBM
+from base import Base
 
-import os
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
-from multiprocessing import cpu_count # Just to set the worker number
-from torch.autograd import Variable
 
-from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D, label_samples, process_weights, configure_optimizer, StratifiedBatchSampler, WeightedSubsetRandomSampler  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
-from rbm_torch.utils.data_prep import weight_transform, pearson_transform
-from torch.utils.data import WeightedRandomSampler
-from rbm_torch.models.base import Base
 
-class pool_CRBM(Base):
-    def __init__(self, config, debug=False, precision="double", meminfo=False):
+class pcrbm_cluster(Base):
+    def __init__(self):
         super().__init__(config, debug=debug, precision=precision)
 
         self.mc_moves = config['mc_moves']  # Number of MC samples to take to update hidden and visible configurations
@@ -85,7 +67,7 @@ class pool_CRBM(Base):
         self.use_pearson = config["use_pearson"]
         self.pearson_xvar = "none"
         if self.use_pearson:
-            self.pearson_xvar = config["pearson_xvar"] # label or fitness_value
+            self.pearson_xvar = config["pearson_xvar"]  # label or fitness_value
 
             assert self.pearson_xvar in ["values", "labels"]
 
@@ -93,7 +75,7 @@ class pool_CRBM(Base):
         try:
             self.group_fraction = config["group_fraction"]
         except KeyError:
-            self.group_fraction = [1/self.label_groups for i in self.label_groups]
+            self.group_fraction = [1 / self.label_groups for i in self.label_groups]
 
         if self.sampling_strategy == "polar":
             assert self.batch_size % 2 == 0
@@ -138,18 +120,27 @@ class pool_CRBM(Base):
                 setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
 
             # Convolution Weights
-            self.register_parameter(f"{key}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device)))
+            self.register_parameter(f"{key}_W", nn.Parameter(
+                self.weight_initial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"],
+                                                            device=self.device)))
             # hidden layer parameters
             self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
             self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
             self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
             self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
             # Used in PT Sampling / AIS
-            self.register_parameter(f"{key}_0theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            self.register_parameter(f"{key}_0theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-
+            self.register_parameter(f"{key}_0theta+",
+                                    nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device),
+                                                 requires_grad=False))
+            self.register_parameter(f"{key}_0theta-",
+                                    nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device),
+                                                 requires_grad=False))
+            self.register_parameter(f"{key}_0gamma+",
+                                    nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device),
+                                                 requires_grad=False))
+            self.register_parameter(f"{key}_0gamma-",
+                                    nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device),
+                                                 requires_grad=False))
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i. e. Simplifies loading a model that has already been run
@@ -175,9 +166,11 @@ class pool_CRBM(Base):
 
         self.meminfo = meminfo
 
+
     @property
     def h_layer_num(self):
         return len(self.hidden_convolution_keys)
+
 
     # Initializes Members for both PT and gen_data functions
     def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
@@ -500,7 +493,8 @@ class pool_CRBM(Base):
             if True in torch.isnan(out):
                 print("hi")
 
-        return outputs
+        # flatten list to tensor
+        return torch.cat(outputs, dim=1)
 
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h(self, h):  # from h_uk (B, hidden_num)
@@ -509,6 +503,7 @@ class pool_CRBM(Base):
         # hidden_layer_W = getattr(self, "hidden_layer_W")
         # total_weights = hidden_layer_W.sum()
         for iid, i in enumerate(self.hidden_convolution_keys):
+            size = self.convolution_topology[i]["number"]
 
             # zero = torch.zeros_like(h[iid], device=self.device)
             # h_pos = torch.maximum(h[iid], zero)
@@ -564,6 +559,7 @@ class pool_CRBM(Base):
 
     ## Gibbs Sampling of dReLU hidden layer
     def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [input]
+
         h_uks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
             if beta == 1:
@@ -1778,3 +1774,8 @@ class pool_CRBM(Base):
                 data[1] = data[1]
 
             return data
+
+
+
+
+
