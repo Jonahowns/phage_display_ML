@@ -27,8 +27,9 @@ class Base(LightningModule):
     def __init__(self, config, debug=False, precision="double"):
         super().__init__()
 
-        self.itlm_alpha = config["alpha"]
-        self.sample_stds = config["sample_stds"]
+        # REMOVE THESE
+        self.itlm_alpha = 0.0
+        self.sample_stds = None
 
         # Pytorch Basic Options #
         ################################
@@ -210,8 +211,6 @@ class Base(LightningModule):
         decay_gamma = (self.lrf / self.lr) ** (1 / (self.epochs * (1 - self.decay_after)))
         decay_milestone = math.floor(self.decay_after * self.epochs)
         my_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optim, milestones=[decay_milestone], gamma=decay_gamma)
-        # my_lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optim, T_max=10)
-        # my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decay_gamma)
         optim_dict = {"lr_scheduler": my_lr_scheduler,
                       "optimizer": optim}
         return optim_dict

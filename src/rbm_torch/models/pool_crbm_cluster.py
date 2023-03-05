@@ -1,10 +1,19 @@
-from pool_crbm_base import pool_CRBM
-from base import Base
+import time
+import math
+import numpy as np
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
+
+from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D, label_samples, process_weights, configure_optimizer, StratifiedBatchSampler, WeightedSubsetRandomSampler  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
+from torch.utils.data import WeightedRandomSampler
+from rbm_torch.models.base import Base
 
 
 class pcrbm_cluster(Base):
-    def __init__(self):
+    def __init__(self, config, debug=False, precision="single"):
         super().__init__(config, debug=debug, precision=precision)
 
         self.mc_moves = config['mc_moves']  # Number of MC samples to take to update hidden and visible configurations
@@ -63,6 +72,18 @@ class pcrbm_cluster(Base):
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
 
+        # duplicate convolution keys and convolution topology
+        self.clusters = config["clusters"]
+        cluster_convolution_topology = {}
+        for i in range(self.clusters):
+            cluster_convolution_topology[i] = {f"{k}_c{i}": v for k, v in self.convolution_topology.items()}
+
+        self.convolution_topology = cluster_convolution_topology
+        self.hidden_convolution_keys = [[x+f"_c{i}" for x in self.hidden_convolution_keys] for i in range(self.clusters)]
+
+        self.max_inds = [[] for i in range(self.clusters)]
+
+
         # Should get rid of pearson crap soon
         self.use_pearson = config["use_pearson"]
         self.pearson_xvar = "none"
@@ -98,49 +119,41 @@ class pcrbm_cluster(Base):
         self.pools = []
         self.unpools = []
 
-        for key in self.hidden_convolution_keys:
-            # Set information about the convolutions that will be useful
-            dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[key])
-            self.convolution_topology[key]["weight_dims"] = dims["weight_shape"]
-            self.convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
-            self.convolution_topology[key]["output_padding"] = dims["output_padding"]
+        for cid, cluster in enumerate(self.hidden_convolution_keys):
+            cluster_pools = []
+            cluster_unpools = []
+            for key in cluster:
+                # Set information about the convolutions that will be useful
+                dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[cid][key])
+                self.convolution_topology[cid][key]["weight_dims"] = dims["weight_shape"]
+                self.convolution_topology[cid][key]["convolution_dims"] = dims["conv_shape"]
+                self.convolution_topology[cid][key]["output_padding"] = dims["output_padding"]
 
-            # deal with pool and unpool initialization
-            pool_input_size = dims["conv_shape"][:-1]
+                # deal with pool and unpool initialization
+                pool_input_size = dims["conv_shape"][:-1]
 
-            pool_kernel = pool_input_size[2]
-            pool_stride = 1
-            pool_padding = 0
+                pool_kernel = pool_input_size[2]
+                pool_stride = 1
+                pool_padding = 0
 
-            self.pools.append(nn.MaxPool1d(pool_kernel, stride=pool_stride, return_indices=True, padding=pool_padding))
-            self.unpools.append(nn.MaxUnpool1d(pool_kernel, stride=pool_stride, padding=pool_padding))
+                cluster_pools.append(nn.MaxPool1d(pool_kernel, stride=pool_stride, return_indices=True, padding=pool_padding))
+                cluster_unpools.append(nn.MaxUnpool1d(pool_kernel, stride=pool_stride, padding=pool_padding))
 
-            if self.use_batch_norm:
-                setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
-                setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
+                # Convolution Weights
+                self.register_parameter(f"{key}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.convolution_topology[cid][key]["weight_dims"], device=self.device)))
+                # hidden layer parameters
+                self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device)))
+                self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device)))
+                self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device)))
+                self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device)))
+                # Used in PT Sampling / AIS
+                self.register_parameter(f"{key}_0theta+", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
+                self.register_parameter(f"{key}_0theta-", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
+                self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
+                self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
 
-            # Convolution Weights
-            self.register_parameter(f"{key}_W", nn.Parameter(
-                self.weight_initial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"],
-                                                            device=self.device)))
-            # hidden layer parameters
-            self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
-            self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
-            self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
-            self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
-            # Used in PT Sampling / AIS
-            self.register_parameter(f"{key}_0theta+",
-                                    nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device),
-                                                 requires_grad=False))
-            self.register_parameter(f"{key}_0theta-",
-                                    nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device),
-                                                 requires_grad=False))
-            self.register_parameter(f"{key}_0gamma+",
-                                    nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device),
-                                                 requires_grad=False))
-            self.register_parameter(f"{key}_0gamma-",
-                                    nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device),
-                                                 requires_grad=False))
+            self.pools.append(cluster_pools)
+            self.unpools.append(cluster_unpools)
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i. e. Simplifies loading a model that has already been run
@@ -164,7 +177,7 @@ class pcrbm_cluster(Base):
                 exit(-1)
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
-        self.meminfo = meminfo
+        self.meminfo = False
 
 
     @property
@@ -198,59 +211,64 @@ class pcrbm_cluster(Base):
         # self.update_betas_lr = 0.1
         # self.update_betas_lr_decay = 1
 
+    def free_energy_cluster(self, v, cluster_indx):
+        return self.energy_v(v) - self.logpartition_h_cluster(self.compute_output_v_cluster(v, cluster_indx), cluster_indx)
+
     ## Used in our Loss Function
     def free_energy(self, v):
-        return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
+        # logpart = torch.stack([self.logpartition_h_cluster(v, i) for i in range(self.clusters)], dim=0).sum(0)
+        # visible enrgy  - logpartition over all clusters
+        return self.energy_v(v) - torch.stack([self.logpartition_h_cluster(v, i) for i in range(self.clusters)], dim=0).sum(0)
 
-    ## Not used but may be useful
-    def free_energy_h(self, h):
-        return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
+    # ## Not used but may be useful
+    # def free_energy_h(self, h):
+    #     return self.energy_h(h) - self.logpartition_v(self.compute_output_h(h))
 
     ## Total Energy of a given visible and hidden configuration
-    def energy(self, v, h, remove_init=False, hidden_sub_index=-1):
-        return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, sub_index=hidden_sub_index, remove_init=remove_init) - self.bidirectional_weight_term(v, h, hidden_sub_index=hidden_sub_index)
+    # def energy(self, v, h, remove_init=False, hidden_sub_index=-1):
+    #     return self.energy_v(v, remove_init=remove_init) + self.energy_h(h, sub_index=hidden_sub_index, remove_init=remove_init) - self.bidirectional_weight_term(v, h, hidden_sub_index=hidden_sub_index)
 
-    def energy_PT(self, v, h, N_PT, remove_init=False):
-        # if N_PT is None:
-        #     N_PT = self.N_PT
-        E = torch.zeros((N_PT, v.shape[1]), device=self.device)
-        for i in range(N_PT):
-            E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h, sub_index=i, remove_init=remove_init) - self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
-        return E
+    # def energy_PT(self, v, h, N_PT, remove_init=False):
+    #     # if N_PT is None:
+    #     #     N_PT = self.N_PT
+    #     E = torch.zeros((N_PT, v.shape[1]), device=self.device)
+    #     for i in range(N_PT):
+    #         E[i] = self.energy_v(v[i], remove_init=remove_init) + self.energy_h(h, sub_index=i, remove_init=remove_init) - self.bidirectional_weight_term(v[i], h, hidden_sub_index=i)
+    #     return E
 
-    def bidirectional_weight_term(self, v, h, hidden_sub_index=-1):
-        conv = self.compute_output_v(v)
-        E = torch.zeros((len(self.hidden_convolution_keys), conv[0].shape[0]), device=self.device)
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            if hidden_sub_index != -1:
-                h_uk = h[iid][hidden_sub_index]
-            else:
-                h_uk = h[iid]
-            E[iid] = h_uk.mul(conv[iid]).sum(1)
-
-        if E.shape[0] > 1:
-            return E.sum(0)
-        else:
-            return E.squeeze(0)
+    # def bidirectional_weight_term(self, v, h, hidden_sub_index=-1):
+    #     conv = self.compute_output_v(v)
+    #     E = torch.zeros((len(self.hidden_convolution_keys), conv[0].shape[0]), device=self.device)
+    #     for iid, i in enumerate(self.hidden_convolution_keys):
+    #         if hidden_sub_index != -1:
+    #             h_uk = h[iid][hidden_sub_index]
+    #         else:
+    #             h_uk = h[iid]
+    #         E[iid] = h_uk.mul(conv[iid]).sum(1)
+    #
+    #     if E.shape[0] > 1:
+    #         return E.sum(0)
+    #     else:
+    #         return E.squeeze(0)
 
     ############################################################# Individual Layer Functions
     def transform_v(self, I):
         return F.one_hot(torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1), self.q)
         # return self.one_hot_tmp.scatter(2, torch.argmax(I + getattr(self, "fields").unsqueeze(0), dim=-1).unsqueeze(-1), 1.)
 
-    def transform_h(self, I):
-        output = []
-        for kid, key in enumerate(self.hidden_convolution_keys):
-            a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0).unsqueeze(2)
-            a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0).unsqueeze(2)
-            theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0).unsqueeze(2)
-            theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0).unsqueeze(2)
-            tmp = ((I[kid] + theta_minus) * (I[kid] <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
-                                                                                    theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
-                  a_minus + ((I[kid] - theta_plus) * (I[kid] >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
-                                                                                           theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / a_plus
-            output.append(tmp)
-        return output
+    # def transform_h(self, I):
+    #     output = []
+    #     for kid, key in enumerate(self.hidden_convolution_keys):
+    #         a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0).unsqueeze(2)
+    #         a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0).unsqueeze(2)
+    #         theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0).unsqueeze(2)
+    #         theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0).unsqueeze(2)
+    #         tmp = ((I[kid] + theta_minus) * (I[kid] <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
+    #                                                                                 theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
+    #               a_minus + ((I[kid] - theta_plus) * (I[kid] >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
+    #                                                                                        theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / a_plus
+    #         output.append(tmp)
+    #     return output
 
     ## Computes g(si) term of potential
     def energy_v(self, config, remove_init=False):
@@ -266,14 +284,14 @@ class pcrbm_cluster(Base):
         return E
 
     ## Computes U(h) term of potential
-    def energy_h(self, config, remove_init=False, sub_index=-1):
+    def energy_h_cluster(self, config, cluster_indx, remove_init=False, sub_index=-1):
         # config is list of h_uks
         if sub_index != -1:
-            E = torch.zeros((len(self.hidden_convolution_keys), config[0].shape[1]), device=self.device)
+            E = torch.zeros((len(self.hidden_convolution_keys[cluster_indx]), config[0].shape[1]), device=self.device)
         else:
-            E = torch.zeros((len(self.hidden_convolution_keys), config[0].shape[0]), device=self.device)
+            E = torch.zeros((len(self.hidden_convolution_keys[cluster_indx]), config[0].shape[0]), device=self.device)
 
-        for iid, i in enumerate(self.hidden_convolution_keys):
+        for iid, i in enumerate(self.hidden_convolution_keys[cluster_indx]):
             if remove_init:
                 a_plus = getattr(self, f'{i}_gamma+').sub(getattr(self, f'{i}_0gamma+')).unsqueeze(0)
                 a_minus = getattr(self, f'{i}_gamma-').sub(getattr(self, f'{i}_0gamma-')).unsqueeze(0)
@@ -349,10 +367,11 @@ class pcrbm_cluster(Base):
         return new_config
 
     ## Marginal over hidden units
-    def logpartition_h(self, inputs, beta=1):
-        # Input is list of matrices I_uk
-        marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
-        for iid, i in enumerate(self.hidden_convolution_keys):
+    def logpartition_h_cluster(self, inputs, cluster_indx, beta=1):
+        # Input is list of matrices I_uk for specified cluster
+
+        marginal = torch.zeros((len(self.hidden_convolution_keys[cluster_indx]), inputs[0].shape[0]), device=self.device)
+        for iid, i in enumerate(self.hidden_convolution_keys[cluster_indx]):
             if beta == 1:
                 a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0)
                 a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0)
@@ -381,106 +400,99 @@ class pcrbm_cluster(Base):
             return torch.logsumexp((beta * getattr(self, "fields") + (1 - beta) * getattr(self, "fields0"))[None, :] + beta * inputs, 2).sum(1)
 
     ## Mean of hidden layer specified by hidden_key
-    def mean_h(self, psi, hidden_key=None, beta=1):
-        if hidden_key is None:
-            means = []
-            for kid, key in enumerate(self.hidden_convolution_keys):
-                if beta == 1:
-                    a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
-                    a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
-                    theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
-                    theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
-                else:
-                    theta_plus = (beta * getattr(self, f'{key}_theta+') + (1 - beta) * getattr(self, f'{key}_0theta+')).unsqueeze(0)
-                    theta_minus = (beta * getattr(self, f'{key}_theta-') + (1 - beta) * getattr(self, f'{key}_0theta-')).unsqueeze(0)
-                    a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
-                    a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
-                    psi[kid] *= beta
+    # def mean_h(self, psi, hidden_key=None, beta=1):
+    #     if hidden_key is None:
+    #         means = []
+    #         for kid, key in enumerate(self.hidden_convolution_keys):
+    #             if beta == 1:
+    #                 a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
+    #                 a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
+    #                 theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
+    #                 theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
+    #             else:
+    #                 theta_plus = (beta * getattr(self, f'{key}_theta+') + (1 - beta) * getattr(self, f'{key}_0theta+')).unsqueeze(0)
+    #                 theta_minus = (beta * getattr(self, f'{key}_theta-') + (1 - beta) * getattr(self, f'{key}_0theta-')).unsqueeze(0)
+    #                 a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
+    #                 a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
+    #                 psi[kid] *= beta
+    #
+    #             # if psi[kid].dim() == 3:
+    #             #     a_plus = a_plus.unsqueeze(2)
+    #             #     a_minus = a_minus.unsqueeze(2)
+    #             #     theta_plus = theta_plus.unsqueeze(2)
+    #             #     theta_minus = theta_minus.unsqueeze(2)
+    #
+    #             psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
+    #             psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
+    #
+    #             etg_plus = self.erf_times_gauss(psi_plus)
+    #             etg_minus = self.erf_times_gauss(psi_minus)
+    #
+    #             p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+    #             nans = torch.isnan(p_plus)
+    #             p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+    #             p_minus = 1 - p_plus
+    #
+    #             mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+    #             mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+    #             means.append(mean_pos * p_plus + mean_neg * p_minus)
+    #         return means
+    #     else:
+    #         if beta == 1:
+    #             a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
+    #             a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
+    #             theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
+    #             theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
+    #         else:
+    #             theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
+    #             theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
+    #             a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
+    #             a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
+    #             psi *= beta
+    #
+    #         # if psi.dim() == 3:
+    #         #     a_plus = a_plus.unsqueeze(2)
+    #         #     a_minus = a_minus.unsqueeze(2)
+    #         #     theta_plus = theta_plus.unsqueeze(2)
+    #         #     theta_minus = theta_minus.unsqueeze(2)
+    #
+    #         psi_plus = (psi + theta_plus) / torch.sqrt(a_plus)  #  min pool
+    #         psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)  # max pool
+    #
+    #         etg_plus = self.erf_times_gauss(psi_plus)
+    #         etg_minus = self.erf_times_gauss(psi_minus)
+    #
+    #         p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+    #         nans = torch.isnan(p_plus)
+    #         p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+    #         p_minus = 1 - p_plus
+    #
+    #         mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+    #         mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+    #         return mean_pos * p_plus + mean_neg * p_minus
 
-                # if psi[kid].dim() == 3:
-                #     a_plus = a_plus.unsqueeze(2)
-                #     a_minus = a_minus.unsqueeze(2)
-                #     theta_plus = theta_plus.unsqueeze(2)
-                #     theta_minus = theta_minus.unsqueeze(2)
 
-                psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
-                psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
-
-                etg_plus = self.erf_times_gauss(psi_plus)
-                etg_minus = self.erf_times_gauss(psi_minus)
-
-                p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-                nans = torch.isnan(p_plus)
-                p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-                p_minus = 1 - p_plus
-
-                mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-                mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-                means.append(mean_pos * p_plus + mean_neg * p_minus)
-            return means
-        else:
-            if beta == 1:
-                a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
-                a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
-                theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
-                theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
-            else:
-                theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
-                theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
-                a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
-                a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
-                psi *= beta
-
-            # if psi.dim() == 3:
-            #     a_plus = a_plus.unsqueeze(2)
-            #     a_minus = a_minus.unsqueeze(2)
-            #     theta_plus = theta_plus.unsqueeze(2)
-            #     theta_minus = theta_minus.unsqueeze(2)
-
-            psi_plus = (psi + theta_plus) / torch.sqrt(a_plus)  #  min pool
-            psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)  # max pool
-
-            etg_plus = self.erf_times_gauss(psi_plus)
-            etg_minus = self.erf_times_gauss(psi_minus)
-
-            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-            nans = torch.isnan(p_plus)
-            p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-            p_minus = 1 - p_plus
-
-            mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-            mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-            return mean_pos * p_plus + mean_neg * p_minus
-
-    ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
-    def compute_output_v(self, X):  # X is the one hot vector
+    def compute_output_v_cluster(self, X, cluster_indx):
         outputs = []
-        # hidden_layer_W = getattr(self, "hidden_layer_W")
-        # total_weights = hidden_layer_W.sum()
-        self.max_inds = []
-        self.min_inds = []
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            # convx = self.convolution_topology[i]["convolution_dims"][2]
-            weights = getattr(self, f"{i}_W")
-            conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), weights, stride=self.convolution_topology[i]["stride"],
-                            padding=self.convolution_topology[i]["padding"],
-                            dilation=self.convolution_topology[i]["dilation"]).squeeze(3)
+        self.max_inds[cluster_indx] = []
+        for kid, key in enumerate(self.hidden_convolution_keys[cluster_indx]):
+            weights = getattr(self, f"{key}_W")
+            conv = F.conv2d(X.unsqueeze(1).type(torch.get_default_dtype()), weights,
+                            stride=self.convolution_topology[cluster_indx][key]["stride"],
+                            padding=self.convolution_topology[cluster_indx][key]["padding"],
+                            dilation=self.convolution_topology[cluster_indx][key]["dilation"]).squeeze(3)
 
-            max_pool, max_inds = self.pools[iid](conv.abs())
+            max_pool, max_inds = self.pools[cluster_indx][kid](conv.abs())
 
             flat_conv = conv.flatten(start_dim=2)
             max_conv_values = flat_conv.gather(2, index=max_inds.flatten(start_dim=2)).view_as(max_inds)
 
             # max_conv_values = torch.gather(conv, 2, max_inds)
-            max_pool *= max_conv_values/max_conv_values.abs()
+            max_pool *= max_conv_values / max_conv_values.abs()
 
-            self.max_inds.append(max_inds)
+            self.max_inds[cluster_indx].append(max_inds)
 
             out = max_pool.flatten(start_dim=2)
-
-            if self.use_batch_norm:
-                batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
-                out = batch_norm(out)  # apply batch norm
 
             out.squeeze_(2)
 
@@ -496,37 +508,53 @@ class pcrbm_cluster(Base):
         # flatten list to tensor
         return torch.cat(outputs, dim=1)
 
-    ## Compute Input for Visible Layer from Hidden dReLU
-    def compute_output_h(self, h):  # from h_uk (B, hidden_num)
+
+    ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
+    def compute_output_v(self, X):  # X is the one hot vector
         outputs = []
-        # nonzero_masks = []
-        # hidden_layer_W = getattr(self, "hidden_layer_W")
-        # total_weights = hidden_layer_W.sum()
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            size = self.convolution_topology[i]["number"]
+        for i in range(self.clusters):
+            outputs.append(self.compute_output_v_cluster(X, i))
 
-            # zero = torch.zeros_like(h[iid], device=self.device)
-            # h_pos = torch.maximum(h[iid], zero)
-            # h_neg = torch.maximum(-h[iid], zero)
+        # flatten list to tensor
+        return torch.cat(outputs, dim=1)
 
-            # max_reconst = self.unpools[iid](h_pos.unsqueeze(2), self.max_inds[iid])
-            # min_reconst = -1*self.unpools[iid](h_neg.unsqueeze(2), self.min_inds[iid])
+    ## Compute Input for Visible Layer from Hidden dReLU
+    def compute_output_h_cluster(self, h, cluster_indx):  # from h_uk (B, hidden_num)
+        outputs = []
+        for kid, key in enumerate(self.hidden_convolution_keys[cluster_indx]):
+            size = self.convolution_topology[kid][key]["number"]
 
-            reconst = self.unpools[iid](h[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
+            reconst = self.unpools[cluster_indx][kid](h[kid].view_as(self.max_inds[cluster_indx][kid]), self.max_inds[cluster_indx][kid])
 
             if reconst.ndim == 3:
                 reconst.unsqueeze_(3)
 
-
             # convx = self.convolution_topology[i]["convolution_dims"][2]
-            outputs.append(F.conv_transpose2d(reconst, getattr(self, f"{i}_W"),
-                                              stride=self.convolution_topology[i]["stride"],
-                                              padding=self.convolution_topology[i]["padding"],
-                                              dilation=self.convolution_topology[i]["dilation"],
-                                              output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
-            # outputs[-1] *= hidden_layer_W[iid] / total_weights
-            # nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype())) # * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
-            # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
+            outputs.append(F.conv_transpose2d(reconst, getattr(self, f"{key}_W"),
+                                              stride=self.convolution_topology[cluster_indx][key]["stride"],
+                                              padding=self.convolution_topology[cluster_indx][key]["padding"],
+                                              dilation=self.convolution_topology[cluster_indx][key]["dilation"],
+                                              output_padding=self.convolution_topology[cluster_indx][key]["output_padding"]).squeeze(1))
+
+        if len(outputs) > 1:
+            # Returns mean output from all hidden layers, zeros are ignored
+            # mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
+            out = torch.sum(torch.stack(outputs), 0)
+            if True in torch.isnan(out):
+                print("hi")
+            return out  # / mean_denominator
+        else:
+            if True in torch.isnan(outputs[0]):
+                print("hi")
+            return outputs[0]
+
+
+    ## Compute Input for Visible Layer from Hidden dReLU
+    def compute_output_h(self, h):  # from h_uk (B, hidden_num)
+        outputs = []
+        for i in range(self.clusters):
+            self.compute_output_h_cluster(h[i], i)
+
         if len(outputs) > 1:
             # Returns mean output from all hidden layers, zeros are ignored
             # mean_denominator = torch.sum(torch.stack(nonzero_masks), 0) + 1e-6
@@ -541,8 +569,6 @@ class pcrbm_cluster(Base):
 
     ## Gibbs Sampling of Potts Visbile Layer
     def sample_from_inputs_v(self, psi, beta=1):  # Psi ohe (Batch_size, v_num, q)   fields (self.v_num, self.q)
-        datasize = psi.shape[0]
-
         if beta == 1:
             cum_probas = psi + getattr(self, "fields").unsqueeze(0)
         else:
@@ -558,10 +584,9 @@ class pcrbm_cluster(Base):
         return F.one_hot(dist.sample(), self.q)
 
     ## Gibbs Sampling of dReLU hidden layer
-    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [input]
-
+    def sample_from_inputs_h_cluster(self, psi, cluster_indx, nancheck=False, beta=1):  # psi is a list of hidden [input]
         h_uks = []
-        for iid, i in enumerate(self.hidden_convolution_keys):
+        for iid, i in enumerate(self.hidden_convolution_keys[cluster_indx]):
             if beta == 1:
                 a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0)
                 a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0)
@@ -589,11 +614,12 @@ class pcrbm_cluster(Base):
             etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
             etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
 
-            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
+            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(
+                a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
             nans = torch.isnan(p_plus)
 
             if True in nans:
-                p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+                p_plus[nans] = torch.tensor(1., device=self.device) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
             p_minus = 1 - p_plus
 
             is_pos = torch.rand(p_plus.shape, device=self.device) < p_plus
@@ -613,9 +639,14 @@ class pcrbm_cluster(Base):
             h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
             h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
             h_uks.append(h)
-            if True in torch.isnan(h):
-                print("hi")
         return h_uks
+
+    ## Gibbs Sampling of dReLU hidden layer
+    def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [input]
+        h_cluster_uks = []
+        for i in range(self.clusters):
+            h_cluster_uks.append(self.sample_from_inputs_h_cluster(psi, i, nancheck=nancheck, beta=beta))
+        return h_cluster_uks
 
     ## Hidden dReLU supporting Function
     def erf_times_gauss(self, X):  # This is the "characteristic" function phi
@@ -646,6 +677,11 @@ class pcrbm_cluster(Base):
         # Gibbs Sampler
         h = self.sample_from_inputs_h(self.compute_output_v(v), beta=beta)
         return self.sample_from_inputs_v(self.compute_output_h(h), beta=beta), h
+
+    def markov_step_cluster(self, v, cluster_indx, beta=1):
+        # Gibbs Sampler
+        h = self.sample_from_inputs_h_cluster(self.compute_output_v_cluster(v, cluster_indx), cluster_indx, beta=beta)
+        return self.sample_from_inputs_v(self.compute_output_h_cluster(h, cluster_indx), beta=beta), h
 
     def markov_step_with_hidden_input(self, v, beta=1):
         # Gibbs Sampler
@@ -712,12 +748,13 @@ class pcrbm_cluster(Base):
         #         if True in torch.isnan(par) or True in torch.isnan(grad):
         #             print("hi")
         with torch.no_grad():
-            for key in self.hidden_convolution_keys:
-                for param in ["gamma+", "gamma-"]:
-                    getattr(self, f"{key}_{param}").data.clamp_(min=0.05)
-                for param in ["theta+", "theta-"]:
-                    getattr(self, f"{key}_{param}").data.clamp_(min=0.0)
-                getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
+            for cluster in self.hidden_convolution_keys:
+                for key in cluster:
+                    for param in ["gamma+", "gamma-"]:
+                        getattr(self, f"{key}_{param}").data.clamp_(min=0.05)
+                    for param in ["theta+", "theta-"]:
+                        getattr(self, f"{key}_{param}").data.clamp_(min=0.0)
+                    getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
 
     ## Loads Training Data
     def train_dataloader(self, init_fields=True):
@@ -959,15 +996,14 @@ class pcrbm_cluster(Base):
 
         return logs
 
-    def regularization_terms(self):
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+    def regularization_terms_cluster(self, cluster_indx):
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
 
         bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
         gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
 
-        for iid, i in enumerate(self.hidden_convolution_keys):
+        for iid, i in enumerate(self.hidden_convolution_keys[cluster_indx]):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
             W = getattr(self, f"{i}_W")
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
@@ -985,14 +1021,13 @@ class pcrbm_cluster(Base):
 
         # Passed to training logger
         reg_dict = {
-            "field_reg": reg1.detach(),
             "weight_reg": reg2.detach(),
             "distance_reg": reg3.detach(),
             "gap_reg": gap_loss.detach(),
             "both_side_reg": bs_loss.detach()
         }
 
-        return reg1, reg2, reg3, bs_loss, gap_loss, reg_dict
+        return reg2, reg3, bs_loss, gap_loss, reg_dict
 
     # Not yet rewritten for CRBM
     def training_step_PT_free_energy(self, batch, batch_idx):
@@ -1214,127 +1249,75 @@ class pcrbm_cluster(Base):
             inds, seqs, one_hot, seq_weights = batch
 
         if self.current_epoch == 0 and batch_idx == 0:
-            self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
+            self.chain = torch.zeros((self.clusters, self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
 
         if self.current_epoch == 0:
-            self.chain[inds] = one_hot.type(torch.get_default_dtype())
-            # batch_min_free_energy = 0.
-
-        V_oh_neg, h_neg, input_loss = self.forward_PCD(inds)
-
-        # delete tensors not involved in loss calculation
-        # pytorch garbage collection does not catch these
-        del h_neg
-
-
-        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        free_energy_v = self.free_energy(one_hot)
-        min_free_energy = free_energy_v.max()
-
-        # if min_free_energy < batch_min_free_energy:
-        #     batch_min_free_energy
-
-
-        raw_energy_weights_v = (free_energy_v/free_energy_v.min())
-        shift_energy_weights_v = ((raw_energy_weights_v - raw_energy_weights_v.min())*10)
-        energy_weights_v = shift_energy_weights_v  #/shift_energy_weights_v.sum()  # Sequences with highest energies (lowest free energy, less likely) are given greater weights
-        # F_v = (free_energy_v * seq_weights) / seq_weights.sum()  # free energy of training data
-        F_v = free_energy_v
-        free_energy_vp = self.free_energy(V_oh_neg)
-        raw_energy_weights_vp = (1 - free_energy_vp/free_energy_vp.min()).exp()
-        energy_weights_vp = raw_energy_weights_vp/raw_energy_weights_vp.sum()  # Generated Sequences with lowest energies (most likely) are given greater weights
-        # F_vp = (self.free_energy(V_oh_neg) * seq_weights) / seq_weights.sum()  # free energy of gibbs sampled visible states
-        F_vp = self.free_energy(V_oh_neg)
-        cd_loss = (energy_weights_v*(F_v - F_vp)).mean()             # (energy_weights_v * (F_v - (F_vp * energy_weights_vp))).mean()  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
-
-        # if self.use_pearson:
-        #     if self.pearson_xvar == "values":
-        #         # correlation coefficient between free energy and fitness values
-        #         if self.additional_data:
-        #             vy = additional_data - torch.mean(additional_data)
-        #         else:
-        #             vy = seq_weights - torch.mean(seq_weights)
-        #
-        #     elif self.pearson_xvar == "labels":
-        #         labels = labels.double()
-        #         vy = labels - torch.mean(labels)
-        #
-        #     # correlation coefficient between free energy and fitness values/labels
-        #     vx = -1 * (free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values
-        #
-        #     pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
-        #     pearson_loss = (1 - pearson_correlation)  # * (self.current_epoch/self.epochs + 1) * 10
+            for cluster_indx in range(self.clusters):
+                self.chain[cluster_indx][inds] = one_hot.type(torch.get_default_dtype())
 
 
         # Regularization Terms
-        reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
 
-        # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss + input_loss*self.lcorr
+        filters = []
+        cluster_logs = {"loss": reg1}
+        for cluster_indx in range(self.clusters):
+            filtered_inds = inds
+            cdata = one_hot
+            weights = seq_weights
+            if cluster_indx > 0:
+                # apply filters to inds, data, and weights
+                filtered_inds = inds
+                cdata = cdata
+                weights = weights
 
-        logs = {"loss": loss,
-                "free_energy_diff": cd_loss.detach(),
-                "free_energy_pos": F_v.mean().detach(),
-                "free_energy_neg": F_vp.mean().detach(),
-                # "free_energy_diff": free_energy_diff.sum().detach(),
-                "Input Correlation Reg": input_loss.detach(),
-                **reg_dict
-                }
 
-        # if self.use_pearson:
-        #     loss += pearson_loss * 50  # * pearson_multiplier
-        #     logs["loss"] = loss
-        #     logs["train_pearson_corr"] = pearson_correlation.detach()
-        #     logs["train_pearson_loss"] = pearson_loss.detach()
-        #     self.log("ptl/train_pearson_corr", logs["train_pearson_corr"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            F_v = self.free_energy_cluster(cdata, cluster_indx)
+            Vc_neg, hc_neg = self.forward_PCD(filtered_inds, cluster_indx)
+            F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
 
-        self.log("ptl/free_energy_diff", logs["free_energy_diff"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_free_energy", logs["free_energy_pos"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            unrealized_seqs = free_energy_v < torch.quantile(free_energy_v, 0.75)
+
+            if ~unrealized_seqs.sum() < 10:
+                break
+            else:
+                filters.append(free_energy_v < torch.quantile(free_energy_v, 0.75))
+
+            cluster_cd_loss = (weights * (F_v - F_vp)).mean()
+
+            reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
+
+            cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss
+
+            cluster_logs["loss"] += cluster_loss
+            cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
+            cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
+            cluster_logs.update({f"Cluster {cluster_indx}" + k: v.detach() for k, v in reg_dict})
+
+        cluster_logs["free_energy"] = self.free_energy(one_hot).mean()
+
+        self.log("ptl/free_energy_diff", logs["free_energy_diff"], on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True)
+        self.log("ptl/train_free_energy", logs["free_energy_pos"], on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return logs
+        return cluster_logs
 
-    def pearson_loss(self, Ih, k=2):
-        B, H = Ih.size()
-        mean = Ih.mean(dim=0).unsqueeze(0)
-        diffs = (Ih - mean)
-        prods = torch.matmul(diffs.T, diffs)
-        bcov = prods / (B - 1)  # Unbiased estimate
-        # matrix of stds
-        std = Ih.std(dim=0).unsqueeze(0)
-        std_mat = torch.matmul(std.T, std) + 1e-6
-
-        pearson_mat = (bcov / std_mat).abs()
-        triu_pearson_mat = pearson_mat.triu(diagonal=1)
-
-        self_interaction_term = torch.diagonal(pearson_mat, offset=H//2).sum()
-
-        topvals, topinds = torch.topk(triu_pearson_mat, k, dim=1)
-
-        other_interactions = pearson_mat.triu(diagonal=1).sum() - self_interaction_term - topvals.sum()*0.9
-
-        return other_interactions
-
-    def forward_PCD(self, inds):
+    def forward_PCD(self, inds, cluster_indx):
         # Gibbs sampling with Persistent Contrastive Divergence
         # pytorch lightning handles the device
-        fantasy_v = self.chain[inds]  # Last sample that was saved to self.chain variable, initialized in training step
+        fantasy_v = self.chain[cluster_indx][inds]  # Last sample that was saved to self.chain variable, initialized in training step
         # h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
         # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
         for _ in range(self.mc_moves - 1):
-            fantasy_v, fantasy_h = self.markov_step(fantasy_v)
+            fantasy_v, fantasy_h = self.markov_step_cluster(fantasy_v, cluster_indx)
 
-        V_neg, fantasy_h, hidden_input = self.markov_step_with_hidden_input(fantasy_v)
-        flat_hidden_input = torch.cat(hidden_input, dim=1)
-        hidden_inputs = [torch.clamp(flat_hidden_input, min=0.), torch.clamp(flat_hidden_input, max=0.).abs()]
-
-        input_loss = self.pearson_loss(torch.cat(hidden_inputs, dim=1))
+        V_neg, fantasy_h, hidden_input = self.markov_step_cluster(fantasy_v, cluster_indx)
 
         h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
 
-        self.chain[inds] = V_neg.detach().type(torch.get_default_dtype())
-
-        return V_neg, h_neg, input_loss
+        return V_neg, h_neg
 
     def forward(self, V_pos_ohe):
         if self.sample_type == "gibbs":

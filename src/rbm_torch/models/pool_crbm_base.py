@@ -1233,7 +1233,7 @@ class pool_CRBM(Base):
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
         free_energy_v = self.free_energy(one_hot)
-        min_free_energy = free_energy_v.max()
+        # min_free_energy = free_energy_v.max()
 
         # if min_free_energy < batch_min_free_energy:
         #     batch_min_free_energy
