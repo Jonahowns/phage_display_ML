@@ -661,9 +661,6 @@ class HiddenInputs(Categorical):
     def __len__(self):
         return self.input_tensor.shape[0]
 
-
-
-
 class BatchNorm1D(torch.nn.Module):
     def __init__(self, eps=1e-5, affine=True, momentum=None):
         super().__init__()
@@ -1281,6 +1278,56 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
 
     return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 
+def gen_data_low_cluster(model, cluster_indx, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, reshape=True, update_betas=False, config_init=[]):
+    tmp_model = copy.deepcopy(model)
+    name = tmp_model._get_name()
+    if "CRBM" in name:
+        setattr(tmp_model, "fields", torch.nn.Parameter(getattr(tmp_model, "fields") * beta, requires_grad=False))
+        if "class" in name:
+            setattr(tmp_model, "y_bias", torch.nn.Parameter(getattr(tmp_model, "y_bias") * beta, requires_grad=False))
+
+        if which == 'joint':
+            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
+            if "class" in name:
+                param_keys.append("M")
+            for key in tmp_model.hidden_convolution_keys[cluster_indx]:
+                for pkey in param_keys:
+                    setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}") * beta, requires_grad=False))
+        elif which == "marginal":
+            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            if "class" in name:
+                param_keys.append("M")
+            new_convolution_keys = copy.deepcopy(tmp_model.hidden_convolution_keys)
+
+            # Setup Steps for editing the hidden layer topology of our model
+            setattr(tmp_model, "convolution_topology", copy.deepcopy(model.convolution_topology))
+            tmp_model_conv_topology = getattr(tmp_model, "convolution_topology")  # Get and edit tmp_model_conv_topology
+
+            if "pool" in name or "pcrbm" in name:
+                tmp_model.pools = tmp_model.pools[cluster_indx] * beta
+                tmp_model.unpools = tmp_model.unpools[cluster_indx] * beta
+            else:
+                # Also need to fix up parameter hidden_layer_W
+                tmp_model.register_parameter("hidden_layer_W", torch.nn.Parameter(getattr(tmp_model, "hidden_layer_W").repeat(beta), requires_grad=False))
+
+            # Add keys for new layers, add entries to convolution_topology for new layers, and add parameters for new layers
+            for key in tmp_model.hidden_convolution_keys:
+                for b in range(beta - 1):
+                    new_key = f"{key}_{b}"
+                    new_convolution_keys.append(new_key)
+                    tmp_model_conv_topology[f"{new_key}"] = copy.deepcopy(tmp_model_conv_topology[f"{key}"])
+
+                    for pkey in param_keys:
+                        new_param_key = f"{new_key}_{pkey}"
+                        # setattr(tmp_model, new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+                        tmp_model.register_parameter(new_param_key, torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}"), requires_grad=False))
+
+            tmp_model.hidden_convolution_keys = new_convolution_keys
+
+
+    return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
+
+
 def gen_data_zeroT(model, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):
     tmp_model = copy.deepcopy(model)
     if "class" in tmp_model._get_name():
@@ -1352,14 +1399,25 @@ def all_weights(model, name=None, rows=5, order_weights=True):
         name = model._get_name()
 
     if "CRBM" in model_name or "crbm" in model_name:
-        for key in model.hidden_convolution_keys:
-            wdim = model.convolution_topology[key]["weight_dims"]
-            kernelx = wdim[2]
-            if kernelx <= 10:
-                ncols = 2
-            else:
-                ncols = 1
-            conv_weights(model, key, name + "_" + key, rows, ncols, 7, 5, order_weights=order_weights)
+        if "cluster" in model_name:
+            for cluster_indx in range(model.clusters):
+                for key in model.hidden_convolution_keys[cluster_indx]:
+                    wdim = model.convolution_topology[cluster_indx][key]["weight_dims"]
+                    kernelx = wdim[2]
+                    if kernelx <= 10:
+                        ncols = 2
+                    else:
+                        ncols = 1
+                    conv_weights(model, key, f"{name}_{key}" + key, rows, ncols, 7, 5, order_weights=order_weights)
+        else:
+            for key in model.hidden_convolution_keys:
+                wdim = model.convolution_topology[key]["weight_dims"]
+                kernelx = wdim[2]
+                if kernelx <= 10:
+                    ncols = 2
+                else:
+                    ncols = 1
+                conv_weights(model, key, name + "_" + key, rows, ncols, 7, 5, order_weights=order_weights)
     elif "RBM" in model_name:
         beta, W = get_beta_and_W(model)
         if order_weights:
@@ -1383,6 +1441,7 @@ def conv_weights(crbm, hidden_key, name, rows, columns, h, w, order_weights=True
     else:
         order = np.arange(0, beta.shape[0], 1)
     fig = Sequence_logo_all(W[order], data_type="weights", name=name + '.pdf', nrows=rows, ncols=columns, figsize=(h,w) ,ticks_every=5,ticks_labels_size=10,title_size=12, dpi=200, molecule=crbm.molecule)
+
 
 
 ## Implementation inspired from https://stackoverflow.com/questions/42615527/sequence-logos-in-matplotlib-aligning-xticks
