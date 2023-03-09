@@ -106,7 +106,7 @@ def get_checkpoint_path(round, version=None, rbmdir="./"):
 
 
 # Returns dictionary of arrays of likelihoods
-def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="./generated/"):
+def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="./generated/", cluster_indx=None):
     """ Calculates Likelihood of sequences in provided for the provided model
 
       Parameters
@@ -141,6 +141,8 @@ def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="
         elif "class" in model._get_name():
             seqs, likeli, label_pred = model.predict(all_data[all_data[key] == x])
             labels[x] = label_pred
+        elif cluster_indx is not None:
+            seqs, likeli = model.predict_cluster(all_data[all_data[key] == x], cluster_indx)
         else:
             seqs, likeli = model.predict(all_data[all_data[key] == x])
         likelihoods[x] = likeli
