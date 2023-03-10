@@ -1164,7 +1164,7 @@ def gen_data_lowT_cluster(model, cluster_indx, beta=1, which = 'marginal' ,Nchai
             tmp_model.hidden_convolution_keys[cluster_indx] = new_convolution_keys
 
 
-    return tmp_model.gen_data(Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
+    return tmp_model.gen_data_cluster(cluster_indx, Nchains=Nchains,Lchains=Lchains,Nthermalize=Nthermalize,Nstep=Nstep,N_PT=N_PT,reshape=reshape,update_betas=update_betas,config_init = config_init)
 
 
 def gen_data_zeroT(model, which = 'marginal' ,Nchains=10,Lchains=100,Nthermalize=0,Nstep=1,N_PT=1,reshape=True,update_betas=False,config_init=[]):

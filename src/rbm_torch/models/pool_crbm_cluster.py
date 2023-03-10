@@ -360,7 +360,7 @@ class pcrbm_cluster(Base):
         config = []
         for cid, cluster_keys in enumerate(self.hidden_convolution_keys):
             cluster_config = []
-            for iid, i in cluster_keys:
+            for i in cluster_keys:
                 batch, h_num, convx_num, convy_num = self.convolution_topology[cid][i]["convolution_dims"]
 
                 if custom_size:
@@ -1716,7 +1716,7 @@ class pcrbm_cluster(Base):
                 if verbose:
                     t = time.time()
                     print('Learning betas...')
-                self.gen_data(N_PT=N_PT, Nchains=Nchains, Lchains=1, Nthermalize=Nthermalize, update_betas=True)
+                self.gen_data_cluster(cluster_indx, N_PT=N_PT, Nchains=Nchains, Lchains=1, Nthermalize=Nthermalize, update_betas=True)
                 if verbose:
                     print('Elapsed time: %s, Acceptance rates: %s' % (time.time() - t, self.mav_acceptance_rates))
                 betas = []
@@ -1737,7 +1737,7 @@ class pcrbm_cluster(Base):
 
             log_Z_init = torch.zeros(1, device=self.device)
 
-            log_Z_init += self.logpartition_h_cluster(self.random_init_config_h(custom_size=(1,), zeros=True), cluster_indx, beta=0)
+            log_Z_init += self.logpartition_h_cluster(self.random_init_config_h_cluster(cluster_indx, custom_size=(1,), zeros=True), cluster_indx, beta=0)
             log_Z_init += self.logpartition_v(self.random_init_config_v(custom_size=(1,), zeros=True), beta=0)
 
             if verbose:
@@ -1920,7 +1920,7 @@ class pcrbm_cluster(Base):
                         data_gen_h = self.random_init_config_h_cluster(cluster_indx, custom_size=(Ndata, N_PT, batches), zeros=True)
                         data_gen_v[0] = config[0].clone()
 
-                        clone = self.clone_h(config[1])
+                        clone = self.clone_h_cluster(config[1])
                         for hid in range(self.h_layer_num_cluster(cluster_indx)):
                             data_gen_h[hid][0] = clone[hid]
                     else:
@@ -1928,7 +1928,7 @@ class pcrbm_cluster(Base):
                         data_gen_h = self.random_init_config_h_cluster(cluster_indx, custom_size=(Ndata, batches), zeros=True)
                         data_gen_v[0] = config[0][0].clone()
 
-                        clone = self.clone_h(config[1], sub_index=0)
+                        clone = self.clone_h_cluster(config[1], sub_index=0)
                         for hid in range(self.h_layer_num_cluster(cluster_indx)):
                             data_gen_h[hid][0] = clone[hid]
             else:
@@ -1936,7 +1936,7 @@ class pcrbm_cluster(Base):
                 data_gen_h = self.random_init_config_h_cluster(cluster_indx, custom_size=(Ndata, batches), zeros=True)
                 data_gen_v[0] = config[0].clone()
 
-                clone = self.clone_h(config[1])
+                clone = self.clone_h_cluster(config[1])
                 for hid in range(self.h_layer_num_cluster(cluster_indx)):
                     data_gen_h[hid][0] = clone[hid]
 
@@ -1954,21 +1954,21 @@ class pcrbm_cluster(Base):
                     if record_replica:
                         data_gen_v[n + 1] = config[0].clone()
 
-                        clone = self.clone_h(config[1])
+                        clone = self.clone_h_cluster(config[1])
                         for hid in range(self.h_layer_num_cluster(cluster_indx)):
                             data_gen_h[hid][n + 1] = clone[hid]
 
                     else:
                         data_gen_v[n + 1] = config[0][0].clone()
 
-                        clone = self.clone_h(config[1], sub_index=0)
+                        clone = self.clone_h_cluster(config[1], sub_index=0)
                         for hid in range(self.h_layer_num_cluster(cluster_indx)):
                             data_gen_h[hid][n + 1] = clone[hid]
 
                 else:
                     data_gen_v[n + 1] = config[0].clone()
 
-                    clone = self.clone_h(config[1])
+                    clone = self.clone_h_cluster(config[1])
                     for hid in range(self.h_layer_num_cluster(cluster_indx)):
                         data_gen_h[hid][n + 1] = clone[hid]
 

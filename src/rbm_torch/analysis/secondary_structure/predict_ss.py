@@ -151,5 +151,8 @@ if __name__ == "__main__":
     # nupack_predict_ss("../../../../datasets/cov/r12.fasta", molecule="dna", celsius=25, sodium=0.157, magnesium=0.03)
 
     # nupack_predict_ss("../../../../datasets/cov/analysis/gen_l2_seqs_v47_weightedsubsetsampling.csv", format="csv", molecule="dna", celsius=37, sodium=0.137, magnesium=0.003)
-
-    rnafold_predict_ss_file("../../../../datasets/cov/analysis/gen_l2_seqs_v47_weightedsubsetsampling.csv", format="csv", molecule="dna", gquad=True, tempC=25)
+    #
+    # rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l1_cluster3.csv", format="csv", molecule="dna", gquad=True, tempC=25)
+    # rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l2_cluster3.csv", format="csv", molecule="dna", gquad=True, tempC=25)
+    # rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l2_cluster2.csv", format="csv", molecule="dna", gquad=True, tempC=25)
+    rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l1_cluster2.csv", format="csv", molecule="dna", gquad=True, tempC=25)
