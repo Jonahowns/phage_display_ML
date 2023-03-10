@@ -1267,7 +1267,7 @@ class pcrbm_cluster(Base):
         ###### Clusters from peaks in free energy of initially trained crbm
         if self.current_epoch < self.initial_run:
             F_v = self.free_energy_cluster(one_hot, 0)
-            Vc_neg, hc_neg = self.forward_PCD(inds, 0)
+            Vc_neg, hc_neg, corr_reg = self.forward_PCD(inds, 0)
             F_vp = self.free_energy_cluster(Vc_neg, 0)
 
             reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(0)
@@ -1278,6 +1278,7 @@ class pcrbm_cluster(Base):
 
             cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
             cluster_logs[f"Cluster {0} free_energy"] = self.free_energy_cluster(one_hot, 0).detach().mean()
+            cluster_logs[f"Cluster {0} Correlation Reg"] = corr_reg.detach()
             cluster_logs[f"Cluster {0} Loss"] = cluster_loss.detach()
             cluster_logs[f"Cluster {0} CD Loss"] = cluster_cd_loss.detach()
             cluster_logs.update({f"Cluster_{0} " + k: v.detach() for k, v in reg_dict.items()})
@@ -1290,37 +1291,39 @@ class pcrbm_cluster(Base):
                     self.all_Fv.append(F_v)
                     self.all_Inds.append(inds)
 
-        elif self.current_epoch == self.initial_run:
-            if batch_idx == 0:
-                #Initialize Clusters
-                full_Fv = torch.cat(self.all_Fv)
-                min, max = full_Fv.min(), full_Fv.max()
-                counts = torch.histc(full_Fv, self.bins, min=min.data, max=max.data)
-                boundaries = torch.linspace(min.data, max.data, self.bins + 1)
-
-                original_counts = counts.clone()
-                peaks = []
-                while True:
-                     if torch.max(counts) < 100:
-                         break
-                     l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
-                     peaks.append((l_indx, r_indx))
-                     counts[l_indx:r_indx] = 0.
-
-                self.all_Inds = torch.cat(self.all_Inds)
-                self.cluster_assignments = torch.full((len(self.all_Inds),), 0, device=self.device)
-
-                plt.hist(full_Fv, bins=self.bins)
-                for peak_indx, bounds in enumerate(peaks):
-                    peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]], full_Fv <= boundaries[bounds[1]])
-                    self.cluster_assignments[self.all_Inds[peak_members.bool()]] = peak_indx + 1
-                    plt.axvline(counts[bounds[0]])
-                    plt.axvline(counts[bounds[1]])
-
-                self.clusters = len(peaks) + 1
-                plt.save(self.logger.log_dir + "cluster_assignment_hist")
 
         else:
+            if self.current_epoch == self.initial_run:
+                if batch_idx == 0:
+                    # Initialize Clusters
+                    full_Fv = torch.cat(self.all_Fv)
+                    min, max = full_Fv.min(), full_Fv.max()
+                    counts = torch.histc(full_Fv, self.bins, min=min.data, max=max.data)
+                    boundaries = torch.linspace(min.data, max.data, self.bins + 1)
+
+                    original_counts = counts.clone()
+                    peaks = []
+                    while True:
+                        if torch.max(counts) < 100:
+                            break
+                        l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
+                        peaks.append((l_indx, r_indx))
+                        counts[l_indx:r_indx] = 0.
+
+                    self.all_Inds = torch.cat(self.all_Inds)
+                    self.cluster_assignments = torch.full((len(self.all_Inds),), 0, device=self.device)
+
+                    plt.hist(full_Fv, bins=self.bins)
+                    for peak_indx, bounds in enumerate(peaks):
+                        peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
+                                                         full_Fv <= boundaries[bounds[1]])
+                        self.cluster_assignments[self.all_Inds[peak_members.bool()]] = peak_indx + 1
+                        plt.axvline(counts[bounds[0]])
+                        plt.axvline(counts[bounds[1]])
+
+                    self.clusters = len(peaks) + 1
+                    plt.save(self.logger.log_dir + "cluster_assignment_hist")
+
             clust_assign = self.cluster_assignments[inds]
             for cluster_indx in range(1, self.clusters):
                 filter = clust_assign == cluster_indx
@@ -1330,17 +1333,18 @@ class pcrbm_cluster(Base):
 
                 # Typical free energy calculations
                 F_v = self.free_energy_cluster(cdata, cluster_indx)
-                Vc_neg, hc_neg = self.forward_PCD(filtered_inds, cluster_indx)
+                Vc_neg, hc_neg, corr_reg = self.forward_PCD(filtered_inds, cluster_indx)
                 F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
 
                 cluster_cd_loss = (weights * (F_v - F_vp)).mean()
 
                 reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
 
-                cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss
+                cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss + corr_reg
 
                 cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
                 cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
+                cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
                 cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
                 cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
                 cluster_logs.update({f"Cluster_{cluster_indx} " + k: v.detach() for k, v in reg_dict.items()})
@@ -1439,17 +1443,38 @@ class pcrbm_cluster(Base):
                 k -= 1
         return k, j
 
+    def pearson_loss(self, Ih):
+        B, H = Ih.size()
+        mean = Ih.mean(dim=0).unsqueeze(0)
+        diffs = (Ih - mean)
+        prods = torch.matmul(diffs.T, diffs)
+        bcov = prods / (B - 1)  # Unbiased estimate
+        # matrix of stds
+        std = Ih.std(dim=0).unsqueeze(0)
+        std_mat = torch.matmul(std.T, std) + 1e-6
+
+        pearson_mat = (bcov / std_mat).abs()
+
+        self_interaction_term = torch.diagonal(pearson_mat, offset=H//2).sum()
+        other_interactions = pearson_mat.triu(diagonal=1).sum() - self_interaction_term
+
+        return other_interactions*self.lcorr
+
     def forward_PCD(self, inds, cluster_indx):
         # Gibbs sampling with Persistent Contrastive Divergence
         fantasy_v = self.chain[cluster_indx][inds]  # Last sample that was saved to self.chain variable, initialized in training step
         for _ in range(self.mc_moves - 1):
             fantasy_v, fantasy_h = self.markov_step_cluster(fantasy_v, cluster_indx)
 
-        V_neg, fantasy_h = self.markov_step_cluster(fantasy_v, cluster_indx)
+        V_neg, fantasy_h, hidden_input = self.markov_step_with_hidden_input_cluster(fantasy_v, cluster_indx)
+        flat_hidden_input = torch.cat(hidden_input, dim=1)
+        hidden_inputs = [torch.clamp(flat_hidden_input, min=0.), torch.clamp(flat_hidden_input, max=0.).abs()]
+
+        input_loss = self.pearson_loss(torch.cat(hidden_inputs, dim=1))
 
         h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
 
-        return V_neg, h_neg
+        return V_neg, h_neg, input_loss
 
     # Might rewrite for cluster version
     def forward(self, V_pos_ohe):
