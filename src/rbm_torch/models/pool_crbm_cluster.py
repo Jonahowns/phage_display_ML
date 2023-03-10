@@ -1,6 +1,7 @@
 import time
 import math
 import numpy as np
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -84,25 +85,10 @@ class pcrbm_cluster(Base):
 
         self.max_inds = [[] for i in range(self.clusters)]
 
-
-        # Should get rid of pearson crap soon
-        self.use_pearson = config["use_pearson"]
-        self.pearson_xvar = "none"
-        if self.use_pearson:
-            self.pearson_xvar = config["pearson_xvar"]  # label or fitness_value
-
-            assert self.pearson_xvar in ["values", "labels"]
-
-        # if self.pearson_xvar == "labels" or self.stratify or self.sampling_strategy == "stratified":
         try:
             self.group_fraction = config["group_fraction"]
         except KeyError:
             self.group_fraction = [1 / self.label_groups for i in self.label_groups]
-
-        if self.sampling_strategy == "polar":
-            assert self.batch_size % 2 == 0
-            assert self.label_groups == 2
-            assert self.group_fraction == [0.5, 0.5]
 
         try:
             self.sample_multiplier = config["sample_multiplier"]
@@ -110,9 +96,7 @@ class pcrbm_cluster(Base):
             self.sample_multiplier = 1.
 
         assert len(self.label_spacing) - 1 == self.label_groups
-        self.labels_in_batch = True
 
-        self.use_batch_norm = config["use_batch_norm"]
         self.dr = 0.
         if "dr" in config.keys():
             self.dr = config["dr"]
@@ -157,7 +141,7 @@ class pcrbm_cluster(Base):
             self.unpools.append(cluster_unpools)
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
-        # i. e. Simplifies loading a model that has already been run
+        # i.e. Simplifies loading a model that has already been run
         self.save_hyperparameters()
 
         # Constants for faster math
@@ -178,9 +162,8 @@ class pcrbm_cluster(Base):
                 exit(-1)
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
-        self.meminfo = False
-        self.initial_run = 50
-
+        self.initial_run = config["initial_run"]
+        self.bins = config["histogram_bins"]
 
 
     def h_layer_num_cluster(self, cluster_indx):
@@ -454,77 +437,76 @@ class pcrbm_cluster(Base):
             return torch.logsumexp((beta * getattr(self, "fields") + (1 - beta) * getattr(self, "fields0"))[None, :] + beta * inputs, 2).sum(1)
 
     ## Mean of hidden layer specified by hidden_key
-    # def mean_h(self, psi, hidden_key=None, beta=1):
-    #     if hidden_key is None:
-    #         means = []
-    #         for kid, key in enumerate(self.hidden_convolution_keys):
-    #             if beta == 1:
-    #                 a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
-    #                 a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
-    #                 theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
-    #                 theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
-    #             else:
-    #                 theta_plus = (beta * getattr(self, f'{key}_theta+') + (1 - beta) * getattr(self, f'{key}_0theta+')).unsqueeze(0)
-    #                 theta_minus = (beta * getattr(self, f'{key}_theta-') + (1 - beta) * getattr(self, f'{key}_0theta-')).unsqueeze(0)
-    #                 a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
-    #                 a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
-    #                 psi[kid] *= beta
-    #
-    #             # if psi[kid].dim() == 3:
-    #             #     a_plus = a_plus.unsqueeze(2)
-    #             #     a_minus = a_minus.unsqueeze(2)
-    #             #     theta_plus = theta_plus.unsqueeze(2)
-    #             #     theta_minus = theta_minus.unsqueeze(2)
-    #
-    #             psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
-    #             psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
-    #
-    #             etg_plus = self.erf_times_gauss(psi_plus)
-    #             etg_minus = self.erf_times_gauss(psi_minus)
-    #
-    #             p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-    #             nans = torch.isnan(p_plus)
-    #             p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-    #             p_minus = 1 - p_plus
-    #
-    #             mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-    #             mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-    #             means.append(mean_pos * p_plus + mean_neg * p_minus)
-    #         return means
-    #     else:
-    #         if beta == 1:
-    #             a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
-    #             a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
-    #             theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
-    #             theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
-    #         else:
-    #             theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
-    #             theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
-    #             a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
-    #             a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
-    #             psi *= beta
-    #
-    #         # if psi.dim() == 3:
-    #         #     a_plus = a_plus.unsqueeze(2)
-    #         #     a_minus = a_minus.unsqueeze(2)
-    #         #     theta_plus = theta_plus.unsqueeze(2)
-    #         #     theta_minus = theta_minus.unsqueeze(2)
-    #
-    #         psi_plus = (psi + theta_plus) / torch.sqrt(a_plus)  #  min pool
-    #         psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)  # max pool
-    #
-    #         etg_plus = self.erf_times_gauss(psi_plus)
-    #         etg_minus = self.erf_times_gauss(psi_minus)
-    #
-    #         p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-    #         nans = torch.isnan(p_plus)
-    #         p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-    #         p_minus = 1 - p_plus
-    #
-    #         mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-    #         mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-    #         return mean_pos * p_plus + mean_neg * p_minus
+    def mean_h_cluster(self, psi, cluster_indx, hidden_key=None, beta=1):
+        if hidden_key is None:
+            means = []
+            for kid, key in enumerate(self.hidden_convolution_keys[cluster_indx]):
+                if beta == 1:
+                    a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
+                    a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
+                    theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
+                    theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
+                else:
+                    theta_plus = (beta * getattr(self, f'{key}_theta+') + (1 - beta) * getattr(self, f'{key}_0theta+')).unsqueeze(0)
+                    theta_minus = (beta * getattr(self, f'{key}_theta-') + (1 - beta) * getattr(self, f'{key}_0theta-')).unsqueeze(0)
+                    a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
+                    a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
+                    psi[kid] *= beta
 
+                # if psi[kid].dim() == 3:
+                #     a_plus = a_plus.unsqueeze(2)
+                #     a_minus = a_minus.unsqueeze(2)
+                #     theta_plus = theta_plus.unsqueeze(2)
+                #     theta_minus = theta_minus.unsqueeze(2)
+
+                psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
+                psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
+
+                etg_plus = self.erf_times_gauss(psi_plus)
+                etg_minus = self.erf_times_gauss(psi_minus)
+
+                p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+                nans = torch.isnan(p_plus)
+                p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+                p_minus = 1 - p_plus
+
+                mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+                mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+                means.append(mean_pos * p_plus + mean_neg * p_minus)
+            return means
+        else:
+            if beta == 1:
+                a_plus = (getattr(self, f'c{cluster_indx}_{hidden_key}_gamma+')).unsqueeze(0)
+                a_minus = (getattr(self, f'c{cluster_indx}_{hidden_key}_gamma-')).unsqueeze(0)
+                theta_plus = (getattr(self, f'c{cluster_indx}_{hidden_key}_theta+')).unsqueeze(0)
+                theta_minus = (getattr(self, f'c{cluster_indx}_{hidden_key}_theta-')).unsqueeze(0)
+            else:
+                theta_plus = (beta * getattr(self, f'c{cluster_indx}_{hidden_key}_theta+') + (1 - beta) * getattr(self, f'c{cluster_indx}_{hidden_key}_0theta+')).unsqueeze(0)
+                theta_minus = (beta * getattr(self, f'c{cluster_indx}_{hidden_key}_theta-') + (1 - beta) * getattr(self, f'c{cluster_indx}_{hidden_key}_0theta-')).unsqueeze(0)
+                a_plus = (beta * getattr(self, f'c{cluster_indx}_{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'c{cluster_indx}_{hidden_key}_0gamma+')).unsqueeze(0)
+                a_minus = (beta * getattr(self, f'c{cluster_indx}_{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'c{cluster_indx}_{hidden_key}_0gamma-')).unsqueeze(0)
+                psi *= beta
+
+            # if psi.dim() == 3:
+            #     a_plus = a_plus.unsqueeze(2)
+            #     a_minus = a_minus.unsqueeze(2)
+            #     theta_plus = theta_plus.unsqueeze(2)
+            #     theta_minus = theta_minus.unsqueeze(2)
+
+            psi_plus = (psi + theta_plus) / torch.sqrt(a_plus)  #  min pool
+            psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)  # max pool
+
+            etg_plus = self.erf_times_gauss(psi_plus)
+            etg_minus = self.erf_times_gauss(psi_minus)
+
+            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
+            nans = torch.isnan(p_plus)
+            p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
+            p_minus = 1 - p_plus
+
+            mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
+            mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
+            return mean_pos * p_plus + mean_neg * p_minus
 
     def compute_output_v_cluster(self, X, cluster_indx):
         outputs = []
@@ -595,7 +577,6 @@ class pcrbm_cluster(Base):
             if True in torch.isnan(outputs[0]):
                 print("hi")
             return outputs[0]
-
 
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h(self, h):  # from h_uk (B, hidden_num)
@@ -906,40 +887,15 @@ class pcrbm_cluster(Base):
                 exit(1)
 
     def validation_step(self, batch, batch_idx):
-        if self.pearson_xvar == "labels" and self.additional_data:
-            inds, seqs, one_hot, seq_weights, labels, additional_data = batch
-        if self.pearson_xvar == "labels":
-            inds, seqs, one_hot, seq_weights, labels = batch
-        if self.additional_data:
-            inds, seqs, one_hot, seq_weights, additional_data = batch
-        else:
-            inds, seqs, one_hot, seq_weights = batch
+        inds, seqs, one_hot, seq_weights = batch
 
         # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy = self.free_energy(one_hot)
         free_energy_avg = (free_energy * seq_weights).sum() / seq_weights.abs().sum()
 
-        if self.use_pearson:
-            if self.pearson_xvar == "values":
-                # correlation coefficient between free energy and fitness values
-                vy = seq_weights - torch.mean(seq_weights)
-            elif self.pearson_xvar == "labels":
-                labels = labels.double()
-                vy = labels - torch.mean(labels)
-
-            vx = -1*(free_energy - torch.mean(free_energy))  # multiply be negative one so lowest free energy vals get paired with the highest copy number/fitness values or with higher label values
-            pearson_correlation = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + 1e-6) * torch.sqrt(torch.sum(vy ** 2) + 1e-6))
-
-
         batch_out = {
-            # "val_pseudo_likelihood": pseudo_likelihood.detach()
             "val_free_energy": free_energy_avg.detach()
         }
-
-        if self.use_pearson:
-            batch_out["val_pearson_corr"] = pearson_correlation.detach()
-            self.log("ptl/val_pearson_corr", batch_out["val_pearson_corr"], on_step=False, on_epoch=True, prog_bar=True,
-                     logger=True)
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
@@ -1257,26 +1213,17 @@ class pcrbm_cluster(Base):
     #     return logs
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
-        if self.pearson_xvar == "labels" and self.additional_data:
-            inds, seqs, one_hot, seq_weights, labels, additional_data = batch
-        if self.pearson_xvar == "labels":
-            inds, seqs, one_hot, seq_weights, labels = batch
-        if self.additional_data:
-            inds, seqs, one_hot, seq_weights, additional_data = batch
-        else:
-            inds, seqs, one_hot, seq_weights = batch
+        inds, seqs, one_hot, seq_weights = batch
 
-        if self.current_epoch == 0 and batch_idx == 0:
-            self.chain = torch.zeros((self.clusters, self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
-
+        # Initialize place to save generated data (for a continuous chain) for PCD
         if self.current_epoch == 0:
+            if batch_idx == 0:
+                self.chain = torch.zeros((self.clusters, self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
             for cluster_indx in range(self.clusters):
                 self.chain[cluster_indx][inds] = one_hot.type(torch.get_default_dtype())
 
-
         # Regularization Terms
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-
         cluster_logs = {"loss": reg1}
 
         ######### KMeans cluster version, not super successful
@@ -1347,10 +1294,9 @@ class pcrbm_cluster(Base):
             if batch_idx == 0:
                 #Initialize Clusters
                 full_Fv = torch.cat(self.all_Fv)
-                bins = 30
                 min, max = full_Fv.min(), full_Fv.max()
-                counts = torch.histc(full_Fv, bins, min=min.data, max=max.data)
-                boundaries = torch.linspace(min.data, max.data, bins + 1)
+                counts = torch.histc(full_Fv, self.bins, min=min.data, max=max.data)
+                boundaries = torch.linspace(min.data, max.data, self.bins + 1)
 
                 original_counts = counts.clone()
                 peaks = []
@@ -1363,14 +1309,18 @@ class pcrbm_cluster(Base):
 
                 self.all_Inds = torch.cat(self.all_Inds)
                 self.cluster_assignments = torch.full((len(self.all_Inds),), 0, device=self.device)
+
+                plt.hist(full_Fv, bins=self.bins)
                 for peak_indx, bounds in enumerate(peaks):
                     peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]], full_Fv <= boundaries[bounds[1]])
                     self.cluster_assignments[self.all_Inds[peak_members.bool()]] = peak_indx + 1
+                    plt.axvline(counts[bounds[0]])
+                    plt.axvline(counts[bounds[1]])
 
                 self.clusters = len(peaks) + 1
+                plt.save(self.logger.log_dir + "cluster_assignment_hist")
 
         else:
-
             clust_assign = self.cluster_assignments[inds]
             for cluster_indx in range(1, self.clusters):
                 filter = clust_assign == cluster_indx
@@ -1457,7 +1407,7 @@ class pcrbm_cluster(Base):
 
         return cluster_logs
 
-    # get indices of largest peak from histogram counts and index of largest peak
+    # get indices of the largest peak from histogram counts and index of peak in counts
     def find_peak(self, counts, peak_indx):
         # finds local minima surrounding given peak index and returns their indices
         i = peak_indx
@@ -1537,25 +1487,6 @@ class pcrbm_cluster(Base):
 
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
-    def predict(self, X):
-        # Read in data
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
-        data_loader = torch.utils.data.DataLoader(
-            reader,
-            batch_size=self.batch_size,
-            num_workers=self.worker_num,  # Set to 0 if debug = True
-            pin_memory=self.pin_mem,
-            shuffle=False
-        )
-        self.eval()
-        with torch.no_grad():
-            likelihood = []
-            for i, batch in enumerate(data_loader):
-                inds, seqs, one_hot, seq_weights = batch
-                likelihood += self.likelihood(one_hot).detach().tolist()
-
-        return X.sequence.tolist(), likelihood
-
     def predict_cluster(self, X, cluster_indx):
         # Read in data
         reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
