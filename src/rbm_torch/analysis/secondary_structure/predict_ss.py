@@ -154,5 +154,6 @@ if __name__ == "__main__":
     #
     # rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l1_cluster3.csv", format="csv", molecule="dna", gquad=True, tempC=25)
     # rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l2_cluster3.csv", format="csv", molecule="dna", gquad=True, tempC=25)
-    # rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l2_cluster2.csv", format="csv", molecule="dna", gquad=True, tempC=25)
-    rnafold_predict_ss_file("../../../../datasets/cov/cluster_generated_seqs/l1_cluster2.csv", format="csv", molecule="dna", gquad=True, tempC=25)
+    for i in range(10):
+        rnafold_predict_ss_file(f"../../../../datasets/cov/cluster_generated_seqs/dynamic/l2_cluster{i}.csv", format="csv", molecule="dna", gquad=True, tempC=25)
+        rnafold_predict_ss_file(f"../../../../datasets/cov/cluster_generated_seqs/dynamic/l1_cluster{i}.csv", format="csv", molecule="dna", gquad=True, tempC=25)

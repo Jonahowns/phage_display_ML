@@ -13,6 +13,7 @@ from rbm_torch.utils.kmeans import kmeans
 from torch.utils.data import WeightedRandomSampler
 from rbm_torch.models.base import Base
 
+supported_colors = ["r", "orange", "y", "g", "b", "indigo", "violet", "m", "c", "k"]
 
 class pcrbm_cluster(Base):
     def __init__(self, config, debug=False, precision="single"):
@@ -72,18 +73,29 @@ class pcrbm_cluster(Base):
             self.register_parameter("fields", nn.Parameter(torch.zeros((*self.v_num, self.q), device=self.device)))
             self.register_parameter("fields0", nn.Parameter(torch.zeros((*self.v_num, self.q), device=self.device)))
 
-        self.hidden_convolution_keys = list(self.convolution_topology.keys())
+        self.base_convolution_keys = list(self.convolution_topology.keys())
+        self.hidden_convolution_keys = []
 
-        # duplicate convolution keys and convolution topology
-        self.clusters = config["clusters"]
-        cluster_convolution_topology = {}
-        for i in range(self.clusters):
-            cluster_convolution_topology[i] = {f"{k}_c{i}": v for k, v in self.convolution_topology.items()}
+        self.base_convolution_topology = self.convolution_topology.copy()
+        self.convolution_topology = {}
 
-        self.convolution_topology = cluster_convolution_topology
-        self.hidden_convolution_keys = [[x+f"_c{i}" for x in self.hidden_convolution_keys] for i in range(self.clusters)]
+        for key in self.base_convolution_keys:
+            dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.base_convolution_topology[key])
+            self.base_convolution_topology[key]["weight_dims"] = dims["weight_shape"]
+            self.base_convolution_topology[key]["convolution_dims"] = dims["conv_shape"]
+            self.base_convolution_topology[key]["output_padding"] = dims["output_padding"]
 
-        self.max_inds = [[] for i in range(self.clusters)]
+            self.base_convolution_topology[key]["pool_kernel"] = (dims["conv_shape"][:-1])[2]
+
+        self.max_inds = []
+
+        self.pools = []
+        self.unpools = []
+
+        self.register_buffer("clusters", torch.tensor(0))
+        self.initialize_cluster()
+
+        self.clust_totals = {}
 
         try:
             self.group_fraction = config["group_fraction"]
@@ -100,45 +112,6 @@ class pcrbm_cluster(Base):
         self.dr = 0.
         if "dr" in config.keys():
             self.dr = config["dr"]
-
-        self.pools = []
-        self.unpools = []
-
-        for cid, cluster in enumerate(self.hidden_convolution_keys):
-            cluster_pools = []
-            cluster_unpools = []
-            for key in cluster:
-                # Set information about the convolutions that will be useful
-                dims = conv2d_dim([self.batch_size, 1, self.v_num, self.q], self.convolution_topology[cid][key])
-                self.convolution_topology[cid][key]["weight_dims"] = dims["weight_shape"]
-                self.convolution_topology[cid][key]["convolution_dims"] = dims["conv_shape"]
-                self.convolution_topology[cid][key]["output_padding"] = dims["output_padding"]
-
-                # deal with pool and unpool initialization
-                pool_input_size = dims["conv_shape"][:-1]
-
-                pool_kernel = pool_input_size[2]
-                pool_stride = 1
-                pool_padding = 0
-
-                cluster_pools.append(nn.MaxPool1d(pool_kernel, stride=pool_stride, return_indices=True, padding=pool_padding))
-                cluster_unpools.append(nn.MaxUnpool1d(pool_kernel, stride=pool_stride, padding=pool_padding))
-
-                # Convolution Weights
-                self.register_parameter(f"{key}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.convolution_topology[cid][key]["weight_dims"], device=self.device)))
-                # hidden layer parameters
-                self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device)))
-                self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device)))
-                self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device)))
-                self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device)))
-                # Used in PT Sampling / AIS
-                self.register_parameter(f"{key}_0theta+", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
-                self.register_parameter(f"{key}_0theta-", nn.Parameter(torch.zeros(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
-                self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
-                self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[cid][key]["number"], device=self.device), requires_grad=False))
-
-            self.pools.append(cluster_pools)
-            self.unpools.append(cluster_unpools)
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i.e. Simplifies loading a model that has already been run
@@ -162,8 +135,47 @@ class pcrbm_cluster(Base):
                 exit(-1)
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
-        self.initial_run = config["initial_run"]
+        self.cluster_checkpoints = config["cluster_checkpoints"]
+        self.reshuffle_checkpoints = config["reshuffle_checkpoints"]
         self.bins = config["histogram_bins"]
+
+
+    def initialize_cluster(self):
+
+        cluster_indx = getattr(self, "clusters").item()
+        self.convolution_topology[cluster_indx] = {f"{k}_c{cluster_indx}": v for k, v in self.base_convolution_topology.items()}
+        self.hidden_convolution_keys.append([f"{x}_c{cluster_indx}" for x in self.base_convolution_keys])
+
+        self.max_inds.append([])
+
+        cluster_pools = []
+        cluster_unpools = []
+        for key in self.base_convolution_keys:
+            nkey = f"{key}_c{cluster_indx}"
+            cluster_pools.append(nn.MaxPool1d(self.base_convolution_topology[key]["pool_kernel"], stride=1, return_indices=True, padding=0))
+            cluster_unpools.append(nn.MaxUnpool1d(self.base_convolution_topology[key]["pool_kernel"], stride=1, padding=0))
+
+            # Convolution Weights
+            self.register_parameter(f"{nkey}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.base_convolution_topology[key]["weight_dims"], device=self.device)))
+            # hidden layer parameters
+            self.register_parameter(f"{nkey}_theta+", nn.Parameter(torch.zeros(self.base_convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{nkey}_theta-", nn.Parameter(torch.zeros(self.base_convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{nkey}_gamma+", nn.Parameter(torch.ones(self.base_convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{nkey}_gamma-", nn.Parameter(torch.ones(self.base_convolution_topology[key]["number"], device=self.device)))
+            # Used in PT Sampling / AIS
+            self.register_parameter(f"{nkey}_0theta+", nn.Parameter(torch.zeros(self.base_convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{nkey}_0theta-", nn.Parameter(torch.zeros(self.base_convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{nkey}_0gamma+", nn.Parameter(torch.ones(self.base_convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{nkey}_0gamma-", nn.Parameter(torch.ones(self.base_convolution_topology[key]["number"], device=self.device), requires_grad=False))
+
+        self.pools.append(cluster_pools)
+        self.unpools.append(cluster_unpools)
+
+        setattr(self, "clusters", getattr(self, "clusters") + 1)
+        if cluster_indx > 0:
+            cluster_params = [getattr(self, f"{nkey}_W"), getattr(self, f"{nkey}_theta+"), getattr(self, f"{nkey}_theta-"), getattr(self, f"{nkey}_gamma+"), getattr(self, f"{nkey}_gamma-")]
+            if self.training:
+                self.optimizers().add_param_group({f"params": cluster_params})
 
 
     def h_layer_num_cluster(self, cluster_indx):
@@ -204,7 +216,7 @@ class pcrbm_cluster(Base):
         # logpart = torch.stack([self.logpartition_h_cluster(v, i) for i in range(self.clusters)], dim=0).sum(0)
         # visible enrgy  - logpartition over all clusters
         if cluster_list is None:
-            return self.energy_v(v) - torch.stack([self.logpartition_h_cluster(self.compute_output_v_cluster(v, i), i) for i in range(self.clusters)], dim=0).sum(0)
+            return self.energy_v(v) - torch.stack([self.logpartition_h_cluster(self.compute_output_v_cluster(v, i), i) for i in range(getattr(self, "clusters").item())], dim=0).sum(0)
         else:
             return self.energy_v(v) - torch.stack([self.logpartition_h_cluster(self.compute_output_v_cluster(v, i), i) for i in cluster_list], dim=0).sum(0)
 
@@ -544,7 +556,7 @@ class pcrbm_cluster(Base):
     ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
     def compute_output_v(self, X):  # X is the one hot vector
         outputs = []
-        for i in range(self.clusters):
+        for i in range(getattr(self, "clusters").item()):
             outputs.append(self.compute_output_v_cluster(X, i))
 
         # flatten list to tensor
@@ -581,7 +593,7 @@ class pcrbm_cluster(Base):
     ## Compute Input for Visible Layer from Hidden dReLU
     def compute_output_h(self, h):  # from h_uk (B, hidden_num)
         outputs = []
-        for i in range(self.clusters):
+        for i in range(getattr(self, "clusters").item()):
             outputs.append(self.compute_output_h_cluster(h[i], i))
 
         if len(outputs) > 1:
@@ -667,7 +679,7 @@ class pcrbm_cluster(Base):
     ## Gibbs Sampling of dReLU hidden layer
     def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden [input]
         h_cluster_uks = []
-        for i in range(self.clusters):
+        for i in range(getattr(self, "clusters").item()):
             h_cluster_uks.append(self.sample_from_inputs_h_cluster(psi[i], i, nancheck=nancheck, beta=beta))
         return h_cluster_uks
 
@@ -788,8 +800,8 @@ class pcrbm_cluster(Base):
             training_stds = self.training_data["sample_std"].tolist()
 
         labels = False
-        if self.pearson_xvar == "labels":
-            labels = True
+        # if self.pearson_xvar == "labels":
+        #     labels = True
 
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
                                    molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=training_stds)
@@ -827,7 +839,7 @@ class pcrbm_cluster(Base):
             )
         else:
             self.sampling_strategy = "random"
-            self.cluster_filters = torch.full((self.clusters, len(train_reader),), True, device=self.device)
+            # self.cluster_filters = torch.full((getattr(self, "clusters"), len(train_reader),), True, device=self.device)
             return torch.utils.data.DataLoader(
                 train_reader,
                 batch_size=self.batch_size,
@@ -847,8 +859,8 @@ class pcrbm_cluster(Base):
             validation_stds = self.validation_data["sample_std"].tolist()
 
         labels = False
-        if self.pearson_xvar == "labels":
-            labels = True
+        # if self.pearson_xvar == "labels":
+        #     labels = True
 
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
                                  molecule=self.molecule, device=self.device, one_hot=True, labels=labels, additional_data=validation_stds)
@@ -1218,198 +1230,149 @@ class pcrbm_cluster(Base):
         # Initialize place to save generated data (for a continuous chain) for PCD
         if self.current_epoch == 0:
             if batch_idx == 0:
-                self.chain = torch.zeros((self.clusters, self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
-            for cluster_indx in range(self.clusters):
-                self.chain[cluster_indx][inds] = one_hot.type(torch.get_default_dtype())
+                self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
+                self.cluster_assignments = torch.full((self.training_data.index.__len__(),), 0, device=self.device)
+
+            self.chain[inds] = one_hot.type(torch.get_default_dtype())
 
         # Regularization Terms
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         cluster_logs = {"loss": reg1}
 
-        ######### KMeans cluster version, not super successful
-        # cluster_indx = self.get_cluster_indx(self.current_epoch)
-        #
-        # # Apply filter to learn poorly rated sequences
-        # if cluster_indx > 0:
-        #     # apply filters to inds, data, and weights
-        #     overall_filter = torch.clamp(torch.sum(self.cluster_filters[:cluster_indx, inds], dim=0) - (cluster_indx - 1), min=0).bool()
-        #     # overall_filter = torch.clamp(torch.stack(filters, dim=0).sum(0) , min=0).bool()
-        #     filtered_inds = inds[overall_filter]
-        #     cdata = cdata[overall_filter]
-        #     weights = weights[overall_filter]
-        #
-        # # Typical free energy calculations
-        # F_v = self.free_energy_cluster(cdata, cluster_indx)
-        # Vc_neg, hc_neg = self.forward_PCD(filtered_inds, cluster_indx)
-        # F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
-        #
-        # # Make new filter for next cluster if more than 5% of the seqs have not been picked up by a cluster
-        # # Otherwise focus on that 5% of sequences
-        # if overall_filter.sum() > .05 * inds.shape[0]:
-        #     cluster_ids, means = kmeans(F_v, 2, tol=1e-3, iter_limit=40)
-        #     unrealized_seqs = cluster_ids == torch.argmax(means)
-        #
-        #     self.cluster_filters[cluster_indx][filtered_inds] = unrealized_seqs
-        #
-        # cluster_cd_loss = (weights * (F_v - F_vp)).mean()
-        #
-        # reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
-        #
-        # cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss
-        #
-        # cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
-        # cluster_logs["cluster"] = cluster_indx
-        # cluster_logs[f"Cluster free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
-        # # cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
-        # cluster_logs[f"Cluster CD Loss"] = cluster_cd_loss.detach()
-        # cluster_logs.update(reg_dict)
+        if batch_idx == 0:
+            if (self.current_epoch + 1 in self.cluster_checkpoints or self.current_epoch + 1 in self.reshuffle_checkpoints):
+                self.all_Fv = {}
+                self.all_Inds = {}
 
-        ###### Clusters from peaks in free energy of initially trained crbm
-        if self.current_epoch < self.initial_run:
-            F_v = self.free_energy_cluster(one_hot, 0)
-            Vc_neg, hc_neg, corr_reg = self.forward_PCD(inds, 0)
-            F_vp = self.free_energy_cluster(Vc_neg, 0)
+            elif self.current_epoch in self.cluster_checkpoints:
+                for i in range(getattr(self, "clusters").item()):
+                    bin_num = int(self.clust_totals[i]/self.cluster_assignments.shape[0] * self.bins)
+                    if bin_num > 0:
+                        self.generate_clusters(i, bin_num)
 
-            reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(0)
+            elif self.current_epoch in self.reshuffle_checkpoints:
+                self.reshuffle_clusters()
 
-            cluster_cd_loss = (seq_weights * (F_v - F_vp)).mean()
+        # Saving neccessary data for reshuffle step
+        if self.current_epoch + 1 in self.reshuffle_checkpoints:
+            if batch_idx == 0:
+                self.all_Inds["full"] = inds
+            else:
+                self.all_Inds["full"] = torch.cat([self.all_Inds["full"], inds])
+            for cluster_indx in range(getattr(self, "clusters").item()):
+                if batch_idx == 0:
+                    self.all_Fv[cluster_indx] = self.free_energy_cluster(one_hot, cluster_indx)
+                else:
+                    self.all_Fv[cluster_indx] = torch.cat([self.all_Fv[cluster_indx], self.free_energy_cluster(one_hot, cluster_indx)])
 
-            cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss
+        clust_assign = self.cluster_assignments[inds]
+        for cluster_indx in range(getattr(self, "clusters").item()):
+            filter = clust_assign == cluster_indx
+
+            if batch_idx == 0:
+                self.clust_totals[cluster_indx] = 0
+
+            self.clust_totals[cluster_indx] += filter.sum()
+
+            if self.clust_totals[cluster_indx] == 0 or filter.sum() == 0:
+                cluster_logs[f"Cluster {cluster_indx} free_energy"] = torch.tensor(0., device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = torch.tensor(0., device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} Loss"] = torch.tensor(0., device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} CD Loss"] = torch.tensor(0., device=self.device)
+                reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
+                cluster_logs.update({f"Cluster_{cluster_indx} " + k:  torch.tensor(0., device=self.device) for k, v in reg_dict.items()})
+                continue
+
+
+            cdata = one_hot[filter]
+            weights = seq_weights[filter]
+            filtered_inds = inds[filter]
+
+            # Typical free energy calculations
+            F_v = self.free_energy_cluster(cdata, cluster_indx)
+            Vc_neg, hc_neg, corr_reg = self.forward_PCD(filtered_inds, cluster_indx)
+            F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
+
+            cluster_cd_loss = (weights * (F_v - F_vp)).mean()
+
+            reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
+
+            cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss + corr_reg
 
             cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
-            cluster_logs[f"Cluster {0} free_energy"] = self.free_energy_cluster(one_hot, 0).detach().mean()
-            cluster_logs[f"Cluster {0} Correlation Reg"] = corr_reg.detach()
-            cluster_logs[f"Cluster {0} Loss"] = cluster_loss.detach()
-            cluster_logs[f"Cluster {0} CD Loss"] = cluster_cd_loss.detach()
-            cluster_logs.update({f"Cluster_{0} " + k: v.detach() for k, v in reg_dict.items()})
+            cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
+            cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
+            cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
+            cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
+            cluster_logs.update({f"Cluster_{cluster_indx} " + k: v.detach() for k, v in reg_dict.items()})
 
-            if self.current_epoch == self.initial_run-1:
+            # Saving neccessary data for clustering step
+            if self.current_epoch + 1 in self.cluster_checkpoints:
                 if batch_idx == 0:
-                    self.all_Fv = [F_v]
-                    self.all_Inds = [inds]
+                    self.all_Fv[cluster_indx] = [F_v]
+                    self.all_Inds[cluster_indx] = [filtered_inds]
                 else:
-                    self.all_Fv.append(F_v)
-                    self.all_Inds.append(inds)
-
-
-        else:
-            if self.current_epoch == self.initial_run:
-                if batch_idx == 0:
-                    # Initialize Clusters
-                    full_Fv = torch.cat(self.all_Fv)
-                    min, max = full_Fv.min(), full_Fv.max()
-                    counts = torch.histc(full_Fv, self.bins, min=min.data, max=max.data)
-                    boundaries = torch.linspace(min.data, max.data, self.bins + 1)
-
-                    original_counts = counts.clone()
-                    peaks = []
-                    while True:
-                        if torch.max(counts) < 100:
-                            break
-                        l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
-                        peaks.append((l_indx, r_indx))
-                        counts[l_indx:r_indx] = 0.
-
-                    self.all_Inds = torch.cat(self.all_Inds)
-                    self.cluster_assignments = torch.full((len(self.all_Inds),), 0, device=self.device)
-
-                    plt.hist(full_Fv, bins=self.bins)
-                    for peak_indx, bounds in enumerate(peaks):
-                        peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
-                                                         full_Fv <= boundaries[bounds[1]])
-                        self.cluster_assignments[self.all_Inds[peak_members.bool()]] = peak_indx + 1
-                        plt.axvline(counts[bounds[0]])
-                        plt.axvline(counts[bounds[1]])
-
-                    self.clusters = len(peaks) + 1
-                    plt.save(self.logger.log_dir + "cluster_assignment_hist")
-
-            clust_assign = self.cluster_assignments[inds]
-            for cluster_indx in range(1, self.clusters):
-                filter = clust_assign == cluster_indx
-                cdata = one_hot[filter]
-                weights = seq_weights[filter]
-                filtered_inds = inds[filter]
-
-                # Typical free energy calculations
-                F_v = self.free_energy_cluster(cdata, cluster_indx)
-                Vc_neg, hc_neg, corr_reg = self.forward_PCD(filtered_inds, cluster_indx)
-                F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
-
-                cluster_cd_loss = (weights * (F_v - F_vp)).mean()
-
-                reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
-
-                cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss + corr_reg
-
-                cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
-                cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
-                cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
-                cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
-                cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
-                cluster_logs.update({f"Cluster_{cluster_indx} " + k: v.detach() for k, v in reg_dict.items()})
-
-
-
-
-        # for cluster_indx in range(self.clusters):
-        #     filtered_inds = inds
-        #     cdata = one_hot
-        #     weights = seq_weights
-        #     # Filter that is applied to full batch to get the current clusters
-        #     full_filter = torch.full((one_hot.shape[0],), False, device=self.device) # modified later
-        #     overall_filter = ~full_filter  # modified below
-        #
-        #     # Apply filter to learn poorly rated sequences
-        #     if cluster_indx > 0:
-        #         # apply filters to inds, data, and weights
-        #         overall_filter = torch.clamp(torch.sum(self.cluster_filters[:cluster_indx, inds], dim=0) - (cluster_indx - 1), min=0).bool()
-        #         # overall_filter = torch.clamp(torch.stack(filters, dim=0).sum(0) , min=0).bool()
-        #         filtered_inds = inds[overall_filter]
-        #         cdata = cdata[overall_filter]
-        #         weights = weights[overall_filter]
-        #
-        #     # Typical free energy calculations
-        #     F_v = self.free_energy_cluster(cdata, cluster_indx)
-        #     Vc_neg, hc_neg = self.forward_PCD(filtered_inds, cluster_indx)
-        #     F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
-        #
-        #     # Make new filter for next cluster if more than 5% of the seqs have not been picked up by a cluster
-        #     # Otherwise focus on that 5% of sequences
-        #     if overall_filter.sum() > .05 * inds.shape[0]:
-        #         # cluster_ids, means = kmeans(F_v, 2, tol=1e-3, iter_limit=40)
-        #         # unrealized_seqs = cluster_ids == torch.argmax(means)
-        #
-        #         bins = 30
-        #         min, max = F_v.min(), F_v.max()
-        #         counts = torch.histc(F_v, bins, min=min.data, max=max.data)
-        #         boundaries = torch.linspace(min.data, max.data, bins + 1)
-        #
-        #         min_indx = self.find_closest_minima(counts)
-        #
-        #         unrealized_seqs = F_v > boundaries[min_indx+1]
-        #
-        #         self.cluster_filters[cluster_indx][filtered_inds] = unrealized_seqs
-        #
-        #     cluster_cd_loss = (weights * (F_v - F_vp)).mean()
-        #
-        #     reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
-        #
-        #     cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss
-        #
-        #     cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
-        #     cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
-        #     cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
-        #     cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
-        #     cluster_logs.update({f"Cluster_{cluster_indx} " + k: v.detach() for k, v in reg_dict.items()})
+                    self.all_Fv[cluster_indx].append(F_v)
+                    self.all_Inds[cluster_indx].append(filtered_inds)
 
         # Free Energy of Sequences from all clusters
-        cluster_logs["free_energy"] = self.free_energy(one_hot).detach().mean()
+        cluster_logs["free_energy"] = self.free_energy(one_hot, cluster_list=[k for k, v in self.clust_totals.items() if v > 0]).detach().mean()
 
         self.log("ptl/train_free_energy", cluster_logs["free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", cluster_logs["loss"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return cluster_logs
+
+    def reshuffle_clusters(self):
+        all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
+        changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == all_scores.argmin(dim=0))).sum()
+        self.cluster_assignments[self.all_Inds["full"]] = all_scores.argmin(dim=0)
+        o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
+        print(f"Changed Assignments of {changed_seqs} seqs", file=o)
+        o.close()
+
+    def generate_clusters(self, parent_cluster, bin_number):
+        # Initialize Clusters
+        full_Fv = torch.cat(self.all_Fv[parent_cluster])
+        min, max = full_Fv.min(), full_Fv.max()
+        counts = torch.histc(full_Fv, bins=bin_number, min=min.data, max=max.data)
+        boundaries = torch.linspace(min.data, max.data, bin_number + 1)
+        starting_cluster_number = getattr(self, "clusters").item()
+
+        original_counts = counts.clone()
+        peaks = []
+        peak_indx = 0
+        while True:
+            if torch.max(counts) < 200:
+                break
+            l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
+            peaks.append((l_indx, r_indx))
+            counts[l_indx:r_indx+1] = 0.
+            # We overwrite the parent cluster with a new subcluster
+            if peak_indx != 0:
+                self.initialize_cluster()
+            peak_indx += 1
+
+        if peak_indx > 1:
+            self.all_Inds[parent_cluster] = torch.cat(self.all_Inds[parent_cluster])
+            plt.hist(full_Fv.detach().cpu(), bins=bin_number)
+
+            for peak_indx, bounds in enumerate(peaks):
+                peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
+                                                 full_Fv <= boundaries[bounds[1]])
+
+                clust = parent_cluster
+                if peak_indx != 0:
+                    clust = starting_cluster_number + peak_indx - 1
+
+                self.cluster_assignments[self.all_Inds[parent_cluster][peak_members.bool()]] = clust
+                lb, rb = boundaries[bounds[0]].cpu().item(), boundaries[bounds[1]].cpu().item()
+                plt.axvline(lb)
+                plt.axvline(rb)
+                plt.annotate(f"C{clust}", ((rb-lb)/2 + lb, 50), c="k")
+
+            plt.savefig(self.logger.log_dir + f"/check_{self.current_epoch}_parent_{parent_cluster}_cluster_assignment_hist")
+            plt.close()
 
     # get indices of the largest peak from histogram counts and index of peak in counts
     def find_peak(self, counts, peak_indx):
@@ -1419,11 +1382,13 @@ class pcrbm_cluster(Base):
         right_prev_count = counts[peak_indx]
         j = i + 1  # right side index
         while True:
-            if j >= len(counts):
+            if j == len(counts):
                 j -= 1
                 break
-            if counts[j] >= right_prev_count:
+            if counts[j] > right_prev_count:
                 j -= 1
+                break
+            elif counts[j] == 0:
                 break
             else:
                 right_prev_count = counts[j]
@@ -1432,16 +1397,22 @@ class pcrbm_cluster(Base):
         k = i - 1  # left side index
         left_prev_count = counts[peak_indx]
         while True:
-            if k < 0:
+            if k <= 0:
                 k = 0
                 break
-            if counts[k] >= left_prev_count:
+            if counts[k] > left_prev_count:
                 k += 1
+                break
+            elif counts[k] == 0:
                 break
             else:
                 left_prev_count = counts[k]
                 k -= 1
-        return k, j
+
+        if k == j and j != len(counts) - 1:
+            return k, j+1
+        else:
+            return k, j
 
     def pearson_loss(self, Ih):
         B, H = Ih.size()
@@ -1462,7 +1433,7 @@ class pcrbm_cluster(Base):
 
     def forward_PCD(self, inds, cluster_indx):
         # Gibbs sampling with Persistent Contrastive Divergence
-        fantasy_v = self.chain[cluster_indx][inds]  # Last sample that was saved to self.chain variable, initialized in training step
+        fantasy_v = self.chain[inds]  # Last sample that was saved to self.chain variable, initialized in training step
         for _ in range(self.mc_moves - 1):
             fantasy_v, fantasy_h = self.markov_step_cluster(fantasy_v, cluster_indx)
 
@@ -1568,7 +1539,7 @@ class pcrbm_cluster(Base):
 
             for cid, cluster in enumerate(self.hidden_convolution_keys):
                 for key in cluster:
-                    W = getattr(self, f"{i}_W")
+                    W = getattr(self, f"{key}_W")
                     W[:, :, :, -1].fill_(fill)
 
     # Return param as a numpy array
