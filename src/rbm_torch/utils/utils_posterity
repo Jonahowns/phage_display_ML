@@ -1,0 +1,305 @@
+
+
+
+
+class HiddenInputs(Categorical):
+
+    # Takes in torch tensor of hidden inputs as input_tensor and fitness_values as tensor of the fitness values
+    def __init__(self, crbm, dataset, q, fitness_values, max_length=20, molecule='protein', device='cpu', one_hot=False, input_batch_size=10000):
+        super().__init__(dataset, q, weights=fitness_values, max_length=max_length, molecule=molecule, device=device, one_hot=one_hot)
+        self.input_tensor = self.make_input_tensor(crbm, batch_size=input_batch_size)
+        self.fitness_values = fitness_values
+
+
+    def make_input_tensor(self, crbm, batch_size=10000):
+        with torch.no_grad():
+            input_tensor = self.train_data.to(crbm.device)
+            batches = input_tensor.shape[0] // batch_size + 1
+            input_batches = []
+            for i in range(batches):
+                if i != batches - 1:
+                    ih = crbm.transform_h(crbm.compute_output_v(input_tensor[i * batch_size:(i + 1) * batch_size]))
+                    # ih = crbm.compute_output_v(input_tensor[i*batch_size:(i+1)*batch_size])
+                else:
+                    ih = crbm.transform_h(crbm.compute_output_v(input_tensor[i * batch_size:]))
+                    # ih = crbm.compute_output_v(input_tensor[i * batch_size:])
+                input_batches.append(torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy())
+            return np.concatenate(input_batches, axis=0)
+            # ih = crbm.compute_output_v(input_tensor)
+            # return torch.cat([torch.flatten(x, start_dim=1) for x in ih], dim=1).cpu().numpy()
+        # return d.to(self.device)
+
+    def __getitem__(self, index):
+        inp = self.input_tensor[index]  # str of sequence
+        fitness_value = self.train_weights[index]
+
+        return inp, fitness_value
+
+    def __len__(self):
+        return self.input_tensor.shape[0]
+
+class BatchNorm1D(torch.nn.Module):
+    def __init__(self, eps=1e-5, affine=True, momentum=None):
+        super().__init__()
+        self.num_batches_tracked = 0
+        self.running_mean = 0.
+        self.running_var = 0.
+        self.eps = eps
+        self.momentum = momentum
+        self.affine = affine
+        if self.affine:
+            self.weight = torch.nn.Parameter(torch.tensor(1.), requires_grad=True)
+            self.bias = torch.nn.Parameter(torch.tensor(1.), requires_grad=True)
+
+    def forward(self, input):
+        exponential_average_factor = 0.0
+
+        if self.training:
+            if self.momentum is None:  # use cumulative moving average
+                self.num_batches_tracked += 1
+                exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+            else:  # use exponential moving average
+                exponential_average_factor = self.momentum
+
+        # calculate running estimates
+        if self.training:
+            mean = input.mean([0, 1])
+            # use biased var in train
+            var = input.var([0, 1], unbiased=False)
+            n = input.shape[0]
+            with torch.no_grad():
+                self.running_mean = exponential_average_factor * mean + (1 - exponential_average_factor) * self.running_mean
+                # update running_var with unbiased var
+                self.running_var = exponential_average_factor * var * n / (n - 1) + (1 - exponential_average_factor) * self.running_var
+        else:
+            mean = self.running_mean
+            var = self.running_var
+
+        input = (input - mean) / (math.sqrt(var + self.eps))
+
+        if self.affine:
+            input = input * self.weight + self.bias
+
+        return input
+
+class BatchNorm2D(torch.nn.Module):
+    def __init__(self, eps=1e-5, affine=True, momentum=None):
+        super().__init__()
+        self.num_batches_tracked = 0
+        self.running_mean = 0.
+        self.running_var = 0.
+        self.eps = eps
+        self.momentum = momentum
+        self.affine = affine
+        if self.affine:
+            self.weight = torch.nn.Parameter(torch.tensor(1.), requires_grad=True)
+            self.bias = torch.nn.Parameter(torch.tensor(1.), requires_grad=True)
+
+    def forward(self, input):
+        exponential_average_factor = 0.0
+
+        if self.training:
+            if self.momentum is None:  # use cumulative moving average
+                self.num_batches_tracked += 1
+                exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+            else:  # use exponential moving average
+                exponential_average_factor = self.momentum
+
+        # calculate running estimates
+        if self.training:
+            mean = input.mean([0, 1, 2])
+            # use biased var in train
+            var = input.var([0, 1, 2], unbiased=False)
+            n = input.shape[0]
+            with torch.no_grad():
+                self.running_mean = exponential_average_factor * mean + (1 - exponential_average_factor) * self.running_mean
+                # update running_var with unbiased var
+                self.running_var = exponential_average_factor * var * n / (n - 1) + (1 - exponential_average_factor) * self.running_var
+        else:
+            mean = self.running_mean
+            var = self.running_var
+
+        input = (input.sub(mean)) / (math.sqrt(var + self.eps))
+
+        if self.affine:
+            input = input * self.weight + self.bias
+
+        return input
+
+
+def calibrate_mean_var(matrix, m1, v1, m2, v2, clip_min=0.5, clip_max=2.):
+    if torch.sum(v1) < 1e-10:
+        return matrix
+    if (v1 <= 0.).any() or (v2 < 0.).any():
+        valid_pos = (((v1 > 0.) + (v2 >= 0.)) == 2)
+        factor = torch.clamp(v2[valid_pos] / v1[valid_pos], clip_min, clip_max)
+        matrix[:, valid_pos] = (matrix[:, valid_pos] - m1[valid_pos]) * torch.sqrt(factor) + m2[valid_pos]
+        return matrix
+
+    factor = torch.clamp(v2 / v1, clip_min, clip_max)
+    return (matrix - m1) * torch.sqrt(factor) + m2
+
+
+# Taken and adapted from https://github.com/YyzHarry/imbalanced-regression
+class FDS(nn.Module):
+    def __init__(self, feature_dim, bucket_num=50, bucket_start=0, start_update=0, start_smooth=1,
+                 kernel='gaussian', ks=5, sigma=2, momentum=0.9, device="cpu"):
+        super().__init__()
+        self.device = device
+        self.feature_dim = feature_dim
+        self.bucket_num = bucket_num
+        self.bucket_start = bucket_start
+        self.kernel_window = self._get_kernel_window(kernel, ks, sigma)
+        self.half_ks = (ks - 1) // 2
+        self.momentum = momentum
+        self.start_update = start_update
+        self.start_smooth = start_smooth
+
+        self.register_buffer('epoch', torch.zeros(1).fill_(start_update))
+        self.register_buffer('running_mean', torch.zeros(bucket_num - bucket_start, feature_dim))
+        self.register_buffer('running_var', torch.ones(bucket_num - bucket_start, feature_dim))
+        self.register_buffer('running_mean_last_epoch', torch.zeros(bucket_num - bucket_start, feature_dim))
+        self.register_buffer('running_var_last_epoch', torch.ones(bucket_num - bucket_start, feature_dim))
+        self.register_buffer('smoothed_mean_last_epoch', torch.zeros(bucket_num - bucket_start, feature_dim))
+        self.register_buffer('smoothed_var_last_epoch', torch.ones(bucket_num - bucket_start, feature_dim))
+        self.register_buffer('num_samples_tracked', torch.zeros(bucket_num - bucket_start))
+
+    # @staticmethod
+    def _get_kernel_window(self, kernel, ks, sigma):
+        assert kernel in ['gaussian', 'triang', 'laplace']
+        half_ks = (ks - 1) // 2
+        if kernel == 'gaussian':
+            base_kernel = [0.] * half_ks + [1.] + [0.] * half_ks
+            base_kernel = np.array(base_kernel, dtype=np.float32)
+            kernel_window = gaussian_filter1d(base_kernel, sigma=sigma) / sum(gaussian_filter1d(base_kernel, sigma=sigma))
+        elif kernel == 'triang':
+            kernel_window = triang(ks) / sum(triang(ks))
+        else:
+            laplace = lambda x: np.exp(-abs(x) / sigma) / (2. * sigma)
+            kernel_window = list(map(laplace, np.arange(-half_ks, half_ks + 1))) / sum(
+                map(laplace, np.arange(-half_ks, half_ks + 1)))
+
+        logging.info(f'Using FDS: [{kernel.upper()}] ({ks}/{sigma})')
+        return torch.tensor(kernel_window, dtype=torch.get_default_dtype(), device=self.device)
+
+    def _assign_bucket_edges(self):
+        # _, bins_edges = torch.histogram(torch.tensor([], device=self.device), bins=self.bucket_num, range=(0., 1.))
+        bin_edges = torch.linspace(0, 1, self.bucket_num + 1, device=self.device)
+        self.bucket_edges = bin_edges
+        self.bucket_start_torch = torch.tensor([self.bucket_start], device=self.device)
+
+    def _get_bucket_idx(self, label):
+        # label = np.float32(label)
+        # _, bins_edges = np.histogram(a=np.array([], dtype=np.float32), bins=self.bucket_num, range=(0., 5.))
+        # bin_edges = self.bucket_edges
+        if label == 1.:
+            return self.bucket_num - 1
+        else:
+            # return max(np.where(self.bucket_edges > label)[0][0] - 1, self.bucket_start)
+            return torch.max(torch.nonzero((self.bucket_edges > label).float()).squeeze(1)[-1] - 1, self.bucket_start_torch).item()
+            # return max(np.where(self.bucket_edges > label)[-1] - 1, self.bucket_start)
+
+    def _update_last_epoch_stats(self):
+        self.running_mean_last_epoch = self.running_mean
+        self.running_var_last_epoch = self.running_var
+
+        self.smoothed_mean_last_epoch = F.conv1d(
+            input=F.pad(self.running_mean_last_epoch.unsqueeze(1).permute(2, 1, 0),
+                        pad=(self.half_ks, self.half_ks), mode='reflect'),
+            weight=self.kernel_window.view(1, 1, -1), padding=0
+        ).permute(2, 1, 0).squeeze(1)
+        self.smoothed_var_last_epoch = F.conv1d(
+            input=F.pad(self.running_var_last_epoch.unsqueeze(1).permute(2, 1, 0),
+                        pad=(self.half_ks, self.half_ks), mode='reflect'),
+            weight=self.kernel_window.view(1, 1, -1), padding=0
+        ).permute(2, 1, 0).squeeze(1)
+
+    def reset(self):
+        self.running_mean.zero_()
+        self.running_var.fill_(1)
+        self.running_mean_last_epoch.zero_()
+        self.running_var_last_epoch.fill_(1)
+        self.smoothed_mean_last_epoch.zero_()
+        self.smoothed_var_last_epoch.fill_(1)
+        self.num_samples_tracked.zero_()
+
+    def update_last_epoch_stats(self, epoch):
+        if epoch == self.epoch + 1:
+            self.epoch += 1
+            self._update_last_epoch_stats()
+            logging.info(f"Updated smoothed statistics of last epoch on Epoch [{epoch}]!")
+
+    def update_running_stats(self, features, labels, epoch):
+        if epoch < self.epoch:
+            return
+
+        assert self.feature_dim == features.size(1), "Input feature dimension is not aligned!"
+        assert features.size(0) == labels.size(0), "Dimensions of features and labels are not aligned!"
+
+        # labels = labels.numpy()
+        buckets = torch.zeros((labels.size(0)), device=self.device)
+
+        self._assign_bucket_edges()
+        for i in range(labels.size(0)):
+            buckets[i] = self._get_bucket_idx(labels[i])
+
+        # buckets = np.array([self._get_bucket_idx(label) for label in labels])
+        # for bucket in np.unique(buckets):
+
+        unique_buckets = torch.unique(buckets)
+        for bucket in unique_buckets.tolist():
+            # curr_feats = features[torch.tensor((buckets == bucket).astype(np.uint8))]
+            curr_feats = features[torch.tensor((buckets == bucket)).tolist()]
+            curr_num_sample = curr_feats.size(0)
+            curr_mean = torch.mean(curr_feats, 0)
+            curr_var = torch.var(curr_feats, 0, unbiased=True if curr_feats.size(0) != 1 else False)
+
+            self.num_samples_tracked[bucket - self.bucket_start] += curr_num_sample
+            factor = self.momentum if self.momentum is not None else \
+                (1 - curr_num_sample / float(self.num_samples_tracked[bucket - self.bucket_start]))
+            factor = 0 if epoch == self.start_update else factor
+            self.running_mean[bucket - self.bucket_start] = \
+                (1 - factor) * curr_mean + factor * self.running_mean[bucket - self.bucket_start]
+            self.running_var[bucket - self.bucket_start] = \
+                (1 - factor) * curr_var + factor * self.running_var[bucket - self.bucket_start]
+
+        # make up for zero training samples buckets
+        for bucket in range(self.bucket_start, self.bucket_num):
+            if bucket not in unique_buckets.tolist():
+                if bucket == self.bucket_start:
+                    self.running_mean[0] = self.running_mean[1]
+                    self.running_var[0] = self.running_var[1]
+                elif bucket == self.bucket_num - 1:
+                    self.running_mean[bucket - self.bucket_start] = self.running_mean[bucket - self.bucket_start - 1]
+                    self.running_var[bucket - self.bucket_start] = self.running_var[bucket - self.bucket_start - 1]
+                else:
+                    self.running_mean[bucket - self.bucket_start] = (self.running_mean[bucket - self.bucket_start - 1] +
+                                                                     self.running_mean[bucket - self.bucket_start + 1]) / 2.
+                    self.running_var[bucket - self.bucket_start] = (self.running_var[bucket - self.bucket_start - 1] +
+                                                                    self.running_var[bucket - self.bucket_start + 1]) / 2.
+        logging.info(f"Updated running statistics with Epoch [{epoch}] features!")
+
+    def smooth(self, features, labels, epoch):
+        if epoch < self.start_smooth:
+            return features
+
+        # labels = labels.squeeze(1)
+        # labels = labels.numpy()
+        buckets = torch.zeros((labels.size(0)), device=self.device)
+
+        self._assign_bucket_edges()
+        for i in range(labels.size(0)):
+            buckets[i] = self._get_bucket_idx(labels[i])
+
+        # buckets = np.array([self._get_bucket_idx(label) for label in labels])
+        for bucket in torch.unique(buckets).long().tolist():
+            features[(buckets == bucket)] = calibrate_mean_var(
+                features[torch.tensor((buckets == bucket).tolist())],
+                self.running_mean_last_epoch[bucket - self.bucket_start],
+                self.running_var_last_epoch[bucket - self.bucket_start],
+                self.smoothed_mean_last_epoch[bucket - self.bucket_start],
+                self.smoothed_var_last_epoch[bucket - self.bucket_start]
+            )
+
+        return features
+

@@ -6,7 +6,7 @@
   "server_model_dir": "datasets/cov/trained_crbms/",
   "weights": "fasta",
   "model_type": "pcrbm_cluster",
-  "gpus": 1,
+  "gpus": 0,
   "config": {
     "fasta_file": "",
     "cluster_checkpoints": [250, 500, 750],

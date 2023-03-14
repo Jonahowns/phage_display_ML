@@ -1,24 +1,13 @@
-import time
-import pandas as pd
-import math
-import json
 import numpy as np
-from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
-from pytorch_lightning.loggers import TensorBoardLogger
-from sklearn.model_selection import train_test_split
 
 import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
-from multiprocessing import cpu_count # Just to set the worker number
-from torch.autograd import Variable
 
-from rbm_torch.models.pool_crbm import pool_CRBM
+from rbm_torch.models.pool_crbm_base import pool_CRBM
 
-from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
+from rbm_torch.utils.utils import Categorical
 
 
 

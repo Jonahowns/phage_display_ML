@@ -17,19 +17,14 @@ from torch.optim import SGD, AdamW, Adagrad, Adadelta  # Supported Optimizers
 from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
-from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim, pool1d_dim, BatchNorm1D, label_samples, process_weights, configure_optimizer, StratifiedBatchSampler, WeightedSubsetRandomSampler  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
-from rbm_torch.utils.data_prep import weight_transform, pearson_transform
+from rbm_torch.utils.utils import Categorical, fasta_read, label_samples, process_weights, configure_optimizer, StratifiedBatchSampler, WeightedSubsetRandomSampler
 from torch.utils.data import WeightedRandomSampler
 
 
-# class that takes care of generic methods for all of the models
+# class that takes care of generic methods for all models
 class Base(LightningModule):
     def __init__(self, config, debug=False, precision="double"):
         super().__init__()
-
-        # REMOVE THESE
-        self.itlm_alpha = 0.0
-        self.sample_stds = None
 
         # Pytorch Basic Options #
         ################################
@@ -66,7 +61,6 @@ class Base(LightningModule):
         # To import from the provided fasta file weights="fasta" in intialization of RBM
         weights = config['sequence_weights']
         self.weights = process_weights(weights)
-
 
         # Dataloader Configuration Options #
         ###########################################
@@ -108,11 +102,53 @@ class Base(LightningModule):
         self.wd = config['weight_decay']  # Put into weight decay option in configure_optimizer, l2 regularizer
         self.decay_after = config['decay_after']  # hyperparameter for when the lr decay should occur
 
-        self.sampling_weights = config["sampling_weights"]
         # Labels for stratified sampling of datasets
-        self.label_spacing = config["label_spacing"]
-        self.label_groups = len(self.label_spacing) - 1
-        assert len(self.label_spacing) - 1 == self.label_groups
+        try:
+            self.label_groups = config["label_groups"]
+        except KeyError:
+            self.label_groups = 1
+
+
+        if self.label_groups > 1:
+            try:
+                self.label_spacing = config["label_spacing"]
+            except KeyError:
+                print("Label Spacing Must be defined in run file!")
+            assert len(self.label_spacing) - 1 == self.label_groups
+        else:
+            self.label_spacing = []
+
+        try:
+            self.group_fraction = config["group_fraction"]
+            assert self.label_groups == len(self.group_fraction)
+        except KeyError:
+            self.group_fraction = [1 / self.label_groups for i in range(self.label_groups)]
+
+        try:
+            self.sample_multiplier = config["sample_multiplier"]
+        except KeyError:
+            self.sample_multiplier = 1.
+
+        # Batch sampling strategy, can be random or stratified
+        try:
+            self.sampling_strategy = config["sampling_strategy"]
+        except KeyError:
+            self.sampling_strategy = "random"
+        assert self.sampling_strategy in ["random", "stratified", "weighted", "stratified_weighted", "polar"]
+
+        # Only used is sampling strategy is weighted
+        try:
+            self.sampling_weights = config["sampling_weights"]
+        except KeyError:
+            self.sampling_weights = None
+
+        # Stratify the datasets, training, validationa, and test
+        try:
+            self.stratify = config["stratify_datasets"]
+        except KeyError:
+            self.stratify = False
+
+
 
     ## Loads Data to be trained from provided fasta file
     def setup(self, stage=None):
@@ -152,22 +188,15 @@ class Base(LightningModule):
         all_data = pd.concat(data_pds)
         if type(self.weights) is np.ndarray:
             all_data["seq_count"] = self.weights
-        if self.sample_stds is not None:
-            all_data["sample_std"] = self.sample_stds
 
         assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
 
-        # stratify_labels = None
-        # if self.stratify or self.pearson_xvar == "label" or self.sampling_strategy == "stratified":
-
-        # w8s = all_data.seq_count.to_numpy()
+        if self.label_spacing == []:
+            self.label_spacing = [min(all_data["fasta_count"].tolist()) - 0.05, max(all_data["fasta_count"].tolist()) + 0.05]
         labels = label_samples(all_data["fasta_count"], self.label_spacing, self.label_groups)
 
         all_data["label"] = labels
-        # stratify_labels = labels
 
-        # else:
-        #     all_data["label"] = 0.
         train_sets, val_sets, test_sets = [], [], []
         for i in range(self.label_groups):
             label_df = all_data[all_data["label"] == i]
@@ -206,7 +235,6 @@ class Base(LightningModule):
     ## Sets Up Optimizer as well as Exponential Weight Decasy
     def configure_optimizers(self):
         optim = self.optimizer(self.parameters(), lr=self.lr, weight_decay=self.wd)
-        # optim = self.optimizer(self.weight_param)
         # Exponential Weight Decay after set amount of epochs (set by decay_after)
         decay_gamma = (self.lrf / self.lr) ** (1 / (self.epochs * (1 - self.decay_after)))
         decay_milestone = math.floor(self.decay_after * self.epochs)
@@ -217,26 +245,53 @@ class Base(LightningModule):
 
     ## Loads Training Data
     def train_dataloader(self, init_fields=True):
-        # Get Correct Weights
         training_weights = None
         if "seq_count" in self.training_data.columns:
             training_weights = self.training_data["seq_count"].tolist()
 
-        training_stds = None
-        if "sample_std" in self.training_data.columns:
-            training_stds = self.training_data["sample_std"].tolist()
-
         train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                   molecule=self.molecule, device=self.device, one_hot=True, labels=False, additional_data=training_stds)
+                                   molecule=self.molecule, device=self.device, one_hot=True, labels=False)
+        # Init Fields
+        if init_fields:
+            if hasattr(self, "fields"):
+                with torch.no_grad():
+                    initial_fields = train_reader.field_init()
+                    self.fields += initial_fields
+                    self.fields0 += initial_fields
 
-
-        return torch.utils.data.DataLoader(
-            train_reader,
-            batch_size=self.batch_size,
-            num_workers=self.worker_num,  # Set to 0 if debug = True
-            pin_memory=self.pin_mem,
-            shuffle=True
-        )
+        # Sampling
+        if self.sampling_strategy == "stratified":
+            return torch.utils.data.DataLoader(
+                train_reader,
+                batch_sampler=StratifiedBatchSampler(self.training_data["label"].to_numpy(), batch_size=self.batch_size,
+                                                     shuffle=True, seed=self.seed),
+                num_workers=self.worker_num,  # Set to 0 if debug = True
+                pin_memory=self.pin_mem
+            )
+        elif self.sampling_strategy == "weighted":
+            return torch.utils.data.DataLoader(
+                train_reader,
+                sampler=WeightedRandomSampler(weights=self.sampling_weights, num_samples=self.batch_size * self.sample_multiplier, replacement=True),
+                num_workers=self.worker_num,  # Set to 0 if debug = True
+                batch_size=self.batch_size,
+                pin_memory=self.pin_mem
+            )
+        elif self.sampling_strategy == "stratified_weighted":
+            return torch.utils.data.DataLoader(
+                train_reader,
+                batch_sampler=WeightedSubsetRandomSampler(self.sampling_weights, self.training_data["label"].to_numpy(), self.group_fraction, self.batch_size, self.sample_multiplier),
+                num_workers=self.worker_num,  # Set to 0 if debug = True
+                pin_memory=self.pin_mem
+            )
+        else:
+            self.sampling_strategy = "random"
+            return torch.utils.data.DataLoader(
+                train_reader,
+                batch_size=self.batch_size,
+                num_workers=self.worker_num,  # Set to 0 if debug = True
+                pin_memory=self.pin_mem,
+                shuffle=True
+            )
 
     def val_dataloader(self):
         # Get Correct Validation weights
@@ -244,20 +299,24 @@ class Base(LightningModule):
         if "seq_count" in self.validation_data.columns:
             validation_weights = self.validation_data["seq_count"].tolist()
 
-        validation_stds = None
-        if "sample_std" in self.validation_data.columns:
-            validation_stds = self.validation_data["sample_std"].tolist()
-
         val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                 molecule=self.molecule, device=self.device, one_hot=True, labels=None, additional_data=validation_stds)
+                                 molecule=self.molecule, device=self.device, one_hot=True, labels=None, additional_data=None)
 
-        return torch.utils.data.DataLoader(
-            val_reader,
-            batch_size=self.batch_size,
-            num_workers=self.worker_num,  # Set to 0 to view tensors while debugging
-            pin_memory=self.pin_mem,
-            shuffle=False
-        )
+        if self.sampling_strategy == "stratified":
+            return torch.utils.data.DataLoader(
+                val_reader,
+                batch_sampler=StratifiedBatchSampler(self.validation_data["label"].to_numpy(), batch_size=self.batch_size, shuffle=False),
+                num_workers=self.worker_num,  # Set to 0 if debug = True
+                pin_memory=self.pin_mem
+            )
+        else:
+            return torch.utils.data.DataLoader(
+                val_reader,
+                batch_size=self.batch_size,
+                num_workers=self.worker_num,  # Set to 0 to view tensors while debugging
+                pin_memory=self.pin_mem,
+                shuffle=False
+            )
 
     def validation_epoch_end(self, outputs):
         result_dict = {}
@@ -279,144 +338,79 @@ class Base(LightningModule):
 
         for name, p in self.named_parameters():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+            
 
+# class that extends base class for any of our rbm/crbm models
+class Base_drelu(Base):
+    def __init__(self, config, debug=False, precision="double"):
+        super().__init__(config, debug=debug, precision=precision)
+        self.dr = 0.
+        if "dr" in config.keys():
+            self.dr = config["dr"]
 
-# class FASTADataModule(LightningDataModule):
-#     def __init__(self, fasta_file, molecule, v_num, q, label_spacing, label_groups, batch_size: int = 32, worker_num=1, val_size=0.15, test_size=0.1, seed=0):
-#         super().__init__()
-#         self.batch_size = batch_size
-#         self.fasta_file = fasta_file
-#         self.worker_num = worker_num
-#         self.molecule = molecule
-#
-#
-#         self.val_size = val_size
-#         self.test_size = test_size
-#         self.q = q
-#         self.v_num = v_num
-#         self.label_spacing = label_spacing
-#         self.label_groups = label_groups
-#         self.seed = seed
-#
-#
-#     def setup(self, stage: str):
-#         self.additional_data = False
-#         if type(self.fasta_file) is str:
-#             self.fasta_file = [self.fasta_file]
-#
-#         assert type(self.fasta_file) is list
-#         data_pds = []
-#
-#         for file in self.fasta_file:
-#             try:
-#                 if self.worker_num == 0:
-#                     threads = 1
-#                 else:
-#                     threads = self.worker_num
-#                 seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=False, threads=threads)
-#             except IOError:
-#                 print(f"Provided Fasta File '{file}' Not Found")
-#                 print(f"Current Directory '{os.getcwd()}'")
-#                 sys.exit()
-#
-#             if q_data != self.q:
-#                 print(
-#                     f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
-#                 sys.exit(-1)
-#
-#             # seq_read_counts = np.asarray([math.log(x + 1.0, math.e) for x in seq_read_counts])
-#             data = pd.DataFrame(data={'sequence': seqs, 'fasta_count': seq_read_counts})
-#
-#             if type(self.weights) == str and "fasta" in self.weights:
-#                 weights = np.asarray(seq_read_counts)
-#                 data["seq_count"] = weights
-#
-#             data_pds.append(data)
-#
-#         all_data = pd.concat(data_pds)
-#         if type(self.weights) is np.ndarray:
-#             all_data["seq_count"] = self.weights
-#         if self.sample_stds is not None:
-#             all_data["sample_std"] = self.sample_stds
-#
-#         assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
-#
-#         # stratify_labels = None
-#         # if self.stratify or self.pearson_xvar == "label" or self.sampling_strategy == "stratified":
-#
-#         # w8s = all_data.seq_count.to_numpy()
-#         labels = self.label_samples(all_data["fasta_count"], self.label_spacing, self.label_groups)
-#
-#         all_data["label"] = labels
-#         # stratify_labels = labels
-#
-#         # else:
-#         #     all_data["label"] = 0.
-#
-#         train_sets, val_sets, test_sets = [], [], []
-#         for i in range(self.label_groups):
-#             label_df = all_data[all_data["label"] == i]
-#             if self.test_size > 0.:
-#                 # Split label df into train and test sets, taking into account duplicates
-#                 train_inds, test_inds = next(GroupShuffleSplit(test_size=self.test_size, n_splits=1, random_state=self.seed).split(label_df, groups=label_df['sequence']))
-#                 test_sets += label_df.index[test_inds].to_list()
-#
-#                 # Further split training set into train and test set
-#                 train_inds, val_inds = next(GroupShuffleSplit(test_size=self.validation_size, n_splits=1, random_state=self.seed).split(label_df[train_inds], groups=label_df['sequence']))
-#                 train_sets += label_df.index[train_inds].to_list()
-#                 val_sets += label_df.index[val_inds].to_list()
-#
-#             else:
-#                 # Split label df into train and validation sets, taking into account duplicates
-#                 train_inds, val_inds = next(GroupShuffleSplit(test_size=self.validation_size, n_splits=1, random_state=self.seed).split(label_df, groups=label_df['sequence']))
-#                 train_sets += label_df.index[train_inds].to_list()
-#                 val_sets += label_df.index[val_inds].to_list()
-#
-#         self.training_data = all_data.iloc[train_sets]
-#         self.validation_data = all_data.iloc[val_sets]
-#
-#         if self.sampling_weights is not None:
-#             self.sampling_weights = self.sampling_weights[train_sets]
-#
-#         self.dataset_indices = {"train_indices": train_sets, "val_indices": val_sets}
-#         if self.test_size > 0:
-#             self.test_data = all_data.iloc[test_sets]
-#             self.dataset_indices["test_indices"] = test_sets
-#
-#     def train_dataloader(self):
-#         return DataLoader(self.mnist_train, batch_size=self.batch_size)
-#
-#     def val_dataloader(self):
-#         return DataLoader(self.mnist_val, batch_size=self.batch_size)
-#
-#     def test_dataloader(self):
-#         return DataLoader(self.mnist_test, batch_size=self.batch_size)
-#
-#     def teardown(self, stage: str):
-#         # Used to clean-up when the run is finished
-#         ...
-#
-#     def label_samples(self, w8s, label_spacing, label_groups):
-#         if type(label_spacing) is list:
-#             bin_edges = label_spacing
-#         else:
-#             if label_spacing == "log":
-#                 bin_edges = np.geomspace(np.min(w8s), np.max(w8s), label_groups + 1)
-#             elif label_spacing == "lin":
-#                 bin_edges = np.linspace(np.min(w8s), np.max(w8s), label_groups + 1)
-#             else:
-#                 print(f"pearson label spacing option {label_spacing} not supported!")
-#                 exit()
-#         bin_edges = bin_edges[1:]
-#
-#         def assign_label(x):
-#             bin_edge = bin_edges[0]
-#             idx = 0
-#             while x > bin_edge:
-#                 idx += 1
-#                 bin_edge = bin_edges[idx]
-#
-#             return idx
-#
-#         labels = list(map(assign_label, w8s))
-#         return labels
+        # Constants for faster math
+        self.logsqrtpiover2 = torch.tensor(0.2257913526, device=self.device, requires_grad=False)
+        self.pbis = torch.tensor(0.332672, device=self.device, requires_grad=False)
+        self.a1 = torch.tensor(0.3480242, device=self.device, requires_grad=False)
+        self.a2 = torch.tensor(- 0.0958798, device=self.device, requires_grad=False)
+        self.a3 = torch.tensor(0.7478556, device=self.device, requires_grad=False)
+        self.invsqrt2 = torch.tensor(0.7071067812, device=self.device, requires_grad=False)
+        self.sqrt2 = torch.tensor(1.4142135624, device=self.device, requires_grad=False)
+
+    # Return param as a numpy array
+    def get_param(self, param_name):
+        try:
+            tensor = getattr(self, param_name).clone()
+            return tensor.detach().numpy()
+        except KeyError:
+            print(f"Key {param_name} not found")
+            sys.exit(1)
+
+    # Initializes Members for both PT and gen_data functions
+    def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
+        self.record_acceptance = record_acceptance
+        self.record_swaps = record_swaps
+
+        # self.update_betas()
+        self.betas = torch.arange(N_PT) / (N_PT - 1)
+        self.betas = self.betas.flip(0)
+
+        if n_chains is None:
+            n_chains = self.batch_size
+
+        self.particle_id = [torch.arange(N_PT).unsqueeze(1).expand(N_PT, n_chains)]
+
+        # if self.record_acceptance:
+        self.mavar_gamma = 0.95
+        self.acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
+        self.mav_acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
+
+        # gen data
+        self.count_swaps = 0
+        self.last_at_zero = None
+        self.trip_duration = None
+        # self.update_betas_lr = 0.1
+        # self.update_betas_lr_decay = 1
+
+    ## Hidden dReLU supporting Function
+    def erf_times_gauss(self, X):  # This is the "characteristic" function phi
+        m = torch.zeros_like(X, device=self.device)
+        tmp1 = X < -6
+        m[tmp1] = 2 * torch.exp(X[tmp1] ** 2 / 2)
+
+        tmp2 = X > 0
+        t = 1 / (1 + self.pbis * X[tmp2])
+        m[tmp2] = t * (self.a1 + self.a2 * t + self.a3 * t ** 2)
+
+        tmp3 = torch.logical_and(~tmp1, ~tmp2)
+        t2 = 1 / (1 - self.pbis * X[tmp3])
+        m[tmp3] = -t2 * (self.a1 + self.a2 * t2 + self.a3 * t2 ** 2) + 2 * torch.exp(X[tmp3] ** 2 / 2)
+        return m
+
+    ## Hidden dReLU supporting Function
+    def log_erf_times_gauss(self, X):
+        m = torch.zeros_like(X, device=self.device)
+        tmp = X < 4
+        m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / self.sqrt2)) + self.logsqrtpiover2
+        m[~tmp] = - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4)
+        return m

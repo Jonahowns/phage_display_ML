@@ -1,0 +1,9 @@
+tmap
+tmap-viz
+Tbparse
+globus-sdk
+
+
+
+// SetSimilaritySearch  # lsh in sequtils
+// bokeh # interactive plots

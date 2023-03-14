@@ -2,21 +2,10 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning import Trainer
 
 import argparse
-# import json
-# import numpy as np
-# from numpy.random import randint
 import os
-
-from rbm_torch.models.rbm import RBM
 from rbm_torch.models.crbm import CRBM
-from rbm_torch.models.crbm_experimental import ExpCRBM, pCRBM
-from rbm_torch.models.crbm_net import CRBM_net
-from rbm_torch.models.rbm_experimental import ExpRBM
 from rbm_torch.models.pool_crbm_base import pool_CRBM
 from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
-# from rbm_torch.models.variational_pool_crbm import variational_pcrbm
-# from rbm_torch.models.variational_pool_crbm import vr_pcrbm, hybrid_pcrbm
-from rbm_torch.models.composition_crbm import comp_CRBM
 from rbm_torch.models.pool_crbm_cluster import pcrbm_cluster
 
 from rbm_torch.utils.utils import load_run_file
@@ -49,30 +38,12 @@ if __name__ == '__main__':
         config["seed"] = int(args.s)
 
     # Training Code
-    if model_type == "rbm":
-        model = RBM(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == "exp_rbm":
-        model = ExpRBM(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == "crbm":
+    if model_type == "crbm":
         model = CRBM(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == "exp_crbm":
-        model = ExpCRBM(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == 'pcrbm':
-        model = pCRBM(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == "net_crbm":
-        model = CRBM_net(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pool_crbm":
         model = pool_CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pool_class_crbm":
         model = pool_class_CRBM(config, debug=debug_flag, precision=config["precision"])
-    # elif model_type == "variational_pool_crbm":
-    #     model = variational_pcrbm(config, debug=debug_flag, precision=config["precision"])
-    # elif model_type == "vr_pcrbm":
-    #     model = vr_pcrbm(config, debug=debug_flag, precision=config["precision"])
-    # elif model_type == "hybrid_pcrbm":
-        # model = hybrid_pcrbm(config, debug=debug_flag, precision=config["precision"])
-    elif model_type == "comp_crbm":
-        model = comp_CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pcrbm_cluster":
         model = pcrbm_cluster(config, debug=debug_flag, precision=config["precision"])
     else:
@@ -90,5 +61,8 @@ if __name__ == '__main__':
         # distributed data parallel, multi-gpus on single machine or across multiple machines
         plt = Trainer(max_epochs=config['epochs'], logger=logger, gpus=run_data["gpus"], accelerator="cuda", strategy="ddp")  # distributed data-parallel
     else:
-        plt = Trainer(max_epochs=config['epochs'], logger=logger, devices=run_data["gpus"], accelerator="cuda")  # gpus=1,
+        if run_data['gpus'] == 0:
+            plt = Trainer(max_epochs=config['epochs'], logger=logger, accelerator="cpu")
+        else:
+            plt = Trainer(max_epochs=config['epochs'], logger=logger, devices=run_data["gpus"], accelerator="cuda")  # gpus=1,
     plt.fit(model)
