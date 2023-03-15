@@ -332,7 +332,10 @@ class Base(LightningModule):
             if key == "loss":
                 result_dict[key] = torch.stack([x[key].detach() for x in outputs]).mean()
             else:
-                result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
+                try:
+                    result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
+                except RuntimeError:
+                    print('sup bitch')
 
         self.logger.experiment.add_scalars("Train Scalars", result_dict, self.current_epoch)
 

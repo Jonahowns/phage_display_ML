@@ -72,6 +72,8 @@ class pcrbm_cluster(Base_drelu):
         self.cluster_checkpoints = config["cluster_checkpoints"]
         self.reshuffle_checkpoints = config["reshuffle_checkpoints"]
         self.bins = config["histogram_bins"]
+        self.max_peaks = config["max_peaks"]
+        self.min_peak_height = config["min_peak_height"]
 
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
@@ -913,10 +915,10 @@ class pcrbm_cluster(Base_drelu):
             if self.clust_totals[cluster_indx] == 0 or filter.sum() == 0:
                 cluster_logs[f"Cluster {cluster_indx} free_energy"] = torch.tensor(0., device=self.device)
                 cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = torch.tensor(0., device=self.device)
-                cluster_logs[f"Cluster {cluster_indx} Loss"] = torch.tensor(0., device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} Loss"] = torch.tensor([0.], device=self.device)
                 cluster_logs[f"Cluster {cluster_indx} CD Loss"] = torch.tensor(0., device=self.device)
                 reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
-                cluster_logs.update({f"Cluster_{cluster_indx} " + k:  torch.tensor(0., device=self.device) for k, v in reg_dict.items()})
+                cluster_logs.update({f"Cluster_{cluster_indx} " + k:  torch.tensor([0.], device=self.device) for k, v in reg_dict.items()})
                 continue
 
 
@@ -935,6 +937,9 @@ class pcrbm_cluster(Base_drelu):
 
             cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss + corr_reg
 
+            if cluster_loss.isnan():
+                print("huh")
+
             cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
             cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
             cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
@@ -944,6 +949,7 @@ class pcrbm_cluster(Base_drelu):
 
             # Saving neccessary data for clustering step
             if self.current_epoch + 1 in self.cluster_checkpoints:
+                self.report_cluster_membership()
                 if batch_idx == 0:
                     self.all_Fv[cluster_indx] = [F_v]
                     self.all_Inds[cluster_indx] = [filtered_inds]
@@ -970,6 +976,7 @@ class pcrbm_cluster(Base_drelu):
     def generate_clusters(self, parent_cluster, bin_number):
         # Initialize Clusters
         full_Fv = torch.cat(self.all_Fv[parent_cluster])
+        in_peak = torch.full_like(full_Fv, False, device=self.device, dtype=torch.bool)
         min, max = full_Fv.min(), full_Fv.max()
         counts = torch.histc(full_Fv, bins=bin_number, min=min.data, max=max.data)
         boundaries = torch.linspace(min.data, max.data, bin_number + 1)
@@ -979,7 +986,9 @@ class pcrbm_cluster(Base_drelu):
         peaks = []
         peak_indx = 0
         while True:
-            if torch.max(counts) < 200:
+            if torch.max(counts) < self.min_peak_height or peak_indx > self.max_peaks:
+                self.initialize_cluster()
+                peaks.append((-1, -1))
                 break
             l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
             peaks.append((l_indx, r_indx))
@@ -994,15 +1003,20 @@ class pcrbm_cluster(Base_drelu):
             plt.hist(full_Fv.detach().cpu(), bins=bin_number)
 
             for peak_indx, bounds in enumerate(peaks):
-                peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
-                                                 full_Fv <= boundaries[bounds[1]])
-
-                clust = parent_cluster
-                if peak_indx != 0:
+                if bounds[0] < 0:
                     clust = starting_cluster_number + peak_indx - 1
+                    self.cluster_assignments[self.all_Inds[parent_cluster][~in_peak]] = clust
+                    lb, rb = full_Fv[~in_peak].min().cpu().item(), full_Fv[~in_peak].max().cpu().item()
+                else:
+                    peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
+                                                     full_Fv <= boundaries[bounds[1]])
+                    in_peak[peak_members] = True
+                    clust = parent_cluster
+                    if peak_indx != 0:
+                        clust = starting_cluster_number + peak_indx - 1
 
-                self.cluster_assignments[self.all_Inds[parent_cluster][peak_members.bool()]] = clust
-                lb, rb = boundaries[bounds[0]].cpu().item(), boundaries[bounds[1]].cpu().item()
+                    self.cluster_assignments[self.all_Inds[parent_cluster][peak_members.bool()]] = clust
+                    lb, rb = boundaries[bounds[0]].cpu().item(), boundaries[bounds[1]].cpu().item()
                 plt.axvline(lb)
                 plt.axvline(rb)
                 plt.annotate(f"C{clust}", ((rb-lb)/2 + lb, 50), c="k")
@@ -1063,9 +1077,12 @@ class pcrbm_cluster(Base_drelu):
         pearson_mat = (bcov / std_mat).abs()
 
         self_interaction_term = torch.diagonal(pearson_mat, offset=H//2).sum()
-        other_interactions = pearson_mat.triu(diagonal=1).sum() - self_interaction_term
+        interactions = torch.tensor([pearson_mat.triu(diagonal=1).sum() - self_interaction_term], device=self.device)
 
-        return other_interactions*self.lcorr
+        if interactions.isnan():
+            print("fight me")
+
+        return interactions*self.lcorr
 
     def forward_PCD(self, inds, cluster_indx):
         # Gibbs sampling with Persistent Contrastive Divergence
@@ -1074,10 +1091,14 @@ class pcrbm_cluster(Base_drelu):
             fantasy_v, fantasy_h = self.markov_step_cluster(fantasy_v, cluster_indx)
 
         V_neg, fantasy_h, hidden_input = self.markov_step_with_hidden_input_cluster(fantasy_v, cluster_indx)
-        flat_hidden_input = torch.cat(hidden_input, dim=1)
-        hidden_inputs = [torch.clamp(flat_hidden_input, min=0.), torch.clamp(flat_hidden_input, max=0.).abs()]
 
-        input_loss = self.pearson_loss(torch.cat(hidden_inputs, dim=1))
+        if inds.shape[0] > 1:
+            flat_hidden_input = torch.cat(hidden_input, dim=1)
+            hidden_inputs = [torch.clamp(flat_hidden_input, min=0.), torch.clamp(flat_hidden_input, max=0.).abs()]
+
+            input_loss = self.pearson_loss(torch.cat(hidden_inputs, dim=1))
+        else:
+            input_loss = torch.tensor([0.], device=self.device)
 
         h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
 
@@ -1086,6 +1107,15 @@ class pcrbm_cluster(Base_drelu):
     # Might rewrite for cluster version
     def forward(self, V_pos_ohe):
         pass
+
+    def report_cluster_membership(self):
+        o = open(self.logger.log_dir + f"/cluster_membership_{self.current_epoch}.txt", "w+")
+        for i in range(getattr(self, 'clusters').cpu().item()):
+            print(f"Cluster {i}: {self.clust_totals[i]} seqs", file=o)
+        o.close()
+
+    def on_train_end(self):
+        self.report_cluster_membership()
 
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
