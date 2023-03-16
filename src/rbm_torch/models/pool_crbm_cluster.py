@@ -1,5 +1,6 @@
 import time
 import math
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -69,8 +70,16 @@ class pcrbm_cluster(Base_drelu):
         self.initialize_cluster()
 
         self.clust_totals = {}
-        self.cluster_checkpoints = config["cluster_checkpoints"]
-        self.reshuffle_checkpoints = config["reshuffle_checkpoints"]
+        self.cluster_checkpoints = list(np.arange(config["cluster_details"][0], config["cluster_details"][1]+config["cluster_details"][2],
+                                                  config["cluster_details"][2]))
+        self.reshuffle_checkpoints = list(np.arange(config["reshuffle_details"][0], config["reshuffle_details"][1]+config["reshuffle_details"][2],
+                                                  config["reshuffle_details"][2]))
+
+        try:
+            assert not bool(set(self.cluster_checkpoints) & set(self.reshuffle_checkpoints))
+        except AssertionError:
+            print("Cluster Checkpoints and Reshuffle Checkpoints can't have any overlapping members")
+            sys.exit(1)
         self.bins = config["histogram_bins"]
         self.max_peaks = config["max_peaks"]
         self.min_peak_height = config["min_peak_height"]
@@ -890,6 +899,8 @@ class pcrbm_cluster(Base_drelu):
             elif self.current_epoch in self.reshuffle_checkpoints:
                 self.reshuffle_clusters()
 
+            self.clust_totals = {}
+
         # Saving neccessary data for reshuffle step
         if self.current_epoch + 1 in self.reshuffle_checkpoints:
             if batch_idx == 0:
@@ -906,10 +917,12 @@ class pcrbm_cluster(Base_drelu):
         for cluster_indx in range(getattr(self, "clusters").item()):
             filter = clust_assign == cluster_indx
 
-            if batch_idx == 0:
+            if cluster_indx not in self.clust_totals.keys():
                 self.clust_totals[cluster_indx] = 0
 
-            self.clust_totals[cluster_indx] += filter.sum()
+            total = filter.sum()
+            if total > 0:
+                self.clust_totals[cluster_indx] += filter.sum()
 
             if self.clust_totals[cluster_indx] == 0 or filter.sum() == 0:
                 cluster_logs[f"Cluster {cluster_indx} free_energy"] = torch.tensor(0., device=self.device)
@@ -947,12 +960,15 @@ class pcrbm_cluster(Base_drelu):
 
             # Saving neccessary data for clustering step
             if self.current_epoch + 1 in self.cluster_checkpoints:
-                if batch_idx == 0:
-                    self.all_Fv[cluster_indx] = [F_v]
-                    self.all_Inds[cluster_indx] = [filtered_inds]
+                if cluster_indx not in self.all_Fv.keys():
+                    self.all_Fv[cluster_indx] = F_v
                 else:
-                    self.all_Fv[cluster_indx].append(F_v)
-                    self.all_Inds[cluster_indx].append(filtered_inds)
+                    self.all_Fv[cluster_indx] = torch.cat([self.all_Fv[cluster_indx], F_v])
+
+                if cluster_indx not in self.all_Inds.keys():
+                    self.all_Inds[cluster_indx] = filtered_inds
+                else:
+                    self.all_Inds[cluster_indx] = torch.cat([self.all_Inds[cluster_indx], filtered_inds])
 
         # Free Energy of Sequences from all clusters
         cluster_logs["free_energy"] = self.free_energy(one_hot, cluster_list=[k for k, v in self.clust_totals.items() if v > 0]).detach().mean()
@@ -969,7 +985,7 @@ class pcrbm_cluster(Base_drelu):
         all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
         changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == all_scores.argmin(dim=0))).sum()
         self.cluster_assignments[self.all_Inds["full"]] = all_scores.argmin(dim=0)
-        print("#PostShuffle")
+        print("#PostShuffle", file=o)
         self.report_cluster_membership(o)
         print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
         self.prune_clusters()
@@ -978,22 +994,37 @@ class pcrbm_cluster(Base_drelu):
 
     def prune_clusters(self):
         clusters_to_delete = sorted([k for k, v in self.clust_totals.items() if v == 0])
+        if len(clusters_to_delete) == 0:
+            return
         used_clusters = sorted([k for k, v in self.clust_totals.items() if v > 0])
+        used_clusters.reverse()
         source, destination, deleted = [], [], []
         for d_indx in clusters_to_delete:
             for u_indx in used_clusters:
-                if d_indx in source or u_indx in destination:
+                if d_indx in destination or u_indx in source:
                     continue
                 if d_indx < u_indx:
                     destination.append(d_indx)
                     source.append(u_indx)
 
-        adj_destination = [destination[0], *source[:-1]]
-        for i in range(len(source)):
-            self.replace_cluster(source[i], adj_destination[i])
+        # Replace Clusters
+        if len(source) != 0:
+            min_dest = [min(source[xid], destination[xid]) for xid in range(1, len(destination))]
+            adj_destination = [destination[0], *min_dest]
+            for i in range(len(source)):
+                self.replace_cluster(source[i], adj_destination[i])
+
+        # Delete unused Clusters
         delete_me = [x for x in clusters_to_delete if x not in destination]
-        for d in delete_me:
-            self.delete_cluster(d)
+        delete_me += [x for x in source if x not in destination]
+        if len(delete_me) == 0:
+            return
+        else:
+            delete_me.sort()
+            delete_me.reverse()
+            for d in delete_me:
+                self.delete_cluster(d)
+            return
 
     def delete_cluster(self, indx):
         for key in self.hidden_convolution_keys[indx]:
@@ -1014,14 +1045,14 @@ class pcrbm_cluster(Base_drelu):
             for kid, key in enumerate(source_keys):
                 for param in ["theta", "gamma", "0theta", "0gamma"]:
                     for mod in ["+", "-"]:
-                        setattr(self, f"{key}_{param}{mod}", getattr(self, f"{dest_keys[kid]}_{param}{mod}").clone())
-            setattr(self, f"{key}_W", getattr(self, f"{dest_keys[kid]}_W").clone())
+                        getattr(self, f"{key}_{param}{mod}").data = getattr(self, f"{dest_keys[kid]}_{param}{mod}").data.clone()
+        getattr(self, f"{key}_W").data = getattr(self, f"{dest_keys[kid]}_W").data.clone()
 
         self.cluster_assignments[self.cluster_assignments == source_indx] = dest_indx
 
     def generate_clusters(self, parent_cluster, bin_number):
         # Initialize Clusters
-        full_Fv = torch.cat(self.all_Fv[parent_cluster])
+        full_Fv = self.all_Fv[parent_cluster]
         in_peak = torch.full_like(full_Fv, False, device=self.device, dtype=torch.bool)
         min, max = full_Fv.min(), full_Fv.max()
         counts = torch.histc(full_Fv, bins=bin_number, min=min.data, max=max.data)
@@ -1045,7 +1076,6 @@ class pcrbm_cluster(Base_drelu):
             peak_indx += 1
 
         if peak_indx > 1:
-            self.all_Inds[parent_cluster] = torch.cat(self.all_Inds[parent_cluster])
             plt.hist(full_Fv.detach().cpu(), bins=bin_number)
 
             for peak_indx, bounds in enumerate(peaks):
@@ -1159,9 +1189,6 @@ class pcrbm_cluster(Base_drelu):
     def report_cluster_membership(self, file_obj    ):
       for i in range(getattr(self, 'clusters').cpu().item()):
             print(f"Cluster {i}: {self.clust_totals[i]} seqs", file=file_obj)
-
-    def on_train_end(self):
-        self.report_cluster_membership()
 
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
