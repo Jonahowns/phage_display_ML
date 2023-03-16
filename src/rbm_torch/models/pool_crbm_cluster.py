@@ -90,7 +90,6 @@ class pcrbm_cluster(Base_drelu):
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
     def initialize_cluster(self):
-
         cluster_indx = getattr(self, "clusters").item()
         self.convolution_topology[cluster_indx] = {f"{k}_c{cluster_indx}": v for k, v in self.base_convolution_topology.items()}
         self.hidden_convolution_keys.append([f"{x}_c{cluster_indx}" for x in self.base_convolution_keys])
@@ -878,7 +877,7 @@ class pcrbm_cluster(Base_drelu):
         cluster_logs = {"loss": reg1}
 
         if batch_idx == 0:
-            if (self.current_epoch + 1 in self.cluster_checkpoints or self.current_epoch + 1 in self.reshuffle_checkpoints):
+            if self.current_epoch + 1 in [*self.cluster_checkpoints, *self.reshuffle_checkpoints]:
                 self.all_Fv = {}
                 self.all_Inds = {}
 
@@ -914,13 +913,12 @@ class pcrbm_cluster(Base_drelu):
 
             if self.clust_totals[cluster_indx] == 0 or filter.sum() == 0:
                 cluster_logs[f"Cluster {cluster_indx} free_energy"] = torch.tensor(0., device=self.device)
-                cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = torch.tensor(0., device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = torch.tensor([0.], device=self.device)
                 cluster_logs[f"Cluster {cluster_indx} Loss"] = torch.tensor([0.], device=self.device)
                 cluster_logs[f"Cluster {cluster_indx} CD Loss"] = torch.tensor(0., device=self.device)
                 reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
                 cluster_logs.update({f"Cluster_{cluster_indx} " + k:  torch.tensor([0.], device=self.device) for k, v in reg_dict.items()})
                 continue
-
 
             cdata = one_hot[filter]
             weights = seq_weights[filter]
@@ -949,7 +947,6 @@ class pcrbm_cluster(Base_drelu):
 
             # Saving neccessary data for clustering step
             if self.current_epoch + 1 in self.cluster_checkpoints:
-                self.report_cluster_membership()
                 if batch_idx == 0:
                     self.all_Fv[cluster_indx] = [F_v]
                     self.all_Inds[cluster_indx] = [filtered_inds]
@@ -966,12 +963,61 @@ class pcrbm_cluster(Base_drelu):
         return cluster_logs
 
     def reshuffle_clusters(self):
+        o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
+        print("#PreShuffle", file=o)
+        self.report_cluster_membership(o)
         all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
         changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == all_scores.argmin(dim=0))).sum()
         self.cluster_assignments[self.all_Inds["full"]] = all_scores.argmin(dim=0)
-        o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
-        print(f"Changed Assignments of {changed_seqs} seqs", file=o)
+        print("#PostShuffle")
+        self.report_cluster_membership(o)
+        print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
+        self.prune_clusters()
+        self.report_cluster_membership(o)
         o.close()
+
+    def prune_clusters(self):
+        clusters_to_delete = sorted([k for k, v in self.clust_totals.items() if v == 0])
+        used_clusters = sorted([k for k, v in self.clust_totals.items() if v > 0])
+        source, destination, deleted = [], [], []
+        for d_indx in clusters_to_delete:
+            for u_indx in used_clusters:
+                if d_indx in source or u_indx in destination:
+                    continue
+                if d_indx < u_indx:
+                    destination.append(d_indx)
+                    source.append(u_indx)
+
+        adj_destination = [destination[0], *source[:-1]]
+        for i in range(len(source)):
+            self.replace_cluster(source[i], adj_destination[i])
+        delete_me = [x for x in clusters_to_delete if x not in destination]
+        for d in delete_me:
+            self.delete_cluster(d)
+
+    def delete_cluster(self, indx):
+        for key in self.hidden_convolution_keys[indx]:
+            for param in ["theta", "gamma", "0theta", "0gamma"]:
+                for mod in ["+", "-"]:
+                    delattr(self, f"{key}_{param}{mod}")
+            delattr(self, f"{key}_W")
+        del self.hidden_convolution_keys[indx]
+        del self.pools[indx]
+        del self.unpools[indx]
+
+        setattr(self, "clusters", getattr(self, "clusters")-1)
+
+    def replace_cluster(self, source_indx, dest_indx):
+        source_keys = self.hidden_convolution_keys[source_indx]
+        dest_keys = self.hidden_convolution_keys[dest_indx]
+        with torch.no_grad():
+            for kid, key in enumerate(source_keys):
+                for param in ["theta", "gamma", "0theta", "0gamma"]:
+                    for mod in ["+", "-"]:
+                        setattr(self, f"{key}_{param}{mod}", getattr(self, f"{dest_keys[kid]}_{param}{mod}").clone())
+            setattr(self, f"{key}_W", getattr(self, f"{dest_keys[kid]}_W").clone())
+
+        self.cluster_assignments[self.cluster_assignments == source_indx] = dest_indx
 
     def generate_clusters(self, parent_cluster, bin_number):
         # Initialize Clusters
@@ -993,7 +1039,7 @@ class pcrbm_cluster(Base_drelu):
             l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
             peaks.append((l_indx, r_indx))
             counts[l_indx:r_indx+1] = 0.
-            # We overwrite the parent cluster with a new subcluster
+            # We overwrite the parent cluster with a new subcluster (peak_indx == 0)
             if peak_indx != 0:
                 self.initialize_cluster()
             peak_indx += 1
@@ -1077,7 +1123,9 @@ class pcrbm_cluster(Base_drelu):
         pearson_mat = (bcov / std_mat).abs()
 
         self_interaction_term = torch.diagonal(pearson_mat, offset=H//2).sum()
-        interactions = torch.tensor([pearson_mat.triu(diagonal=1).sum() - self_interaction_term], device=self.device)
+        interactions = torch.zeros((1,), device=self.device)
+        interactions.add_(pearson_mat.triu(diagonal=1).sum())
+        interactions.sub_(self_interaction_term)
 
         if interactions.isnan():
             print("fight me")
@@ -1108,11 +1156,9 @@ class pcrbm_cluster(Base_drelu):
     def forward(self, V_pos_ohe):
         pass
 
-    def report_cluster_membership(self):
-        o = open(self.logger.log_dir + f"/cluster_membership_{self.current_epoch}.txt", "w+")
-        for i in range(getattr(self, 'clusters').cpu().item()):
-            print(f"Cluster {i}: {self.clust_totals[i]} seqs", file=o)
-        o.close()
+    def report_cluster_membership(self, file_obj    ):
+      for i in range(getattr(self, 'clusters').cpu().item()):
+            print(f"Cluster {i}: {self.clust_totals[i]} seqs", file=file_obj)
 
     def on_train_end(self):
         self.report_cluster_membership()
