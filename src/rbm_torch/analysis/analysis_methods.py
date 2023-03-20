@@ -205,7 +205,7 @@ def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="lo
     colors = supported_colors
     plot_num = len(order)
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
-    for xid, x in enumerate(order): # each subplots likelihood dictionary labels
+    for xid, x in enumerate(order): # each subplot likelihood dictionary labels
         if xlim is not None:
             if plot_num == 1:
                 axs.set_xlim(*xlim)

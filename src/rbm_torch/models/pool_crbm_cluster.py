@@ -744,6 +744,9 @@ class pcrbm_cluster(Base_drelu):
                         getattr(self, f"{key}_{param}").data.clamp_(min=0.0)
                     getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
 
+    def on_train_end(self):
+        torch.save(self.cluster_assignments, self.logger.log_dir + "/training_data_cluster_assignments.pt")
+
     ## Calls Corresponding Training Function
     def training_step(self, batch, batch_idx):
         if self.sample_type == "gibbs":
@@ -886,6 +889,8 @@ class pcrbm_cluster(Base_drelu):
         cluster_logs = {"loss": reg1}
 
         if batch_idx == 0:
+            self.update_clust_totals()
+
             if self.current_epoch + 1 in [*self.cluster_checkpoints, *self.reshuffle_checkpoints]:
                 self.all_Fv = {}
                 self.all_Inds = {}
@@ -898,8 +903,6 @@ class pcrbm_cluster(Base_drelu):
 
             elif self.current_epoch in self.reshuffle_checkpoints:
                 self.reshuffle_clusters()
-
-            self.clust_totals = {}
 
         # Saving neccessary data for reshuffle step
         if self.current_epoch + 1 in self.reshuffle_checkpoints:
@@ -917,14 +920,7 @@ class pcrbm_cluster(Base_drelu):
         for cluster_indx in range(getattr(self, "clusters").item()):
             filter = clust_assign == cluster_indx
 
-            if cluster_indx not in self.clust_totals.keys():
-                self.clust_totals[cluster_indx] = 0
-
-            total = filter.sum()
-            if total > 0:
-                self.clust_totals[cluster_indx] += filter.sum()
-
-            if self.clust_totals[cluster_indx] == 0 or filter.sum() == 0:
+            if filter.sum() == 0:
                 cluster_logs[f"Cluster {cluster_indx} free_energy"] = torch.tensor(0., device=self.device)
                 cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = torch.tensor([0.], device=self.device)
                 cluster_logs[f"Cluster {cluster_indx} Loss"] = torch.tensor([0.], device=self.device)
@@ -978,6 +974,9 @@ class pcrbm_cluster(Base_drelu):
 
         return cluster_logs
 
+    def update_clust_totals(self):
+        self.clust_totals = {i: (self.cluster_assignments == i).sum().item() for i in range(self.clusters.item())}
+
     def reshuffle_clusters(self):
         o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
         print("#PreShuffle", file=o)
@@ -985,10 +984,13 @@ class pcrbm_cluster(Base_drelu):
         all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
         changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == all_scores.argmin(dim=0))).sum()
         self.cluster_assignments[self.all_Inds["full"]] = all_scores.argmin(dim=0)
-        print("#PostShuffle", file=o)
-        self.report_cluster_membership(o)
         print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
+        print("#PostShuffle", file=o)
+        self.update_clust_totals()
+        self.report_cluster_membership(o)
         self.prune_clusters()
+        print("#PostPruning", file=o)
+        self.update_clust_totals()
         self.report_cluster_membership(o)
         o.close()
 
@@ -1014,17 +1016,24 @@ class pcrbm_cluster(Base_drelu):
             for i in range(len(source)):
                 self.replace_cluster(source[i], adj_destination[i])
 
+        self.update_clust_totals()
         # Delete unused Clusters
-        delete_me = [x for x in clusters_to_delete if x not in destination]
-        delete_me += [x for x in source if x not in destination]
-        if len(delete_me) == 0:
-            return
-        else:
-            delete_me.sort()
-            delete_me.reverse()
-            for d in delete_me:
-                self.delete_cluster(d)
-            return
+        for i in range(self.clusters.item() - 1, -1, -1):
+            if self.clust_totals[i] == 0:
+                self.delete_cluster(i)
+        return
+
+
+        # delete_me = [x for x in clusters_to_delete if x not in destination]
+        # delete_me += [x for x in source if x not in destination]
+        # if len(delete_me) == 0:
+        #     return
+        # else:
+        #     delete_me.sort()
+        #     delete_me.reverse()
+        #     for d in delete_me:
+        #         self.delete_cluster(d)
+        #     return
 
     def delete_cluster(self, indx):
         for key in self.hidden_convolution_keys[indx]:
@@ -1083,6 +1092,9 @@ class pcrbm_cluster(Base_drelu):
                     clust = starting_cluster_number + peak_indx - 1
                     self.cluster_assignments[self.all_Inds[parent_cluster][~in_peak]] = clust
                     lb, rb = full_Fv[~in_peak].min().cpu().item(), full_Fv[~in_peak].max().cpu().item()
+                    plt.axvline(lb, c="r")
+                    plt.axvline(rb, c="r")
+                    plt.annotate(f"C{clust}", ((rb - lb) / 2 + lb, 200), c="r")
                 else:
                     peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
                                                      full_Fv <= boundaries[bounds[1]])
@@ -1093,9 +1105,9 @@ class pcrbm_cluster(Base_drelu):
 
                     self.cluster_assignments[self.all_Inds[parent_cluster][peak_members.bool()]] = clust
                     lb, rb = boundaries[bounds[0]].cpu().item(), boundaries[bounds[1]].cpu().item()
-                plt.axvline(lb)
-                plt.axvline(rb)
-                plt.annotate(f"C{clust}", ((rb-lb)/2 + lb, 50), c="k")
+                    plt.axvline(lb, c="k")
+                    plt.axvline(rb, c="k")
+                    plt.annotate(f"C{clust}", ((rb-lb)/2 + lb, 50), c="k")
 
             plt.savefig(self.logger.log_dir + f"/check_{self.current_epoch}_parent_{parent_cluster}_cluster_assignment_hist")
             plt.close()
@@ -1379,17 +1391,20 @@ class pcrbm_cluster(Base_drelu):
                 config[0], config[1] = self.markov_step_cluster(config[0], cluster_indx)
                 energy = self.energy_cluster(config[0], config[1], cluster_indx)
                 log_weights += -(betas[i] - betas[i - 1]) * energy
-            self.log_Z_AIS = (log_Z_init + log_weights).mean()
-            self.log_Z_AIS_std = (log_Z_init + log_weights).std() / np.sqrt(M)
+            self.log_Z_AIS[cluster_indx] = (log_Z_init + log_weights).mean()
+            self.log_Z_AIS_std[cluster_indx] = (log_Z_init + log_weights).std() / np.sqrt(M)
             if verbose:
-                print('Final evaluation: log(Z)= %s +- %s' % (self.log_Z_AIS, self.log_Z_AIS_std))
-            return self.log_Z_AIS, self.log_Z_AIS_std
+                print('Final evaluation: log(Z)= %s +- %s' % (self.log_Z_AIS[cluster_indx], self.log_Z_AIS_std[cluster_indx]))
+            return self.log_Z_AIS[cluster_indx], self.log_Z_AIS_std[cluster_indx]
 
 
     def likelihood_cluster(self, data, cluster_indx, recompute_Z=False):
-        if (not hasattr(self, 'log_Z_AIS')) | recompute_Z:
+        if not hasattr(self, "log_Z_AIS"):
+            self.log_Z_AIS = torch.zeros((self.clusters,))
+            self.log_Z_AIS_std = torch.zeros((self.clusters,))
+        if not torch.is_nonzero(self.log_Z_AIS[cluster_indx]) | recompute_Z:
             self.AIS_cluster(cluster_indx)
-        return -self.free_energy_cluster(data, cluster_indx) - self.log_Z_AIS
+        return -self.free_energy_cluster(data, cluster_indx) - self.log_Z_AIS[cluster_indx]
 
     def cgf_from_inputs_h_cluster(self, I, hidden_key, cluster_indx):
         with torch.no_grad():
