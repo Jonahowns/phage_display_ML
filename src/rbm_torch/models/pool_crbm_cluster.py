@@ -981,9 +981,17 @@ class pcrbm_cluster(Base_drelu):
         o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
         print("#PreShuffle", file=o)
         self.report_cluster_membership(o)
+
+        current_clusters = self.cluster_assignments[self.all_Inds["full"]]
+        means = torch.stack([(self.all_Fv[i][current_clusters == i]).mean(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
+
         all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
-        changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == all_scores.argmin(dim=0))).sum()
-        self.cluster_assignments[self.all_Inds["full"]] = all_scores.argmin(dim=0)
+        dists = (all_scores - means).abs()
+
+        new_assignments = dists.argmin(dim=0)
+
+        changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == new_assignments)).sum()
+        self.cluster_assignments[self.all_Inds["full"]] = new_assignments
         print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
         print("#PostShuffle", file=o)
         self.update_clust_totals()
