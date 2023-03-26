@@ -983,12 +983,20 @@ class pcrbm_cluster(Base_drelu):
         self.report_cluster_membership(o)
 
         current_clusters = self.cluster_assignments[self.all_Inds["full"]]
+        Fv_stack = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
+
         means = torch.stack([(self.all_Fv[i][current_clusters == i]).mean(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
+        stds = torch.stack([(self.all_Fv[i][current_clusters == i]).std(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
 
-        all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
-        dists = (all_scores - means).abs()
+        normal_dists = torch.distributions.Normal(means, stds)
+        probs = normal_dists.log_prob(Fv_stack)
 
-        new_assignments = dists.argmin(dim=0)
+        new_assignments = probs.argmax(dim=0)
+
+        # all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
+        # dists = (all_scores - means).abs()
+        #
+        # new_assignments = dists.argmin(dim=0)
 
         changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == new_assignments)).sum()
         self.cluster_assignments[self.all_Inds["full"]] = new_assignments
