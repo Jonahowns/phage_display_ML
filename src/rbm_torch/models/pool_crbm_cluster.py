@@ -83,7 +83,7 @@ class pcrbm_cluster(Base_drelu):
         self.bins = config["histogram_bins"]
         self.max_peaks = config["max_peaks"]
         self.min_peak_height = config["min_peak_height"]
-
+        self.min_cluster_membership = config["min_cluster_membership"]
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i.e. Simplifies loading a model that has already been run
@@ -988,8 +988,12 @@ class pcrbm_cluster(Base_drelu):
         means = torch.stack([(self.all_Fv[i][current_clusters == i]).mean(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
         stds = torch.stack([(self.all_Fv[i][current_clusters == i]).std(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
 
+        # Favor less spread out distributions
+        std_inverse = 1./stds
+        std_modifier = std_inverse / std_inverse.sum()
+
         normal_dists = torch.distributions.Normal(means, stds)
-        probs = normal_dists.log_prob(Fv_stack)
+        probs = normal_dists.log_prob(Fv_stack) * std_modifier
 
         new_assignments = probs.argmax(dim=0)
 
@@ -1002,6 +1006,14 @@ class pcrbm_cluster(Base_drelu):
         self.cluster_assignments[self.all_Inds["full"]] = new_assignments
         print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
         print("#PostShuffle", file=o)
+        self.update_clust_totals()
+        for i in range(self.clusters.item()):
+            if self.clust_totals[i] < self.min_clust_membership:
+                seqs_to_change = new_assignments == i
+                probs[seqs_to_change, i] = probs[seqs_to_change, i].abs()
+                new_assignments[seqs_to_change] = probs[seqs_to_change].argmax(dim=0)
+                self.cluster_assignments[self.all_Inds["full"][seqs_to_change]] = new_assignments[seqs_to_change]
+
         self.update_clust_totals()
         self.report_cluster_membership(o)
         self.prune_clusters()
