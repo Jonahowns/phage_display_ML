@@ -985,17 +985,19 @@ class pcrbm_cluster(Base_drelu):
         current_clusters = self.cluster_assignments[self.all_Inds["full"]]
         Fv_stack = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
 
-        means = torch.stack([(self.all_Fv[i][current_clusters == i]).mean(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
-        stds = torch.stack([(self.all_Fv[i][current_clusters == i]).std(0, keepdim=True) for i in range(getattr(self, "clusters").item())], dim=0)
+        means = torch.stack([(self.all_Fv[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        stds = torch.stack([(self.all_Fv[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
 
+        if torch.isnan(means).any() or torch.isnan(stds).any():
+            print("suh")
         # Favor less spread out distributions
         std_inverse = 1./stds
         std_modifier = std_inverse / std_inverse.sum()
 
         normal_dists = torch.distributions.Normal(means, stds)
-        probs = normal_dists.log_prob(Fv_stack) * std_modifier
+        probs = normal_dists.log_prob(Fv_stack.T) * std_modifier.log()
 
-        new_assignments = probs.argmax(dim=0)
+        new_assignments = probs.argmax(dim=1)
 
         # all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
         # dists = (all_scores - means).abs()
@@ -1008,10 +1010,10 @@ class pcrbm_cluster(Base_drelu):
         print("#PostShuffle", file=o)
         self.update_clust_totals()
         for i in range(self.clusters.item()):
-            if self.clust_totals[i] < self.min_clust_membership:
+            if self.clust_totals[i] < self.min_cluster_membership:
                 seqs_to_change = new_assignments == i
-                probs[seqs_to_change, i] = probs[seqs_to_change, i].abs()
-                new_assignments[seqs_to_change] = probs[seqs_to_change].argmax(dim=0)
+                probs[seqs_to_change, i] = probs[seqs_to_change, i] - 100
+                new_assignments[seqs_to_change] = probs[seqs_to_change].argmax(dim=1)
                 self.cluster_assignments[self.all_Inds["full"][seqs_to_change]] = new_assignments[seqs_to_change]
 
         self.update_clust_totals()
@@ -1100,9 +1102,12 @@ class pcrbm_cluster(Base_drelu):
         peaks = []
         peak_indx = 0
         while True:
-            if torch.max(counts) < self.min_peak_height or peak_indx > self.max_peaks:
+            seq_num = torch.sum(counts)
+            if (torch.max(counts) < self.min_peak_height or peak_indx > self.max_peaks) and seq_num > 0:
                 self.initialize_cluster()
                 peaks.append((-1, -1))
+                break
+            elif seq_num == 0:
                 break
             l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
             peaks.append((l_indx, r_indx))
