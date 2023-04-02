@@ -4,7 +4,7 @@ import math
 import json
 import numpy as np
 from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
+# from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split
 

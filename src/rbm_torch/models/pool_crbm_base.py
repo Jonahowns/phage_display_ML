@@ -5,7 +5,7 @@ import json
 import numpy as np
 import sys
 from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
+# from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
 
 
@@ -596,7 +596,8 @@ class pool_CRBM(Base_drelu):
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         #
-        return batch_out
+        self.val_data_logs.append(batch_out)
+        return
 
     def regularization_terms(self):
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
@@ -655,7 +656,8 @@ class pool_CRBM(Base_drelu):
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return logs
+        self.training_data_logs.append(logs)
+        return logs["loss"]
 
     def training_step_CD_free_energy(self, batch, batch_idx):
         inds, seqs, one_hot, seq_weights = batch
@@ -668,7 +670,7 @@ class pool_CRBM(Base_drelu):
         free_energy_log = {
             "free_energy_pos": F_v.sum().detach(),
             "free_energy_neg": F_vp.sum().detach(),
-            "free_energy_diff": free_energy_diff.sum().detach(),
+            "free_energy_diff": cd_loss.sum().detach(),
             # "free_energy_kd": free_energy_kd.detach(),
             "cd_loss": cd_loss.detach(),
         }
@@ -680,7 +682,7 @@ class pool_CRBM(Base_drelu):
         loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
 
         logs = {"loss": loss,
-                "train_free_energy": free_energy_diff.sum().detach(),
+                "train_free_energy": cd_loss.sum().detach(),
                 **free_energy_log,
                 **reg_dict
                 }
@@ -688,7 +690,8 @@ class pool_CRBM(Base_drelu):
         self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss.detach(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return logs
+        self.training_data_logs.append(logs)
+        return logs["loss"]
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
         if self.pearson_xvar == "labels" and self.additional_data:
@@ -715,7 +718,7 @@ class pool_CRBM(Base_drelu):
 
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        # free_energy_v = self.free_energy(one_hot)
+        free_energy_v = self.free_energy(one_hot)
         # min_free_energy = free_energy_v.max()
 
         # if min_free_energy < batch_min_free_energy:
@@ -753,7 +756,8 @@ class pool_CRBM(Base_drelu):
         self.log("ptl/train_free_energy", logs["free_energy_pos"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return logs
+        self.training_data_logs.append(logs)
+        return logs["loss"]
 
     def pearson_loss(self, Ih, k=2):
         B, H = Ih.size()

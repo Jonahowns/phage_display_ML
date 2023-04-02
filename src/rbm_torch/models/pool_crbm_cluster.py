@@ -23,6 +23,7 @@ class pcrbm_cluster(Base_drelu):
         # Switches How the training of the RBM is performed
         self.sample_type = config['sample_type']
         assert self.sample_type in ['gibbs', 'pt', 'pcd']
+        assert self.sample_type in ['gibbs', 'pt', 'pcd']
 
         # Regularization Options #
         ###########################################
@@ -770,7 +771,8 @@ class pcrbm_cluster(Base_drelu):
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
         #
-        return batch_out
+        self.val_data_logs.append(batch_out)
+        return
 
     ## Not yet rewritten for crbm
     # def training_step_CD_energy(self, batch, batch_idx):
@@ -972,7 +974,8 @@ class pcrbm_cluster(Base_drelu):
         self.log("ptl/train_free_energy", cluster_logs["free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("ptl/train_loss", cluster_logs["loss"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return cluster_logs
+        self.training_data_logs.append(cluster_logs)
+        return cluster_logs["loss"]
 
     def update_clust_totals(self):
         self.clust_totals = {i: (self.cluster_assignments == i).sum().item() for i in range(self.clusters.item())}
@@ -991,11 +994,11 @@ class pcrbm_cluster(Base_drelu):
         if torch.isnan(means).any() or torch.isnan(stds).any():
             print("suh")
         # Favor less spread out distributions
-        std_inverse = 1./stds
-        std_modifier = std_inverse / std_inverse.sum()
+        # std_inverse = 1./stds
+        std_modifier = (stds / stds.sum())
 
         normal_dists = torch.distributions.Normal(means, stds)
-        probs = normal_dists.log_prob(Fv_stack.T) * std_modifier.log()
+        probs = normal_dists.log_prob(Fv_stack.T) + (std_modifier.log().abs())/10
 
         new_assignments = probs.argmax(dim=1)
 
@@ -1018,6 +1021,7 @@ class pcrbm_cluster(Base_drelu):
 
         self.update_clust_totals()
         self.report_cluster_membership(o)
+
         self.prune_clusters()
         print("#PostPruning", file=o)
         self.update_clust_totals()
@@ -1025,7 +1029,7 @@ class pcrbm_cluster(Base_drelu):
         o.close()
 
     def prune_clusters(self):
-        clusters_to_delete = sorted([k for k, v in self.clust_totals.items() if v == 0])
+        clusters_to_delete = sorted([k for k, v in self.clust_totals.items() if v < self.min_cluster_membership])
         if len(clusters_to_delete) == 0:
             return
         used_clusters = sorted([k for k, v in self.clust_totals.items() if v > 0])
@@ -1049,7 +1053,7 @@ class pcrbm_cluster(Base_drelu):
         self.update_clust_totals()
         # Delete unused Clusters
         for i in range(self.clusters.item() - 1, -1, -1):
-            if self.clust_totals[i] == 0:
+            if self.clust_totals[i] < self.min_cluster_membership:
                 self.delete_cluster(i)
         return
 
@@ -1106,23 +1110,25 @@ class pcrbm_cluster(Base_drelu):
             if (torch.max(counts) < self.min_peak_height or peak_indx > self.max_peaks) and seq_num > 0:
                 self.initialize_cluster()
                 peaks.append((-1, -1))
+                peak_indx += 1
                 break
-            elif seq_num == 0:
+            elif seq_num < self.min_cluster_membership:
                 break
             l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
             peaks.append((l_indx, r_indx))
             counts[l_indx:r_indx+1] = 0.
             # We overwrite the parent cluster with a new subcluster (peak_indx == 0)
-            if peak_indx != 0:
+            if peak_indx > 0:
                 self.initialize_cluster()
+
             peak_indx += 1
 
         if peak_indx > 1:
             plt.hist(full_Fv.detach().cpu(), bins=bin_number)
 
-            for peak_indx, bounds in enumerate(peaks):
+            for p_indx, bounds in enumerate(peaks):
                 if bounds[0] < 0:
-                    clust = starting_cluster_number + peak_indx - 1
+                    clust = starting_cluster_number + p_indx - 1
                     self.cluster_assignments[self.all_Inds[parent_cluster][~in_peak]] = clust
                     lb, rb = full_Fv[~in_peak].min().cpu().item(), full_Fv[~in_peak].max().cpu().item()
                     plt.axvline(lb, c="r")
@@ -1133,8 +1139,8 @@ class pcrbm_cluster(Base_drelu):
                                                      full_Fv <= boundaries[bounds[1]])
                     in_peak[peak_members] = True
                     clust = parent_cluster
-                    if peak_indx != 0:
-                        clust = starting_cluster_number + peak_indx - 1
+                    if p_indx > 0:
+                        clust = starting_cluster_number + p_indx - 1
 
                     self.cluster_assignments[self.all_Inds[parent_cluster][peak_members.bool()]] = clust
                     lb, rb = boundaries[bounds[0]].cpu().item(), boundaries[bounds[1]].cpu().item()

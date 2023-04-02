@@ -5,7 +5,7 @@ import json
 import sys
 import numpy as np
 from pytorch_lightning import LightningModule, LightningDataModule, Trainer
-from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
+# from pytorch_lightning.profiler import SimpleProfiler, PyTorchProfiler
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
 
@@ -147,6 +147,9 @@ class Base(LightningModule):
             self.stratify = config["stratify_datasets"]
         except KeyError:
             self.stratify = False
+
+        self.training_data_logs = []
+        self.val_data_logs = []
 
 
 
@@ -318,22 +321,24 @@ class Base(LightningModule):
                 shuffle=False
             )
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         result_dict = {}
-        for key, value in outputs[0].items():
-            result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
+        for key in self.val_data_logs[0].keys():
+            result_dict[key] = torch.stack([x[key] for x in self.val_data_logs]).mean()
 
         self.logger.experiment.add_scalars("Val Scalars", result_dict, self.current_epoch)
 
+        self.val_data_logs.clear()
+
     ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
-    def training_epoch_end(self, outputs):
+    def on_train_epoch_end(self):
         result_dict = {}
-        for key, value in outputs[0].items():
+        for key in self.training_data_logs[0].keys():
             if key == "loss":
-                result_dict[key] = torch.stack([x[key].detach() for x in outputs]).mean()
+                result_dict[key] = torch.stack([x[key].detach() for x in self.training_data_logs]).mean()
             else:
                 try:
-                    result_dict[key] = torch.stack([x[key] for x in outputs]).mean()
+                    result_dict[key] = torch.stack([x[key] for x in self.training_data_logs]).mean()
                 except RuntimeError:
                     print('sup bitch')
 
@@ -341,6 +346,8 @@ class Base(LightningModule):
 
         for name, p in self.named_parameters():
             self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
+
+        self.training_data_logs.clear()
             
 
 # class that extends base class for any of our rbm/crbm models
