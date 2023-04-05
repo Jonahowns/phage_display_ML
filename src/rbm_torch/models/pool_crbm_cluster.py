@@ -978,7 +978,7 @@ class pcrbm_cluster(Base_drelu):
         return cluster_logs["loss"]
 
     def update_clust_totals(self):
-        self.clust_totals = {i: (self.cluster_assignments == i).sum().item() for i in range(self.clusters.item())}
+        self.clust_totals = {i: (self.cluster_assignments == i).int().sum().item() for i in range(self.clusters.item())}
 
     def reshuffle_clusters(self):
         o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
@@ -993,6 +993,7 @@ class pcrbm_cluster(Base_drelu):
 
         if torch.isnan(means).any() or torch.isnan(stds).any():
             print("suh")
+
         # Favor less spread out distributions
         # std_inverse = 1./stds
         std_modifier = (stds / stds.sum())
@@ -1001,21 +1002,19 @@ class pcrbm_cluster(Base_drelu):
         probs = normal_dists.log_prob(Fv_stack.T) + (std_modifier.log().abs())/10
 
         new_assignments = probs.argmax(dim=1)
+        changed_seqs = (~(current_clusters == new_assignments)).sum()
 
-        # all_scores = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
-        # dists = (all_scores - means).abs()
-        #
-        # new_assignments = dists.argmin(dim=0)
-
-        changed_seqs = (~(self.cluster_assignments[self.all_Inds["full"]] == new_assignments)).sum()
         self.cluster_assignments[self.all_Inds["full"]] = new_assignments
+
         print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
         print("#PostShuffle", file=o)
         self.update_clust_totals()
+
+        # Check that cluster membership is within acceptable range
         for i in range(self.clusters.item()):
             if self.clust_totals[i] < self.min_cluster_membership:
                 seqs_to_change = new_assignments == i
-                probs[seqs_to_change, i] = probs[seqs_to_change, i] - 100
+                probs[seqs_to_change, i] = -float('inf')
                 new_assignments[seqs_to_change] = probs[seqs_to_change].argmax(dim=1)
                 self.cluster_assignments[self.all_Inds["full"][seqs_to_change]] = new_assignments[seqs_to_change]
 
@@ -1032,7 +1031,7 @@ class pcrbm_cluster(Base_drelu):
         clusters_to_delete = sorted([k for k, v in self.clust_totals.items() if v < self.min_cluster_membership])
         if len(clusters_to_delete) == 0:
             return
-        used_clusters = sorted([k for k, v in self.clust_totals.items() if v > 0])
+        used_clusters = sorted([k for k, v in self.clust_totals.items() if v >= self.min_cluster_membership])
         used_clusters.reverse()
         source, destination, deleted = [], [], []
         for d_indx in clusters_to_delete:
@@ -1054,6 +1053,7 @@ class pcrbm_cluster(Base_drelu):
         # Delete unused Clusters
         for i in range(self.clusters.item() - 1, -1, -1):
             if self.clust_totals[i] < self.min_cluster_membership:
+                self.cluster_assignments[self.cluster_assignments == i] = self.clusters - 1
                 self.delete_cluster(i)
         return
 
@@ -1078,8 +1078,7 @@ class pcrbm_cluster(Base_drelu):
         del self.hidden_convolution_keys[indx]
         del self.pools[indx]
         del self.unpools[indx]
-
-        setattr(self, "clusters", getattr(self, "clusters")-1)
+        self.clusters -= 1
 
     def replace_cluster(self, source_indx, dest_indx):
         source_keys = self.hidden_convolution_keys[source_indx]
