@@ -770,7 +770,8 @@ class pcrbm_cluster(Base_drelu):
         }
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
-        self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/val_free_energy", batch_out["val_free_energy"],
+                 on_step=False, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
         #
         self.val_data_logs.append(batch_out)
         return
@@ -917,9 +918,15 @@ class pcrbm_cluster(Base_drelu):
                 if self.cluster_metric == "free_energy":
                     cm = self.free_energy_cluster(one_hot, cluster_indx)
                 elif self.cluster_metric == "reconstruction_error":
+
                     reconstruction = self.markov_step_cluster(one_hot, cluster_indx)
-                    # reconstruction error
                     cm = (one_hot.argmax(2) != reconstruction.argmax(2)).mean(1)
+                    for _ in range(1, 5):
+                        if _ == 0:
+                            reconstruction = self.markov_step_cluster(one_hot, cluster_indx)
+                            # reconstruction error
+                            cm += (one_hot.argmax(2) != reconstruction.argmax(2)).mean(1)
+                    cm /= 5
 
                 if batch_idx == 0:
                     self.cm_container[cluster_indx] = cm
@@ -984,8 +991,10 @@ class pcrbm_cluster(Base_drelu):
         # Free Energy of Sequences from all clusters
         cluster_logs["free_energy"] = self.free_energy(one_hot, cluster_list=[k for k, v in self.clust_totals.items() if v > 0]).detach().mean()
 
-        self.log("ptl/train_free_energy", cluster_logs["free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", cluster_logs["loss"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/train_free_energy", cluster_logs["free_energy"],
+                 on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
+        self.log("ptl/train_loss", cluster_logs["loss"],
+                 on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
 
         self.training_data_logs.append(cluster_logs)
         return cluster_logs["loss"]
