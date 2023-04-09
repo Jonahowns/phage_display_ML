@@ -70,6 +70,7 @@ class pcrbm_cluster(Base_drelu):
         self.register_buffer("clusters", torch.tensor(0))
         self.initialize_cluster()
 
+        self.cluster_metric = config["cluster metric"]
         self.clust_totals = {}
         self.cluster_checkpoints = list(np.arange(config["cluster_details"][0], config["cluster_details"][1]+config["cluster_details"][2],
                                                   config["cluster_details"][2]))
@@ -894,7 +895,7 @@ class pcrbm_cluster(Base_drelu):
             self.update_clust_totals()
 
             if self.current_epoch + 1 in [*self.cluster_checkpoints, *self.reshuffle_checkpoints]:
-                self.all_Fv = {}
+                self.cm_container = {}
                 self.all_Inds = {}
 
             elif self.current_epoch in self.cluster_checkpoints:
@@ -913,10 +914,17 @@ class pcrbm_cluster(Base_drelu):
             else:
                 self.all_Inds["full"] = torch.cat([self.all_Inds["full"], inds])
             for cluster_indx in range(getattr(self, "clusters").item()):
+                if self.cluster_metric == "free_energy":
+                    cm = self.free_energy_cluster(one_hot, cluster_indx)
+                elif self.cluster_metric == "reconstruction_error":
+                    reconstruction = self.markov_step_cluster(one_hot, cluster_indx)
+                    # reconstruction error
+                    cm = (one_hot.argmax(2) != reconstruction.argmax(2)).mean(1)
+
                 if batch_idx == 0:
-                    self.all_Fv[cluster_indx] = self.free_energy_cluster(one_hot, cluster_indx)
+                    self.cm_container[cluster_indx] = cm
                 else:
-                    self.all_Fv[cluster_indx] = torch.cat([self.all_Fv[cluster_indx], self.free_energy_cluster(one_hot, cluster_indx)])
+                    self.cm_container[cluster_indx] = torch.cat([self.cm_container[cluster_indx], cm])
 
         clust_assign = self.cluster_assignments[inds]
         for cluster_indx in range(getattr(self, "clusters").item()):
@@ -958,10 +966,15 @@ class pcrbm_cluster(Base_drelu):
 
             # Saving neccessary data for clustering step
             if self.current_epoch + 1 in self.cluster_checkpoints:
-                if cluster_indx not in self.all_Fv.keys():
-                    self.all_Fv[cluster_indx] = F_v
+                if self.cluster_metric == "free_energy":
+                    cm = F_v
+                elif self.cluster_metric == "reconstruction_error":
+                    cm = (cdata.argmax(2) != Vc_neg.argmax(2)).mean(1)
+
+                if cluster_indx not in self.cm_container.keys():
+                    self.cm_container[cluster_indx] = cm
                 else:
-                    self.all_Fv[cluster_indx] = torch.cat([self.all_Fv[cluster_indx], F_v])
+                    self.cm_container[cluster_indx] = torch.cat([self.cm_container[cluster_indx], cm])
 
                 if cluster_indx not in self.all_Inds.keys():
                     self.all_Inds[cluster_indx] = filtered_inds
@@ -986,10 +999,10 @@ class pcrbm_cluster(Base_drelu):
         self.report_cluster_membership(o)
 
         current_clusters = self.cluster_assignments[self.all_Inds["full"]]
-        Fv_stack = torch.stack([self.all_Fv[i] for i in range(getattr(self, "clusters").item())], dim=0)
+        cm_stack = torch.stack([self.cm_container[i] for i in range(getattr(self, "clusters").item())], dim=0)
 
-        means = torch.stack([(self.all_Fv[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
-        stds = torch.stack([(self.all_Fv[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
 
         if torch.isnan(means).any() or torch.isnan(stds).any():
             print("suh")
@@ -999,7 +1012,7 @@ class pcrbm_cluster(Base_drelu):
         std_modifier = (stds / stds.sum())
 
         normal_dists = torch.distributions.Normal(means, stds)
-        probs = normal_dists.log_prob(Fv_stack.T) + (std_modifier.log().abs())/10
+        probs = normal_dists.log_prob(cm_stack.T) + (std_modifier.log().abs())/4
 
         new_assignments = probs.argmax(dim=1)
         changed_seqs = (~(current_clusters == new_assignments)).sum()
@@ -1057,7 +1070,6 @@ class pcrbm_cluster(Base_drelu):
                 self.delete_cluster(i)
         return
 
-
         # delete_me = [x for x in clusters_to_delete if x not in destination]
         # delete_me += [x for x in source if x not in destination]
         # if len(delete_me) == 0:
@@ -1094,10 +1106,10 @@ class pcrbm_cluster(Base_drelu):
 
     def generate_clusters(self, parent_cluster, bin_number):
         # Initialize Clusters
-        full_Fv = self.all_Fv[parent_cluster]
-        in_peak = torch.full_like(full_Fv, False, device=self.device, dtype=torch.bool)
-        min, max = full_Fv.min(), full_Fv.max()
-        counts = torch.histc(full_Fv, bins=bin_number, min=min.data, max=max.data)
+        full_cm = self.cm_container[parent_cluster]
+        in_peak = torch.full_like(full_cm, False, device=self.device, dtype=torch.bool)
+        min, max = full_cm.min(), full_cm.max()
+        counts = torch.histc(full_cm, bins=bin_number, min=min.data, max=max.data)
         boundaries = torch.linspace(min.data, max.data, bin_number + 1)
         starting_cluster_number = getattr(self, "clusters").item()
 
@@ -1123,19 +1135,19 @@ class pcrbm_cluster(Base_drelu):
             peak_indx += 1
 
         if peak_indx > 1:
-            plt.hist(full_Fv.detach().cpu(), bins=bin_number)
+            plt.hist(full_cm.detach().cpu(), bins=bin_number)
 
             for p_indx, bounds in enumerate(peaks):
                 if bounds[0] < 0:
                     clust = starting_cluster_number + p_indx - 1
                     self.cluster_assignments[self.all_Inds[parent_cluster][~in_peak]] = clust
-                    lb, rb = full_Fv[~in_peak].min().cpu().item(), full_Fv[~in_peak].max().cpu().item()
+                    lb, rb = full_cm[~in_peak].min().cpu().item(), full_cm[~in_peak].max().cpu().item()
                     plt.axvline(lb, c="r")
                     plt.axvline(rb, c="r")
                     plt.annotate(f"C{clust}", ((rb - lb) / 2 + lb, 200), c="r")
                 else:
-                    peak_members = torch.logical_and(full_Fv > boundaries[bounds[0]],
-                                                     full_Fv <= boundaries[bounds[1]])
+                    peak_members = torch.logical_and(full_cm > boundaries[bounds[0]],
+                                                     full_cm <= boundaries[bounds[1]])
                     in_peak[peak_members] = True
                     clust = parent_cluster
                     if p_indx > 0:
