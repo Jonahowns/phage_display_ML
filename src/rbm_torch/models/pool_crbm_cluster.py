@@ -847,6 +847,20 @@ class pcrbm_cluster(Base_drelu):
     #
     #     return logs
 
+
+    def reconstruction_error(self, data, cluster_indx, repeats=5):
+        reconstruction = self.markov_step_cluster(data, cluster_indx)
+        cm = (data.argmax(2) != reconstruction.argmax(2)).mean(1)
+        for _ in range(1, repeats):
+            if _ == 0:
+                reconstruction = self.markov_step_cluster(data, cluster_indx)
+                # reconstruction error
+                cm += (data.argmax(2) != reconstruction.argmax(2)).mean(1)
+        cm /= 5
+        cm += 0.02 * torch.randn((data.shape[0],), device=self.device)
+        return cm
+
+
     def regularization_terms_cluster(self, cluster_indx):
         reg2 = torch.zeros((1,), device=self.device)
         reg3 = torch.zeros((1,), device=self.device)
@@ -920,15 +934,7 @@ class pcrbm_cluster(Base_drelu):
                 if self.cluster_metric == "free_energy":
                     cm = self.free_energy_cluster(one_hot, cluster_indx)
                 elif self.cluster_metric == "reconstruction_error":
-
-                    reconstruction = self.markov_step_cluster(one_hot, cluster_indx)
-                    cm = (one_hot.argmax(2) != reconstruction.argmax(2)).mean(1)
-                    for _ in range(1, 5):
-                        if _ == 0:
-                            reconstruction = self.markov_step_cluster(one_hot, cluster_indx)
-                            # reconstruction error
-                            cm += (one_hot.argmax(2) != reconstruction.argmax(2)).mean(1)
-                    cm /= 5
+                    cm = self.reconstruction_error(one_hot, cluster_indx)
 
                 if batch_idx == 0:
                     self.cm_container[cluster_indx] = cm
@@ -978,7 +984,7 @@ class pcrbm_cluster(Base_drelu):
                 if self.cluster_metric == "free_energy":
                     cm = F_v
                 elif self.cluster_metric == "reconstruction_error":
-                    cm = (cdata.argmax(2) != Vc_neg.argmax(2)).mean(1)
+                    cm = self.reconstruction_error(one_hot, cluster_indx)
 
                 if cluster_indx not in self.cm_container.keys():
                     self.cm_container[cluster_indx] = cm
