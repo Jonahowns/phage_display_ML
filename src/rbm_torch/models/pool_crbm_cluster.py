@@ -881,6 +881,7 @@ class pcrbm_cluster(Base_drelu):
         inds, seqs, one_hot, seq_weights = batch
 
         # Initialize place to save generated data (for a continuous chain) for PCD
+        # Also intialize our cluster assignment storage
         if self.current_epoch == 0:
             if batch_idx == 0:
                 self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
@@ -888,10 +889,11 @@ class pcrbm_cluster(Base_drelu):
 
             self.chain[inds] = one_hot.type(torch.get_default_dtype())
 
-        # Regularization Terms
+        # Initialize Logs and regularization on visible biases
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         cluster_logs = {"loss": reg1}
 
+        #
         if batch_idx == 0:
             self.update_clust_totals()
 
@@ -1024,12 +1026,9 @@ class pcrbm_cluster(Base_drelu):
         probs = normal_dists.log_prob(cm_stack.T) + (std_modifier.log().abs())/4
 
         new_assignments = probs.argmax(dim=1)
-        changed_seqs = (~(current_clusters == new_assignments)).sum()
 
         self.cluster_assignments[self.all_Inds["full"]] = new_assignments
 
-        print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
-        print("#PostShuffle", file=o)
         self.update_clust_totals()
 
         # Check that cluster membership is within acceptable range
@@ -1039,6 +1038,11 @@ class pcrbm_cluster(Base_drelu):
                 probs[seqs_to_change, i] = -float('inf')
                 new_assignments[seqs_to_change] = probs[seqs_to_change].argmax(dim=1)
                 self.cluster_assignments[self.all_Inds["full"][seqs_to_change]] = new_assignments[seqs_to_change]
+
+        changed_seqs = (current_clusters != new_assignments).sum()
+
+        print(f"#Changed Assignments of {changed_seqs} seqs", file=o)
+        print("#PostShuffle", file=o)
 
         self.update_clust_totals()
         self.report_cluster_membership(o)
