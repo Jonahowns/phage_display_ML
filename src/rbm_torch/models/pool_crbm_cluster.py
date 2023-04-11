@@ -1064,7 +1064,29 @@ class pcrbm_cluster(Base_drelu):
         print("#PostPruning", file=o)
         self.update_clust_totals()
         self.report_cluster_membership(o)
+        self.merge_correlated_clusters(cm_stack)
+        print("#PostMerge", file=o)
+        self.update_clust_totals()
+        self.report_cluster_membership(o)
+
         o.close()
+
+    def merge_correlated_clusters(self, cm_stack):
+        coeff_matrix = torch.corrcoef(cm_stack)
+        coeff_matrix = torch.triu(coeff_matrix, diagonal=1)
+
+        for i in range(self.clusters.item()):
+            for j in range(self.clusters.item()):
+                if i >= j:
+                    continue
+                if coeff_matrix[i][j] > 0.8:
+                    self.merge_clusters(i, j)
+                    # remove
+                    coeff_matrix[j][:] = 0.
+                    coeff_matrix[:][j] = 0.
+
+    def merge_clusters(self, dest, source):
+        self.cluster_assignments[self.cluster_assignments == source] = dest
 
     def prune_clusters(self):
         clusters_to_delete = sorted([k for k, v in self.clust_totals.items() if v < self.min_cluster_membership])
