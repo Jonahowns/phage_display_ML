@@ -70,7 +70,7 @@ class pcrbm_cluster(Base_drelu):
         self.register_buffer("clusters", torch.tensor(0))
         self.initialize_cluster()
 
-        self.cluster_metric = config["cluster metric"]
+        self.cluster_metric = config["cluster_metric"]
         self.clust_totals = {}
         self.cluster_checkpoints = list(np.arange(config["cluster_details"][0], config["cluster_details"][1]+config["cluster_details"][2],
                                                   config["cluster_details"][2]))
@@ -849,14 +849,13 @@ class pcrbm_cluster(Base_drelu):
 
 
     def reconstruction_error(self, data, cluster_indx, repeats=5):
-        reconstruction = self.markov_step_cluster(data, cluster_indx)
-        cm = (data.argmax(2) != reconstruction.argmax(2)).mean(1)
+        reconstruction, rh = self.markov_step_cluster(data, cluster_indx)
+        cm = (data.argmax(2) != reconstruction.argmax(2)).float().mean(1)
         for _ in range(1, repeats):
-            if _ == 0:
-                reconstruction = self.markov_step_cluster(data, cluster_indx)
-                # reconstruction error
-                cm += (data.argmax(2) != reconstruction.argmax(2)).mean(1)
-        cm /= 5
+            reconstruction, rh = self.markov_step_cluster(data, cluster_indx)
+            # reconstruction error
+            cm += (data.argmax(2) != reconstruction.argmax(2)).float().mean(1)
+        cm /= repeats
         cm += 0.02 * torch.randn((data.shape[0],), device=self.device)
         return cm
 
@@ -984,7 +983,7 @@ class pcrbm_cluster(Base_drelu):
                 if self.cluster_metric == "free_energy":
                     cm = F_v
                 elif self.cluster_metric == "reconstruction_error":
-                    cm = self.reconstruction_error(one_hot, cluster_indx)
+                    cm = self.reconstruction_error(cdata, cluster_indx)
 
                 if cluster_indx not in self.cm_container.keys():
                     self.cm_container[cluster_indx] = cm
@@ -1018,20 +1017,26 @@ class pcrbm_cluster(Base_drelu):
         current_clusters = self.cluster_assignments[self.all_Inds["full"]]
         cm_stack = torch.stack([self.cm_container[i] for i in range(getattr(self, "clusters").item())], dim=0)
 
-        means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
-        stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
-
-        if torch.isnan(means).any() or torch.isnan(stds).any():
-            print("suh")
+        # means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        # stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        #
+        # if torch.isnan(means).any() or torch.isnan(stds).any():
+        #     print("suh")
 
         # Favor less spread out distributions
         # std_inverse = 1./stds
-        std_modifier = (stds / stds.sum())
+        # std_modifier = (stds / stds.sum())
 
-        normal_dists = torch.distributions.Normal(means, stds)
-        probs = normal_dists.log_prob(cm_stack.T) + (std_modifier.log().abs())/4
+        # normal_dists = torch.distributions.Normal(means, stds)
+        # probs = normal_dists.log_prob(cm_stack.T) # + (std_modifier.log().abs())/4
 
-        new_assignments = probs.argmax(dim=1)
+        # new_assignments = probs.argmax(dim=0)
+        if self.cluster_metric == "free_energy":
+            probs = torch.softmax(-cm_stack/5.0, dim=0)
+            new_assignments = probs.argmax(dim=0)
+        elif self.cluster_metric == "reconstruction_error":
+            probs = 1./cm_stack
+            new_assignments = cm_stack.argmin(dim=0)
 
         self.cluster_assignments[self.all_Inds["full"]] = new_assignments
 
@@ -1041,8 +1046,8 @@ class pcrbm_cluster(Base_drelu):
         for i in range(self.clusters.item()):
             if self.clust_totals[i] < self.min_cluster_membership:
                 seqs_to_change = new_assignments == i
-                probs[seqs_to_change, i] = -float('inf')
-                new_assignments[seqs_to_change] = probs[seqs_to_change].argmax(dim=1)
+                probs[i, seqs_to_change] = -float('inf')
+                new_assignments[seqs_to_change] = probs[:, seqs_to_change].argmax(dim=0)
                 self.cluster_assignments[self.all_Inds["full"][seqs_to_change]] = new_assignments[seqs_to_change]
 
         changed_seqs = (current_clusters != new_assignments).sum()
