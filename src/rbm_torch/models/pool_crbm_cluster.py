@@ -1032,8 +1032,10 @@ class pcrbm_cluster(Base_drelu):
 
         # new_assignments = probs.argmax(dim=0)
         if self.cluster_metric == "free_energy":
-            probs = torch.softmax(-cm_stack/5.0, dim=0)
-            new_assignments = probs.argmax(dim=0)
+            means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
+            stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
+            probs = ((means-cm_stack)/stds).abs()  # Z score
+            new_assignments = probs.argmin(dim=0)
         elif self.cluster_metric == "reconstruction_error":
             probs = 1./cm_stack
             new_assignments = cm_stack.argmin(dim=0)
@@ -1142,12 +1144,12 @@ class pcrbm_cluster(Base_drelu):
         peak_indx = 0
         while True:
             seq_num = torch.sum(counts)
-            if (torch.max(counts) < self.min_peak_height or peak_indx > self.max_peaks) and seq_num > 0:
-                self.initialize_cluster()
-                peaks.append((-1, -1))
-                peak_indx += 1
-                break
-            elif seq_num < self.min_cluster_membership:
+            # if (torch.max(counts) < self.min_peak_height or peak_indx > self.max_peaks) and seq_num > 0:
+            #     self.initialize_cluster()
+            #     peaks.append((-1, -1))
+            #     peak_indx += 1
+            #     break
+            if seq_num < self.min_cluster_membership or torch.max(counts) < self.min_peak_height:
                 break
             l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
             peaks.append((l_indx, r_indx))
