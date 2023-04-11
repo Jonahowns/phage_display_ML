@@ -10,7 +10,7 @@
     "fasta_file": "",
     "cluster_details": [25, 400, 20],
     "reshuffle_details": [30, 450, 10],
-    "cluster_metric": "reconstruction_error",
+    "cluster_metric": "free_energy",
     "max_peaks": 2,
     "min_peak_height": 400,
     "min_cluster_membership": 100,

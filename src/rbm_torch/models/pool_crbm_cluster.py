@@ -1034,7 +1034,7 @@ class pcrbm_cluster(Base_drelu):
         if self.cluster_metric == "free_energy":
             means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
             stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
-            probs = ((means-cm_stack)/stds).abs()  # Z score
+            probs = ((means.unsqueeze(1)-cm_stack)/(stds.unsqueeze(1))).abs()  # Z score
             new_assignments = probs.argmin(dim=0)
         elif self.cluster_metric == "reconstruction_error":
             probs = 1./cm_stack
