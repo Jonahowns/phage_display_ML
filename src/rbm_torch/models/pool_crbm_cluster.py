@@ -1060,12 +1060,13 @@ class pcrbm_cluster(Base_drelu):
         self.update_clust_totals()
         self.report_cluster_membership(o)
 
-        self.prune_clusters()
-        print("#PostPruning", file=o)
-        self.update_clust_totals()
-        self.report_cluster_membership(o)
         self.merge_correlated_clusters(cm_stack)
         print("#PostMerge", file=o)
+        self.update_clust_totals()
+        self.report_cluster_membership(o)
+
+        self.prune_clusters()
+        print("#PostPruning", file=o)
         self.update_clust_totals()
         self.report_cluster_membership(o)
 
