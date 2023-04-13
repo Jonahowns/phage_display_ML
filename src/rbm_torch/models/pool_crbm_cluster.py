@@ -1073,18 +1073,32 @@ class pcrbm_cluster(Base_drelu):
         o.close()
 
     def merge_correlated_clusters(self, cm_stack):
-        coeff_matrix = torch.corrcoef(cm_stack)
-        coeff_matrix = torch.triu(coeff_matrix, diagonal=1)
+        # coeff_matrix = torch.corrcoef(cm_stack)
+        # coeff_matrix = torch.triu(coeff_matrix, diagonal=1)
 
         for i in range(self.clusters.item()):
             for j in range(self.clusters.item()):
                 if i >= j:
                     continue
-                if coeff_matrix[i][j] > 0.8:
+
+                # get sequences belonging to either cluster
+                i_seqs = self.cluster_assignments[self.all_Inds["full"]] == i
+                j_seqs = self.cluster_assignments[self.all_Inds["full"]] == j
+                ij_seqs = torch.logical_or(i_seqs, j_seqs)
+
+                # get correlation coefficient of cluster metric on those particular clusters
+                ij_stack = cm_stack[[i, j]][ij_seqs]
+                coeff_matrix = torch.corrcoef(ij_stack)
+
+                # merge if greater than threshold
+                if coeff_matrix[0][1] > 0.75:
                     self.merge_clusters(i, j)
-                    # remove
-                    coeff_matrix[j][:] = 0.
-                    coeff_matrix[:][j] = 0.
+
+                # if coeff_matrix[i][j] > 0.8:
+                #     self.merge_clusters(i, j)
+                #     # remove
+                #     coeff_matrix[j][:] = 0.
+                #     coeff_matrix[:][j] = 0.
 
     def merge_clusters(self, dest, source):
         self.cluster_assignments[self.cluster_assignments == source] = dest
