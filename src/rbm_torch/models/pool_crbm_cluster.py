@@ -1089,7 +1089,7 @@ class pcrbm_cluster(Base_drelu):
                 if i_seqs.sum() == 0 or j_seqs.sum() == 0:
                     continue
 
-                weights = torch.rand_like(self.cluster_assignments, device=self.device)
+                weights = torch.rand_like(self.cluster_assignments.float(), device=self.device)
                 weights[i_seqs] = 1./i_seqs.sum()
                 weights[j_seqs] = 1./j_seqs.sum()
 
@@ -1098,7 +1098,7 @@ class pcrbm_cluster(Base_drelu):
                 # get correlation coefficient of cluster metric on those particular clusters
                 ij_stack = cm_stack[[i, j]][:, ij_seqs]
                 cov_mat = torch.cov(ij_stack, aweights=weights[ij_seqs])
-                corr_coef = cov_mat[0][1]/ torch.sqrt(cov_mat[0][0]*cov_mat[1][1])
+                corr_coef = cov_mat[0][1] / torch.sqrt(cov_mat[0][0]*cov_mat[1][1])
 
                 # merge if greater than threshold
                 if corr_coef > 0.75:
