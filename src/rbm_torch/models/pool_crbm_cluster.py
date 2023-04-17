@@ -1084,10 +1084,15 @@ class pcrbm_cluster(Base_drelu):
                 # get sequences belonging to either cluster
                 i_seqs = self.cluster_assignments[self.all_Inds["full"]] == i
                 j_seqs = self.cluster_assignments[self.all_Inds["full"]] == j
+
+                # if cluster is empty continue
+                if i_seqs.sum() == 0 or j_seqs.sum() == 0:
+                    continue
+
                 ij_seqs = torch.logical_or(i_seqs, j_seqs)
 
                 # get correlation coefficient of cluster metric on those particular clusters
-                ij_stack = cm_stack[[i, j]][ij_seqs]
+                ij_stack = cm_stack[[i, j]][:, ij_seqs]
                 coeff_matrix = torch.corrcoef(ij_stack)
 
                 # merge if greater than threshold
@@ -1211,6 +1216,8 @@ class pcrbm_cluster(Base_drelu):
                 else:
                     peak_members = torch.logical_and(full_cm > boundaries[bounds[0]],
                                                      full_cm <= boundaries[bounds[1]])
+                    if peak_members.sum() == 0:
+                        print("waht")
                     in_peak[peak_members] = True
                     clust = parent_cluster
                     if p_indx > 0:
@@ -1224,6 +1231,10 @@ class pcrbm_cluster(Base_drelu):
 
             plt.savefig(self.logger.log_dir + f"/check_{self.current_epoch}_parent_{parent_cluster}_cluster_assignment_hist")
             plt.close()
+
+            self.update_clust_totals()
+            if 0. in self.clust_totals.values():
+                print('here')
 
     # get indices of the largest peak from histogram counts and index of peak in counts
     def find_peak(self, counts, peak_indx):
