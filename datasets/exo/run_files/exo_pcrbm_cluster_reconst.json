@@ -26,7 +26,7 @@
     "label_spacing": [0.0, 1.1],
     "group_fraction": [1.0],
     "sample_multiplier": 200,
-    "v_num": 40,
+    "v_num": 38,
     "q": 5,
     "molecule": "dna",
     "epochs": 1000,
