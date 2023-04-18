@@ -86,6 +86,7 @@ class pcrbm_cluster(Base_drelu):
         self.max_peaks = config["max_peaks"]
         self.min_peak_height = config["min_peak_height"]
         self.min_cluster_membership = config["min_cluster_membership"]
+        self.merge_threshold = config["merge_threshold"]
 
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i.e. Simplifies loading a model that has already been run
@@ -1101,7 +1102,7 @@ class pcrbm_cluster(Base_drelu):
                 corr_coef = cov_mat[0][1] / torch.sqrt(cov_mat[0][0]*cov_mat[1][1])
 
                 # merge if greater than threshold
-                if corr_coef > 0.75:
+                if corr_coef > self.merge_threshold:
                     self.merge_clusters(i, j)
 
                 # if coeff_matrix[i][j] > 0.8:
