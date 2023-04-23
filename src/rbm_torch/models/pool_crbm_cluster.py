@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import hdbscan
+from sklearn.preprocessing import StandardScaler
 
 from rbm_torch.utils.utils import Categorical, conv2d_dim
 from rbm_torch.models.base import Base_drelu
@@ -767,7 +768,10 @@ class pcrbm_cluster(Base_drelu):
         elif self.sample_type == "pt":
             return self.training_step_PT_free_energy(batch, batch_idx)
         elif self.sample_type == "pcd":
-            return self.training_step_PCD_free_energy(batch, batch_idx)
+            if self.clustering_method == "hdbscan_hard":
+                return self.training_step_PCD_free_energy_hdb_hard(batch, batch_idx)
+            elif self.clustering_method == "histogram":
+                return self.training_step_CD_free_energy(batch, batch_idx)
 
     def validation_step(self, batch, batch_idx):
         inds, seqs, one_hot, seq_weights = batch
@@ -1046,7 +1050,7 @@ class pcrbm_cluster(Base_drelu):
                 self.all_Inds = {}
 
             elif self.current_epoch in self.cluster_checkpoints:
-                self.affinity_propagation()
+                self.cluster_hdbscan()
 
         # Saving neccessary data for am step
         if self.current_epoch + 1 in self.cluster_checkpoints:
@@ -1294,8 +1298,10 @@ class pcrbm_cluster(Base_drelu):
         cm_stack = torch.stack([self.cm_container[i] for i in range(getattr(self, "clusters").item())], dim=0)
 
         clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_membership, prediction_data=True,
-                                    cluster_selection_method="leaf")
-        hdb_cluster_assignments = clusterer.fit_predict(cm_stack.cpu().T.numpy())
+                                    cluster_selection_method="eom")
+
+        X = StandardScaler().fit_transform(cm_stack.detach().cpu().T.numpy())
+        hdb_cluster_assignments = clusterer.fit_predict(X)
 
         if max(hdb_cluster_assignments) == -1:
             hdb_cluster_assignments = hdb_cluster_assignments + 1
@@ -1318,8 +1324,11 @@ class pcrbm_cluster(Base_drelu):
 
         # figure out cluster mapping
         nclust_totals = [(hdb_cluster_assignments == i).int().sum().item() for i in range(clust_num)]
-        preferred_cluster = [round(current_clusters[hdb_cluster_assignments == i].mode()[0].item()) for i in
-                             range(clust_num)]
+        try:
+            preferred_cluster = [round(current_clusters[hdb_cluster_assignments == i].mode()[0].item()) for i in
+                                range(clust_num)]
+        except IndexError:
+            print('hiya')
         preferred_fraction = [(i, (
                     current_clusters[(current_clusters[hdb_cluster_assignments == i])] == preferred_cluster[
                 i]).sum().item() / nclust_totals[i])
@@ -1338,8 +1347,8 @@ class pcrbm_cluster(Base_drelu):
                 hdb_source.append(clust)
                 crbm_dest.append(clust_choice)
 
-        crbm_clusters = [i for i in range(self.clusters.items())]
-        remaining_crbm_clusters = list(set(crbm_clusters) - set(crbm_dest)).sort()
+        crbm_clusters = [i for i in range(self.clusters.item())]
+        remaining_crbm_clusters = sorted(list(set(crbm_clusters) - set(crbm_dest)))
 
         for hid, hr in enumerate(hdb_remaining):
             hdb_source.append(hr)
@@ -1348,16 +1357,23 @@ class pcrbm_cluster(Base_drelu):
         # too few hdb clusters, replace and delete crbm clusters
         if clust_diff > 0:
             # Get remaining clusters again
-            remaining_crbm_clusters = list(set(crbm_clusters) - set(crbm_dest)).sort()
+            remaining_crbm_clusters = sorted(list(set(crbm_clusters) - set(crbm_dest)))
 
             # Either delete or replace the left over crbm clusters
             for rm in remaining_crbm_clusters:
+                # replace if lower index is available
+                current_crbm_max = max(crbm_dest)
+                if current_crbm_max > rm:
+                    self.replace_cluster(current_crbm_max, rm)
+                    crbm_dest[crbm_dest.index(current_crbm_max)] = rm
+
+            remaining_crbm_clusters = sorted(list(set(crbm_clusters) - set(crbm_dest)))
+
+            # delete if unused clusters
+            for rm in reversed(remaining_crbm_clusters):
                 current_crbm_max = max(crbm_dest)
                 if current_crbm_max < rm:
                     self.delete_cluster(rm)
-                elif current_crbm_max > rm:
-                    self.replace_cluster(current_crbm_max, rm)
-                    crbm_dest[crbm_dest.index(current_crbm_max)] = rm
 
         ### Finally we will rewrite our cluster assignments
         masks = [hdb_cluster_assignments == i for i in range(clust_num)]
@@ -1372,6 +1388,7 @@ class pcrbm_cluster(Base_drelu):
         print("#PostHDBscanCluster", file=o)
         self.report_cluster_membership(o)
         o.close()
+
 
     def generate_clusters(self, parent_cluster, bin_number):
         # Initialize Clusters
