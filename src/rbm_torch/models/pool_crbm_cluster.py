@@ -1141,6 +1141,8 @@ class pcrbm_cluster(Base_drelu):
 
         # new_assignments = probs.argmax(dim=0)
         if self.cluster_metric == "free_energy":
+            # medians = torch.stack([(self.cm_container[i][current_clusters == i]).median(0)[0] for i in range(getattr(self, "clusters").item())], dim=0)
+            # probs = (medians.unsqueeze(1)-cm_stack).abs()
             means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
             stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
             probs = ((means.unsqueeze(1)-cm_stack)/(stds.unsqueeze(1))).abs()  # Z score
@@ -1401,8 +1403,8 @@ class pcrbm_cluster(Base_drelu):
 
             peak_indx += 1
 
+        plt.hist(full_cm.detach().cpu(), bins=bin_number)
         if peak_indx > 1:
-            plt.hist(full_cm.detach().cpu(), bins=bin_number)
 
             for p_indx, bounds in enumerate(peaks):
                 if bounds[0] < 0:
@@ -1434,6 +1436,12 @@ class pcrbm_cluster(Base_drelu):
             self.update_clust_totals()
             if 0. in self.clust_totals.values():
                 print('here')
+        elif self.clusters.item() == 1:
+            plt.savefig(
+                self.logger.log_dir + f"/check_{self.current_epoch}_{parent_cluster}_single_hist")
+            plt.close()
+        else:
+            plt.close()
 
     # get indices of the largest peak from histogram counts and index of peak in counts
     def find_peak(self, counts, peak_indx):
