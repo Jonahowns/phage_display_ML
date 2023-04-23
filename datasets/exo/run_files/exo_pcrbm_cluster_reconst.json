@@ -1,4 +1,4 @@
-{"fasta_file": "fold_avg_all.fasta",
+{"fasta_file": "fold_avg_all3.fasta",
   "model_name": "pcrbm_cluster_exo_reconst",
   "local_model_dir": "/mnt/D1/globus/exo_trained_crbms/",
   "data_dir": "./datasets/exo/",
@@ -15,7 +15,7 @@
     "max_peaks": 2,
     "min_peak_height": 400,
     "min_cluster_membership": 100,
-    "histogram_bins": 20,
+    "histogram_bins": 200,
     "validation_set_size": 0.15,
     "test_set_size": 0.1,
     "lgap": 2.0,
@@ -49,7 +49,7 @@
     "data_worker_num": 6,
     "convolution_topology": {
       "hidden_15": {
-        "number": 2,
+        "number": 5,
         "kernelx": 15,
         "kernely": 5,
         "stridex": 1,
