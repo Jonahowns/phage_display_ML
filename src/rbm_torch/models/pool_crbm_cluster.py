@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import hdbscan
+
 from rbm_torch.utils.utils import Categorical, conv2d_dim
 from rbm_torch.models.base import Base_drelu
 
@@ -82,6 +84,11 @@ class pcrbm_cluster(Base_drelu):
         except AssertionError:
             print("Cluster Checkpoints and Reshuffle Checkpoints can't have any overlapping members")
             sys.exit(1)
+
+        try:
+            self.clustering_method = config["clustering_method"]
+        except KeyError:
+            self.clustering_method = "histogram"
         self.bins = config["histogram_bins"]
         self.max_peaks = config["max_peaks"]
         self.min_peak_height = config["min_peak_height"]
@@ -753,7 +760,10 @@ class pcrbm_cluster(Base_drelu):
     ## Calls Corresponding Training Function
     def training_step(self, batch, batch_idx):
         if self.sample_type == "gibbs":
-            return self.training_step_CD_free_energy(batch, batch_idx)
+            if self.clustering_method == "hdbscan_hard":
+                return self.training_step_PCD_free_energy_hdb_hard(batch, batch_idx)
+            elif self.clustering_method == "histogram":
+                return self.training_step_CD_free_energy(batch, batch_idx)
         elif self.sample_type == "pt":
             return self.training_step_PT_free_energy(batch, batch_idx)
         elif self.sample_type == "pcd":
@@ -1007,6 +1017,104 @@ class pcrbm_cluster(Base_drelu):
         self.training_data_logs.append(cluster_logs)
         return cluster_logs["loss"]
 
+
+    def training_step_PCD_free_energy_hdb_hard(self, batch, batch_idx):
+        ## differences in clustering alg
+        ## 1) Remove reshuffle steps, only have clustering which serves as both
+
+        inds, seqs, one_hot, seq_weights = batch
+
+        # Initialize place to save generated data (for a continuous chain) for PCD
+        # Also intialize our cluster assignment storage
+        if self.current_epoch == 0:
+            if batch_idx == 0:
+                self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
+                self.cluster_assignments = torch.full((self.training_data.index.__len__(),), 0, device=self.device)
+
+            self.chain[inds] = one_hot.type(torch.get_default_dtype())
+
+        # Initialize Logs and regularization on visible biases
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        cluster_logs = {"loss": reg1}
+
+        #
+        if batch_idx == 0:
+            self.update_clust_totals()
+
+            if self.current_epoch + 1 in self.cluster_checkpoints:
+                self.cm_container = {}
+                self.all_Inds = {}
+
+            elif self.current_epoch in self.cluster_checkpoints:
+                self.affinity_propagation()
+
+        # Saving neccessary data for am step
+        if self.current_epoch + 1 in self.cluster_checkpoints:
+            if batch_idx == 0:
+                self.all_Inds["full"] = inds
+            else:
+                self.all_Inds["full"] = torch.cat([self.all_Inds["full"], inds])
+            for cluster_indx in range(getattr(self, "clusters").item()):
+                if self.cluster_metric == "free_energy":
+                    cm = self.free_energy_cluster(one_hot, cluster_indx)
+                elif self.cluster_metric == "reconstruction_error":
+                    cm = self.reconstruction_error(one_hot, cluster_indx)
+
+                if batch_idx == 0:
+                    self.cm_container[cluster_indx] = cm
+                else:
+                    self.cm_container[cluster_indx] = torch.cat([self.cm_container[cluster_indx], cm])
+
+        clust_assign = self.cluster_assignments[inds]
+        for cluster_indx in range(getattr(self, "clusters").item()):
+            filter = clust_assign == cluster_indx
+
+            if filter.sum() == 0:
+                cluster_logs[f"Cluster {cluster_indx} free_energy"] = torch.tensor(0., device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = torch.tensor([0.], device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} Loss"] = torch.tensor([0.], device=self.device)
+                cluster_logs[f"Cluster {cluster_indx} CD Loss"] = torch.tensor(0., device=self.device)
+                reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
+                cluster_logs.update({f"Cluster_{cluster_indx} " + k:  torch.tensor([0.], device=self.device) for k, v in reg_dict.items()})
+                continue
+
+            cdata = one_hot[filter]
+            weights = seq_weights[filter]
+            filtered_inds = inds[filter]
+
+            # Typical free energy calculations
+            F_v = self.free_energy_cluster(cdata, cluster_indx)
+            Vc_neg, hc_neg, corr_reg = self.forward_PCD(filtered_inds, cluster_indx)
+            F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
+
+            cluster_cd_loss = (weights * (F_v - F_vp)).mean()
+
+            reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
+
+            cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss + corr_reg
+
+            if cluster_loss.isnan():
+                print("huh")
+
+            cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
+            cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
+            cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
+            cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
+            cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
+            cluster_logs.update({f"Cluster_{cluster_indx} " + k: v.detach() for k, v in reg_dict.items()})
+
+        # Free Energy of Sequences from all clusters
+        cluster_logs["free_energy"] = self.free_energy(one_hot, cluster_list=[k for k, v in self.clust_totals.items() if v > 0]).detach().mean()
+
+        self.log("ptl/train_free_energy", cluster_logs["free_energy"],
+                 on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
+        self.log("ptl/train_loss", cluster_logs["loss"],
+                 on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
+
+        self.training_data_logs.append(cluster_logs)
+        return cluster_logs["loss"]
+
+
     def update_clust_totals(self):
         self.clust_totals = {i: (self.cluster_assignments == i).int().sum().item() for i in range(self.clusters.item())}
 
@@ -1074,9 +1182,6 @@ class pcrbm_cluster(Base_drelu):
         o.close()
 
     def merge_correlated_clusters(self, cm_stack):
-        # coeff_matrix = torch.corrcoef(cm_stack)
-        # coeff_matrix = torch.triu(coeff_matrix, diagonal=1)
-
         for i in range(self.clusters.item()):
             for j in range(self.clusters.item()):
                 if i >= j:
@@ -1177,6 +1282,94 @@ class pcrbm_cluster(Base_drelu):
         getattr(self, f"{key}_W").data = getattr(self, f"{dest_keys[kid]}_W").data.clone()
 
         self.cluster_assignments[self.cluster_assignments == source_indx] = dest_indx
+
+    def cluster_hdbscan(self):
+        o = open(self.logger.log_dir + f"/check_{self.current_epoch}_reshuffle.txt", "w+")
+        print("#PreHDBscanCluster", file=o)
+        self.report_cluster_membership(o)
+
+        current_clusters = self.cluster_assignments[self.all_Inds["full"]]
+        cm_stack = torch.stack([self.cm_container[i] for i in range(getattr(self, "clusters").item())], dim=0)
+
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=self.min_cluster_membership, prediction_data=True,
+                                    cluster_selection_method="leaf")
+        hdb_cluster_assignments = clusterer.fit_predict(cm_stack.cpu().T.numpy())
+
+        if max(hdb_cluster_assignments) == -1:
+            hdb_cluster_assignments = hdb_cluster_assignments + 1
+
+        else:
+            # assign to the closest previous cluster
+            soft_clusters = hdbscan.all_points_membership_vectors(clusterer)
+            hdb_cluster_assignments = np.argmax(soft_clusters, 1)
+
+        clust_num = max(hdb_cluster_assignments) + 1
+
+        clust_diff = self.clusters.item() - clust_num
+
+        # too few clusters add more
+        if clust_diff < 0:
+            for _ in range(abs(clust_diff)):
+                self.initialize_cluster()
+
+        hdb_cluster_assignments = torch.tensor(hdb_cluster_assignments, device=self.device)
+
+        # figure out cluster mapping
+        nclust_totals = [(hdb_cluster_assignments == i).int().sum().item() for i in range(clust_num)]
+        preferred_cluster = [round(current_clusters[hdb_cluster_assignments == i].mode()[0].item()) for i in
+                             range(clust_num)]
+        preferred_fraction = [(i, (
+                    current_clusters[(current_clusters[hdb_cluster_assignments == i])] == preferred_cluster[
+                i]).sum().item() / nclust_totals[i])
+                              for i in range(clust_num)]
+
+        # highest agreement gets first choice
+        preferred_fraction = sorted(preferred_fraction, key=lambda val: val[1], reverse=True)
+
+        # create initial mapping from hdb assignments to crbm cluster assignments
+        hdb_source, crbm_dest, hdb_remaining = [], [], []
+        for clust, frac in preferred_fraction:
+            clust_choice = preferred_cluster[clust]
+            if clust_choice in crbm_dest:
+                hdb_remaining.append(clust)
+            else:
+                hdb_source.append(clust)
+                crbm_dest.append(clust_choice)
+
+        crbm_clusters = [i for i in range(self.clusters.items())]
+        remaining_crbm_clusters = list(set(crbm_clusters) - set(crbm_dest)).sort()
+
+        for hid, hr in enumerate(hdb_remaining):
+            hdb_source.append(hr)
+            crbm_dest.append(remaining_crbm_clusters[hid])
+
+        # too few hdb clusters, replace and delete crbm clusters
+        if clust_diff > 0:
+            # Get remaining clusters again
+            remaining_crbm_clusters = list(set(crbm_clusters) - set(crbm_dest)).sort()
+
+            # Either delete or replace the left over crbm clusters
+            for rm in remaining_crbm_clusters:
+                current_crbm_max = max(crbm_dest)
+                if current_crbm_max < rm:
+                    self.delete_cluster(rm)
+                elif current_crbm_max > rm:
+                    self.replace_cluster(current_crbm_max, rm)
+                    crbm_dest[crbm_dest.index(current_crbm_max)] = rm
+
+        ### Finally we will rewrite our cluster assignments
+        masks = [hdb_cluster_assignments == i for i in range(clust_num)]
+        for i in range(clust_num):
+            h_source = hdb_source[i]
+            c_dest = crbm_dest[i]
+            hdb_cluster_assignments[masks[h_source]] = c_dest
+
+        self.cluster_assignments = hdb_cluster_assignments
+
+        self.update_clust_totals()
+        print("#PostHDBscanCluster", file=o)
+        self.report_cluster_membership(o)
+        o.close()
 
     def generate_clusters(self, parent_cluster, bin_number):
         # Initialize Clusters
