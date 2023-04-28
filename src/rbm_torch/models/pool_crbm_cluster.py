@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torchist
 import hdbscan
 from sklearn.preprocessing import StandardScaler
 from sklearn.mixture import GaussianMixture
@@ -772,9 +773,9 @@ class pcrbm_cluster(Base_drelu):
             if self.clustering_method == "hdbscan_hard":
                 return self.training_step_PCD_free_energy_hdb_hard(batch, batch_idx)
             elif self.clustering_method == "histogram":
-                return self.training_step_CD_free_energy(batch, batch_idx)
+                return self.training_step_PCD_free_energy(batch, batch_idx)
             elif self.clustering_method == "gmm":
-                return self.training_step_CD_free_energy_gmm(batch, batch_idx)
+                return self.training_step_PCD_free_energy_gmm(batch, batch_idx)
 
     def validation_step(self, batch, batch_idx):
         inds, seqs, one_hot, seq_weights = batch
@@ -991,6 +992,118 @@ class pcrbm_cluster(Base_drelu):
 
             cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
             cluster_logs[f"Cluster {cluster_indx} free_energy"] = self.free_energy_cluster(cdata, cluster_indx).detach().mean()
+            cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
+            cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
+            cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
+            cluster_logs.update({f"Cluster_{cluster_indx} " + k: v.detach() for k, v in reg_dict.items()})
+
+            # Saving neccessary data for clustering step
+            if self.current_epoch + 1 in self.cluster_checkpoints:
+                if self.cluster_metric == "free_energy":
+                    cm = F_v
+                elif self.cluster_metric == "reconstruction_error":
+                    cm = self.reconstruction_error(cdata, cluster_indx)
+
+                if cluster_indx not in self.cm_container.keys():
+                    self.cm_container[cluster_indx] = cm
+                else:
+                    self.cm_container[cluster_indx] = torch.cat([self.cm_container[cluster_indx], cm])
+
+                if cluster_indx not in self.all_Inds.keys():
+                    self.all_Inds[cluster_indx] = filtered_inds
+                else:
+                    self.all_Inds[cluster_indx] = torch.cat([self.all_Inds[cluster_indx], filtered_inds])
+
+        # Free Energy of Sequences from all clusters
+        cluster_logs["free_energy"] = self.free_energy(one_hot, cluster_list=[k for k, v in self.clust_totals.items() if v > 0]).detach().mean()
+
+        self.log("ptl/train_free_energy", cluster_logs["free_energy"],
+                 on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
+        self.log("ptl/train_loss", cluster_logs["loss"],
+                 on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=len(inds))
+
+        self.training_data_logs.append(cluster_logs)
+        return cluster_logs["loss"]
+
+    def training_step_PCD_free_energy_histogram_soft(self, batch, batch_idx):
+        inds, seqs, one_hot, seq_weights = batch
+
+        # Initialize place to save generated data (for a continuous chain) for PCD
+        # Also intialize our cluster assignment storage
+        if self.current_epoch == 0:
+            if batch_idx == 0:
+                self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
+                self.cluster_assignments = torch.full((1, self.training_data.index.__len__(),), 0, device=self.device)
+
+            self.chain[inds] = one_hot.type(torch.get_default_dtype())
+
+        # Initialize Logs and regularization on visible biases
+        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        cluster_logs = {"loss": reg1}
+
+        #
+        # if batch_idx == 0:
+        #     self.update_clust_totals()
+        #
+        #     if self.current_epoch + 1 in [*self.cluster_checkpoints, *self.reshuffle_checkpoints]:
+        #         self.cm_container = {}
+        #         self.all_Inds = {}
+        #
+        #     elif self.current_epoch in self.cluster_checkpoints:
+        #         for i in range(getattr(self, "clusters").item()):
+        #             bin_num = int(self.clust_totals[i]/self.cluster_assignments.shape[0] * self.bins)
+        #             if bin_num > 0:
+        #                 self.generate_clusters(i, bin_num)
+
+            # elif self.current_epoch in self.reshuffle_checkpoints:
+            #     self.reshuffle_clusters()
+
+        # Saving neccessary data for reshuffle step
+        # if self.current_epoch + 1 in self.reshuffle_checkpoints:
+        #     if batch_idx == 0:
+        #         self.all_Inds["full"] = inds
+        #     else:
+        #         self.all_Inds["full"] = torch.cat([self.all_Inds["full"], inds])
+        #     for cluster_indx in range(getattr(self, "clusters").item()):
+        #         if self.cluster_metric == "free_energy":
+        #             cm = self.free_energy_cluster(one_hot, cluster_indx)
+        #         elif self.cluster_metric == "reconstruction_error":
+        #             cm = self.reconstruction_error(one_hot, cluster_indx)
+        #
+        #         if batch_idx == 0:
+        #             self.cm_container[cluster_indx] = cm
+        #         else:
+        #             self.cm_container[cluster_indx] = torch.cat([self.cm_container[cluster_indx], cm])
+
+
+        current_clusters = self.cluster_assignments[self.all_Inds["full"]]
+        cm_stack = torch.stack([self.cm_container[i] for i in range(getattr(self, "clusters").item())], dim=0)
+
+        means = torch.stack([(self.cm_container[i][current_clusters == i]).mean(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        stds = torch.stack([(self.cm_container[i][current_clusters == i]).std(0) for i in range(getattr(self, "clusters").item())], dim=0)
+        probs = 1 / (((means.unsqueeze(1) - cm_stack) / (stds.unsqueeze(1))).abs() + 1e-12)  # Z score
+
+        for cluster_indx in range(getattr(self, "clusters").item()):
+            cluster_weights = probs[cluster_indx]
+
+            # Typical free energy calculations
+            F_v = self.free_energy_cluster(one_hot, cluster_indx)
+            Vc_neg, hc_neg, corr_reg = self.forward_PCD(inds, cluster_indx)
+            F_vp = self.free_energy_cluster(Vc_neg, cluster_indx)
+
+            cluster_cd_loss = (cluster_weights * (F_v - F_vp)).mean()
+
+            reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms_cluster(cluster_indx)
+
+            cluster_loss = cluster_cd_loss + reg2 + reg3 + bs_loss + gap_loss + corr_reg
+
+            if batch_idx == 0 and self.current_epoch in self.cluster_checkpoints:
+                bin_num = int(cluster_weights.sum() / self.cluster_assignments.shape[0] * self.bins)
+                if bin_num > 0:
+                    self.generate_clusters_soft(F_v, cluster_weights, bin_num)
+
+            cluster_logs["loss"] = cluster_logs["loss"].add(cluster_loss)
+            cluster_logs[f"Cluster {cluster_indx} free_energy"] = (F_v*cluster_weights).detach().mean()
             cluster_logs[f"Cluster {cluster_indx} Correlation Reg"] = corr_reg.detach()
             cluster_logs[f"Cluster {cluster_indx} Loss"] = cluster_loss.detach()
             cluster_logs[f"Cluster {cluster_indx} CD Loss"] = cluster_cd_loss.detach()
@@ -1505,7 +1618,7 @@ class pcrbm_cluster(Base_drelu):
 
         for n_components in n_components_range:
             # Fit a mixture of gaussians with EM
-            gmm = GaussianMixture(n_components=n_components, covariance_type='full')
+            gmm = GaussianMixture(n_components=n_components, covariance_type='spherical')
             gmm.fit(X)
             bic.append(gmm.bic(X))
             if bic[-1] < lowest_bic:
@@ -1661,6 +1774,36 @@ class pcrbm_cluster(Base_drelu):
             plt.close()
         else:
             plt.close()
+
+    def generate_clusters_soft(self, free_energy, probs, bin_number):
+        # Initialize Clusters
+        full_cm = free_energy
+        weights = probs # Saved cluster assignments most likely
+        # full_cm = self.cm_container[parent_cluster]
+        # in_peak = torch.full_like(full_cm, False, device=self.device, dtype=torch.bool)
+
+        counts, boundaries = torchist.histogram(full_cm, bins=bin_number, low=0.0, upp=1.0, weights=weights)
+
+        # min, max = full_cm.min(), full_cm.max()
+        # counts = torch.histc(full_cm, bins=bin_number, min=min.data, max=max.data)
+        # boundaries = torch.linspace(min.data, max.data, bin_number + 1)
+        starting_cluster_number = getattr(self, "clusters").item()
+
+        original_counts = counts.clone()
+        peaks = []
+        peak_indx = 0
+        while True:
+            seq_num = torch.sum(counts)
+            if seq_num < self.min_cluster_membership or torch.max(counts) < self.min_peak_height:
+                break
+            l_indx, r_indx = self.find_peak(original_counts, torch.argmax(counts))
+            counts[l_indx:r_indx + 1] = 0.
+            # We overwrite the parent cluster with a new subcluster (peak_indx == 0)
+            if peak_indx > 0:
+                self.initialize_cluster()
+
+            peak_indx += 1
+
 
     # get indices of the largest peak from histogram counts and index of peak in counts
     def find_peak(self, counts, peak_indx):

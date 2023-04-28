@@ -78,9 +78,9 @@ class pool_CRBM(Base_drelu):
             self.pools.append(nn.MaxPool1d(pool_kernel, stride=pool_stride, return_indices=True, padding=pool_padding))
             self.unpools.append(nn.MaxUnpool1d(pool_kernel, stride=pool_stride, padding=pool_padding))
 
-            if self.use_batch_norm:
-                setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
-                setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
+            # if self.use_batch_norm:
+            #     setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
+            #     setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
 
             # Convolution Weights
             self.register_parameter(f"{key}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device)))
@@ -386,9 +386,9 @@ class pool_CRBM(Base_drelu):
 
             out = max_pool.flatten(start_dim=2)
 
-            if self.use_batch_norm:
-                batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
-                out = batch_norm(out)  # apply batch norm
+            # if self.use_batch_norm:
+            #     batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
+            #     out = batch_norm(out)  # apply batch norm
 
             out.squeeze_(2)
 
@@ -602,7 +602,7 @@ class pool_CRBM(Base_drelu):
     def regularization_terms(self):
         reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
         reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device)
+        reg3 = torch.zeros((1,), device=self.device) # discourages weights that are alike
 
         bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
         gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
@@ -612,13 +612,93 @@ class pool_CRBM(Base_drelu):
             W = getattr(self, f"{i}_W")
             x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
             reg2 += x.sum() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            # reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
             gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
 
             denom = torch.sum(torch.abs(W), (3, 2, 1))
             Wpos = torch.clamp(W, min=0.)
             Wneg = torch.clamp(W, max=0.)
             bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).sum()
+
+            ws = torch.concat([Wpos, Wneg.abs()], dim=0).squeeze(1)
+            with torch.no_grad():
+                # align_diffs = torch.full((self.v_num,), 0.)
+
+                # compute positional differences for all pairs of weights
+                pdiff = (ws.unsqueeze(0).unsqueeze(2) - ws.unsqueeze(1).unsqueeze(3)).sum(4)
+
+                # concatenate it to itself to make full diagonals
+                wdm = torch.concat([pdiff, pdiff.clone()], dim=2)
+
+                # get stride to get matrix of all diagonals on separate row
+                i, j, v2, v = wdm.size()
+                i_s, j_s, v2_s, v_s = wdm.stride()
+                wdm_s = torch.as_strided(wdm, (i, j, v, v), (i_s, j_s, v2_s, v2_s + 1))
+
+                # get the best alignment position
+                best_align = self.v_num - torch.argmin(wdm_s.abs().sum(3), -1)
+
+                # get indices for all pairs of i <= j
+                bat_x, bat_y = torch.triu_indices(v2, v2, 1)
+
+                # get their alignments
+                bas = best_align[bat_x, bat_y]
+
+                # create shifted weights
+                v_ind = torch.arange(v, device=self.device)[None, :].expand(len(bat_y), -1)
+                rolled_j = ws[bat_y][v_ind, (v_ind + bas[:, None]) % v]
+
+            # norms of all weights
+            w_norms = torch.linalg.norm(ws, dim=(2, 1))
+
+            # inner prod of weights i and shifted weights j
+            inner_prod = torch.matmul(ws[bat_x], rolled_j.transpose(2, 1)).sum((1, 2))
+
+            # angles between aligned weights
+            angles = inner_prod/(w_norms[bat_x] * w_norms[bat_y])
+
+            reg3 += angles.sum()
+
+            # for j in range(W_flat.shape[0]):
+            #     for k in range(W_flat.shape[0]):
+            #         if j >= k:
+            #             continue
+            #         # align Weights
+            #         with torch.no_grad():
+            #             diff_mat = (W_flat[j].unsqueeze(0) - W_flat[k].unsqueeze(1)).sum(2)
+            #             block = torch.block_diag(diff_mat.triu(), diff_mat.tril(-1))
+            #
+            #             for l in range(self.v_num):
+            #                 align_diffs[l] = torch.diag(block, l).sum()
+            #
+            #             # Find best shifted version of weight
+            #             best_align = self.v_num - torch.argmin(align_diffs)
+            #
+            #         # Calculate angle between the two weights
+            #         shift_k = torch.roll(W_flat[k], best_align.item(), dims=0)
+            #         reg3 += torch.tensordot(W_flat[j], shift_k, dims=([1, 0], [1, 0])) / (
+            #                 torch.norm(W_flat[j]) * torch.norm(shift_k))
+            #
+            #
+            # W_mat = torch.full((self.v_num, W_shape[2], self.q), 0., device=self.device)
+            # for j in range(W_flat.shape[0]):
+            #     for k in range(W_flat.shape[0]):
+            #         if j >= k:
+            #             continue
+            #         else:
+            #             # align Weights
+            #             with torch.no_grad():
+            #                 W_mat[0] = W_flat[k]
+            #                 for l in range(1, self.v_num):
+            #                     W_mat[l] = torch.roll(W_flat[k], l, dims=0)
+            #                 # Find best shifted version of weight
+            #                 best_align = torch.argmin((W_flat[j] - W_mat).abs().sum((2, 1)))
+            #
+            #             # Calculate angle between the two weights
+            #             reg3 += torch.tensordot(W_flat[j], W_mat[best_align], dims=([1, 0], [1, 0])) / (
+            #                         torch.norm(W_flat[j]) * torch.norm(W_mat[best_align]))
+
+        reg3 *= self.ld
 
         # Passed to training logger
         reg_dict = {
@@ -694,14 +774,14 @@ class pool_CRBM(Base_drelu):
         return logs["loss"]
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
-        if self.pearson_xvar == "labels" and self.additional_data:
-            inds, seqs, one_hot, seq_weights, labels, additional_data = batch
-        if self.pearson_xvar == "labels":
-            inds, seqs, one_hot, seq_weights, labels = batch
-        if self.additional_data:
-            inds, seqs, one_hot, seq_weights, additional_data = batch
-        else:
-            inds, seqs, one_hot, seq_weights = batch
+        # if self.pearson_xvar == "labels" and self.additional_data:
+        #     inds, seqs, one_hot, seq_weights, labels, additional_data = batch
+        # if self.pearson_xvar == "labels":
+        #     inds, seqs, one_hot, seq_weights, labels = batch
+        # if self.additional_data:
+        #     inds, seqs, one_hot, seq_weights, additional_data = batch
+        # else:
+        inds, seqs, one_hot, seq_weights = batch
 
         if self.current_epoch == 0 and batch_idx == 0:
             self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
@@ -712,9 +792,6 @@ class pool_CRBM(Base_drelu):
 
         V_oh_neg, h_neg, input_loss = self.forward_PCD(inds)
 
-        # delete tensors not involved in loss calculation
-        # pytorch garbage collection does not catch these
-        del h_neg
 
 
         # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
@@ -728,14 +805,21 @@ class pool_CRBM(Base_drelu):
         # raw_energy_weights_v = (free_energy_v/free_energy_v.min())
         # shift_energy_weights_v = ((raw_energy_weights_v - raw_energy_weights_v.min())*10)
         # energy_weights_v = shift_energy_weights_v  #/shift_energy_weights_v.sum()  # Sequences with highest energies (lowest free energy, less likely) are given greater weights
-        F_v = (free_energy_v * seq_weights) / seq_weights.sum()  # free energy of training data
+        # with torch.no_grad():
+        #     sw = self.energy(one_hot, self.sample_from_inputs_h(self.compute_output_v(one_hot)))
+        #     sw -= sw.min()
+        #     sw = (sw*one_hot.shape[0])/sw.sum()
+        # sw = seq_weights
+        F_v = free_energy_v # * sw) / sw.sum()  # free energy of training data
+
+
         # F_v = free_energy_v
         # free_energy_vp = self.free_energy(V_oh_neg)
         # raw_energy_weights_vp = (1 - free_energy_vp/free_energy_vp.min()).exp()
         # energy_weights_vp = raw_energy_weights_vp/raw_energy_weights_vp.sum()  # Generated Sequences with lowest energies (most likely) are given greater weights
-        F_vp = (self.free_energy(V_oh_neg) * seq_weights) / seq_weights.sum()  # free energy of gibbs sampled visible states
+        F_vp = self.free_energy(V_oh_neg) # * sw) / sw.sum()  # free energy of gibbs sampled visible states
         # F_vp = self.free_energy(V_oh_neg)
-        cd_loss =(F_v - F_vp).mean()             # (energy_weights_v * (F_v - (F_vp * energy_weights_vp))).mean()  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+        cd_loss = (F_v - F_vp).mean()             # (energy_weights_v * (F_v - (F_vp * energy_weights_vp))).mean()  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         # Regularization Terms
         reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
