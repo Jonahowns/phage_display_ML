@@ -610,7 +610,8 @@ class pool_CRBM(Base_drelu):
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
             W = getattr(self, f"{i}_W")
-            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
+
+            x = torch.sum(W, (3, 2, 1)).square()
             reg2 += x.sum() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
             # reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
             gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
@@ -631,31 +632,35 @@ class pool_CRBM(Base_drelu):
                 wdm = torch.concat([pdiff, pdiff.clone()], dim=2)
 
                 # get stride to get matrix of all diagonals on separate row
-                i, j, v2, v = wdm.size()
+                si, sj, v2, v = wdm.size()
                 i_s, j_s, v2_s, v_s = wdm.stride()
-                wdm_s = torch.as_strided(wdm, (i, j, v, v), (i_s, j_s, v2_s, v2_s + 1))
+                wdm_s = torch.as_strided(wdm, (si, sj, v, v), (i_s, j_s, v2_s, v2_s + 1))
 
                 # get the best alignment position
-                best_align = self.v_num - torch.argmin(wdm_s.abs().sum(3), -1)
+                best_align = W_shape[2] - torch.argmin(wdm_s.abs().sum(3), -1)
 
                 # get indices for all pairs of i <= j
-                bat_x, bat_y = torch.triu_indices(v2, v2, 1)
+                bat_x, bat_y = torch.triu_indices(si, sj, 1)
 
                 # get their alignments
                 bas = best_align[bat_x, bat_y]
 
                 # create shifted weights
+                vt_ind = torch.arange(len(bat_x), device=self.device)[:, None].expand(-1, v)
                 v_ind = torch.arange(v, device=self.device)[None, :].expand(len(bat_y), -1)
-                rolled_j = ws[bat_y][v_ind, (v_ind + bas[:, None]) % v]
+                rolled_j = ws[bat_y][vt_ind, (v_ind + bas[:, None]) % v]
 
             # norms of all weights
             w_norms = torch.linalg.norm(ws, dim=(2, 1))
 
             # inner prod of weights i and shifted weights j
-            inner_prod = torch.matmul(ws[bat_x], rolled_j.transpose(2, 1)).sum((1, 2))
+            inner_prod = torch.tensordot(ws[bat_x], rolled_j, dims=([2, 1], [2, 1]))[0]
 
             # angles between aligned weights
-            angles = inner_prod/(w_norms[bat_x] * w_norms[bat_y])
+            angles = inner_prod/(w_norms[bat_x] * w_norms[bat_y] + 1e-6)
+
+            if torch.isnan(angles).any():
+                print('suh')
 
             reg3 += angles.sum()
 
@@ -805,12 +810,12 @@ class pool_CRBM(Base_drelu):
         # raw_energy_weights_v = (free_energy_v/free_energy_v.min())
         # shift_energy_weights_v = ((raw_energy_weights_v - raw_energy_weights_v.min())*10)
         # energy_weights_v = shift_energy_weights_v  #/shift_energy_weights_v.sum()  # Sequences with highest energies (lowest free energy, less likely) are given greater weights
-        # with torch.no_grad():
-        #     sw = self.energy(one_hot, self.sample_from_inputs_h(self.compute_output_v(one_hot)))
-        #     sw -= sw.min()
-        #     sw = (sw*one_hot.shape[0])/sw.sum()
+        with torch.no_grad():
+            sw = self.energy(one_hot, self.sample_from_inputs_h(self.compute_output_v(one_hot)))
+            sw -= sw.min()
+            sw = (sw*one_hot.shape[0])/sw.sum()
         # sw = seq_weights
-        F_v = free_energy_v # * sw) / sw.sum()  # free energy of training data
+        F_v = free_energy_v * sw # free energy of training data
 
 
         # F_v = free_energy_v

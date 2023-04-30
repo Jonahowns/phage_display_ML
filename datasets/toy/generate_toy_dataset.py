@@ -1,8 +1,13 @@
 from rbm_torch.utils.data_prep import write_fasta
 import numpy as np
 
+#easy mode
 dataset_size = 2000
-dataset_clusters = [("ACGTTTAA", 0.25), ("CCGACGGT", 0.5), ("GGGAAGGG", 0.25) ]
+dataset_clusters = [("ACGTTTAA", 0.25), ("CCGACGGT", 0.5), ("GGGAAGGG", 0.25)]
+
+# rare mode
+dataset_size = 10000
+dataset_clusters = [("ACGTTTAA", 0.25), ("CCGACGGT", 0.5), ("GGGAAGGG", 0.24), ("CACCACCC", 0.01)]
 
 min_size, max_size = 16, 20
 seq_lens = [np.random.randint(min_size, max_size+1, int(dataset_size*fraction)) for motif, fraction in dataset_clusters]
@@ -26,4 +31,4 @@ for did, dc in enumerate(dataset_clusters):
 
 affs = list(np.arange(0, dataset_size, 1))
 
-write_fasta(seqs, affs, "toy.fasta")
+write_fasta(seqs, affs, "toy_rare.fasta")

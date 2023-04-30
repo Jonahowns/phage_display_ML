@@ -247,7 +247,7 @@ class Base(LightningModule):
         return optim_dict
 
     ## Loads Training Data
-    def train_dataloader(self, init_fields=True):
+    def train_dataloader(self, init_fields=False):
         training_weights = None
         if "seq_count" in self.training_data.columns:
             training_weights = self.training_data["seq_count"].tolist()
@@ -259,6 +259,13 @@ class Base(LightningModule):
             if hasattr(self, "fields"):
                 with torch.no_grad():
                     initial_fields = train_reader.field_init()
+                    self.fields += initial_fields
+                    self.fields0 += initial_fields
+
+        else:
+            if hasattr(self, "fields"):
+                with torch.no_grad():
+                    initial_fields = torch.randn((self.v_num, self.q), device=self.device)*0.01
                     self.fields += initial_fields
                     self.fields0 += initial_fields
 
