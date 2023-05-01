@@ -27,7 +27,7 @@ class pool_CRBM(Base_drelu):
 
         self.mc_moves = config['mc_moves']  # Number of MC samples to take to update hidden and visible configurations
 
-        # sample types control whether gibbs sampling, pcd, from the data points or parallel tempering from random configs are used
+        # sample types control whether gibbs sampling, pcd, from the data or parallel tempering from random configs are used
         # Switches How the training of the RBM is performed
         self.sample_type = config['sample_type']
 
@@ -37,10 +37,10 @@ class pool_CRBM(Base_drelu):
         ###########################################
         self.l1_2 = config['l1_2']  # regularization on weights, ex. 0.25
         self.lf = config['lf']  # regularization on fields, ex. 0.001
-        self.ld = config['ld']
-        self.lgap = config['lgap']
-        self.lbs = config['lbs']
-        self.lcorr = config['lcorr']
+        self.ld = config['ld']  # regularization on distance b/t aligned weights
+        self.lgap = config['lgap'] # regularization on gaps
+        self.lbs = config['lbs']  # regularization to promote using both sides of the weights
+        self.lcorr = config['lcorr']  # regularization on correlation of weights
         ###########################################
 
         self.convolution_topology = config["convolution_topology"]
@@ -51,7 +51,6 @@ class pool_CRBM(Base_drelu):
             self.register_parameter("fields", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
             self.register_parameter("fields0", nn.Parameter(torch.zeros((self.v_num, self.q), device=self.device)))
         elif type(self.v_num) is tuple:  # Normal dist. times this value sets initial weight values
-
             self.weight_initial_amplitude = np.sqrt(0.01 / math.prod(list(self.v_num)))
             self.register_parameter("fields", nn.Parameter(torch.zeros((*self.v_num, self.q), device=self.device)))
             self.register_parameter("fields0", nn.Parameter(torch.zeros((*self.v_num, self.q), device=self.device)))
@@ -75,12 +74,8 @@ class pool_CRBM(Base_drelu):
             pool_stride = 1
             pool_padding = 0
 
-            self.pools.append(nn.MaxPool1d(pool_kernel, stride=pool_stride, return_indices=True, padding=pool_padding))
-            self.unpools.append(nn.MaxUnpool1d(pool_kernel, stride=pool_stride, padding=pool_padding))
-
-            # if self.use_batch_norm:
-            #     setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
-            #     setattr(self, f"batch_norm_{key}", BatchNorm1D(affine=False, momentum=0.1))
+            self.pools.append(nn.MaxPool1d(pool_kernel, stride=1, return_indices=True, padding=0))
+            self.unpools.append(nn.MaxUnpool1d(pool_kernel, stride=1, padding=0))
 
             # Convolution Weights
             self.register_parameter(f"{key}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device)))
@@ -276,8 +271,6 @@ class pool_CRBM(Base_drelu):
                 a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0)
                 a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0)
 
-            # in_neg = inputs[iid][:, :, 1]
-            # in_pos = inputs[iid][:, :, 0]
             y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
                                 0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
                 1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
@@ -307,12 +300,6 @@ class pool_CRBM(Base_drelu):
                     a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
                     a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
                     psi[kid] *= beta
-
-                # if psi[kid].dim() == 3:
-                #     a_plus = a_plus.unsqueeze(2)
-                #     a_minus = a_minus.unsqueeze(2)
-                #     theta_plus = theta_plus.unsqueeze(2)
-                #     theta_minus = theta_minus.unsqueeze(2)
 
                 psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
                 psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
@@ -378,23 +365,15 @@ class pool_CRBM(Base_drelu):
 
             flat_conv = conv.flatten(start_dim=2)
             max_conv_values = flat_conv.gather(2, index=max_inds.flatten(start_dim=2)).view_as(max_inds)
-
-            # max_conv_values = torch.gather(conv, 2, max_inds)
             max_pool *= max_conv_values/max_conv_values.abs()
 
             self.max_inds.append(max_inds)
 
             out = max_pool.flatten(start_dim=2)
 
-            # if self.use_batch_norm:
-            #     batch_norm = getattr(self, f"batch_norm_{i}")  # get individual batch norm
-            #     out = batch_norm(out)  # apply batch norm
-
             out.squeeze_(2)
 
             if self.dr > 0.:
-                # dropout_mask = F.dropout(torch.ones((out.shape[1]), device=self.device))
-                # out = out * dropout_mask
                 out = F.dropout(out, p=self.dr, training=self.training)
 
             outputs.append(out)
@@ -428,8 +407,6 @@ class pool_CRBM(Base_drelu):
 
     ## Gibbs Sampling of Potts Visbile Layer
     def sample_from_inputs_v(self, psi, beta=1):  # Psi ohe (Batch_size, v_num, q)   fields (self.v_num, self.q)
-        datasize = psi.shape[0]
-
         if beta == 1:
             cum_probas = psi + getattr(self, "fields").unsqueeze(0)
         else:
@@ -469,8 +446,6 @@ class pool_CRBM(Base_drelu):
 
             psi_plus = (-psi[iid]).add(theta_plus).div(torch.sqrt(a_plus))
             psi_minus = psi[iid].add(theta_minus).div(torch.sqrt(a_minus))
-            # psi_plus = ((psi[iid][:, :, 1]).add(theta_plus).div(torch.sqrt(a_plus)))  # min pool
-            # psi_minus = (psi[iid][:, :, 0].add(theta_minus).div(torch.sqrt(a_minus))) # max pool
 
             etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
             etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
@@ -478,9 +453,9 @@ class pool_CRBM(Base_drelu):
             p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
             nans = torch.isnan(p_plus)
 
-            if True in nans:
+            if nans.any():
                 p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-            p_minus = 1 - p_plus
+            # p_minus = 1 - p_plus
 
             is_pos = torch.rand(p_plus.shape, device=self.device) < p_plus
 
@@ -499,8 +474,6 @@ class pool_CRBM(Base_drelu):
             h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
             h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
             h_uks.append(h)
-            if True in torch.isnan(h):
-                print("hi")
         return h_uks
 
     ###################################################### Sampling Functions
@@ -585,7 +558,6 @@ class pool_CRBM(Base_drelu):
     def validation_step(self, batch, batch_idx):
         inds, seqs, one_hot, seq_weights = batch
 
-        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
         free_energy = self.free_energy(one_hot)
         free_energy_avg = (free_energy * seq_weights).sum() / seq_weights.sum()
 
@@ -600,9 +572,9 @@ class pool_CRBM(Base_drelu):
         return
 
     def regularization_terms(self):
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-        reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device) # discourages weights that are alike
+        freg = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        wreg = torch.zeros((1,), device=self.device)
+        dreg = torch.zeros((1,), device=self.device)  # discourages weights that are alike
 
         bs_loss = torch.zeros((1,), device=self.device)  # encourages weights to use both positive and negative contributions
         gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
@@ -612,8 +584,8 @@ class pool_CRBM(Base_drelu):
             W = getattr(self, f"{i}_W")
 
             x = torch.sum(W, (3, 2, 1)).square()
-            reg2 += x.sum() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-            # reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            wreg += x.sum() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            # dreg += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
             gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
 
             denom = torch.sum(torch.abs(W), (3, 2, 1))
@@ -622,8 +594,8 @@ class pool_CRBM(Base_drelu):
             bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).sum()
 
             ws = torch.concat([Wpos, Wneg.abs()], dim=0).squeeze(1)
+
             with torch.no_grad():
-                # align_diffs = torch.full((self.v_num,), 0.)
 
                 # compute positional differences for all pairs of weights
                 pdiff = (ws.unsqueeze(0).unsqueeze(2) - ws.unsqueeze(1).unsqueeze(3)).sum(4)
@@ -659,62 +631,20 @@ class pool_CRBM(Base_drelu):
             # angles between aligned weights
             angles = inner_prod/(w_norms[bat_x] * w_norms[bat_y] + 1e-6)
 
-            if torch.isnan(angles).any():
-                print('suh')
+            dreg += angles.sum()
 
-            reg3 += angles.sum()
-
-            # for j in range(W_flat.shape[0]):
-            #     for k in range(W_flat.shape[0]):
-            #         if j >= k:
-            #             continue
-            #         # align Weights
-            #         with torch.no_grad():
-            #             diff_mat = (W_flat[j].unsqueeze(0) - W_flat[k].unsqueeze(1)).sum(2)
-            #             block = torch.block_diag(diff_mat.triu(), diff_mat.tril(-1))
-            #
-            #             for l in range(self.v_num):
-            #                 align_diffs[l] = torch.diag(block, l).sum()
-            #
-            #             # Find best shifted version of weight
-            #             best_align = self.v_num - torch.argmin(align_diffs)
-            #
-            #         # Calculate angle between the two weights
-            #         shift_k = torch.roll(W_flat[k], best_align.item(), dims=0)
-            #         reg3 += torch.tensordot(W_flat[j], shift_k, dims=([1, 0], [1, 0])) / (
-            #                 torch.norm(W_flat[j]) * torch.norm(shift_k))
-            #
-            #
-            # W_mat = torch.full((self.v_num, W_shape[2], self.q), 0., device=self.device)
-            # for j in range(W_flat.shape[0]):
-            #     for k in range(W_flat.shape[0]):
-            #         if j >= k:
-            #             continue
-            #         else:
-            #             # align Weights
-            #             with torch.no_grad():
-            #                 W_mat[0] = W_flat[k]
-            #                 for l in range(1, self.v_num):
-            #                     W_mat[l] = torch.roll(W_flat[k], l, dims=0)
-            #                 # Find best shifted version of weight
-            #                 best_align = torch.argmin((W_flat[j] - W_mat).abs().sum((2, 1)))
-            #
-            #             # Calculate angle between the two weights
-            #             reg3 += torch.tensordot(W_flat[j], W_mat[best_align], dims=([1, 0], [1, 0])) / (
-            #                         torch.norm(W_flat[j]) * torch.norm(W_mat[best_align]))
-
-        reg3 *= self.ld
+        dreg *= self.ld
 
         # Passed to training logger
         reg_dict = {
-            "field_reg": reg1.detach(),
-            "weight_reg": reg2.detach(),
-            "distance_reg": reg3.detach(),
+            "field_reg": freg.detach(),
+            "weight_reg": wreg.detach(),
+            "distance_reg": dreg.detach(),
             "gap_reg": gap_loss.detach(),
             "both_side_reg": bs_loss.detach()
         }
 
-        return reg1, reg2, reg3, bs_loss, gap_loss, reg_dict
+        return freg, wreg, dreg, bs_loss, gap_loss, reg_dict
 
     def training_step_PT_free_energy(self, batch, batch_idx):
         inds, seqs, one_hot, seq_weights = batch
@@ -727,10 +657,10 @@ class pool_CRBM(Base_drelu):
         cd_loss = F_v - F_vp
 
         # Regularization Terms
-        reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+        freg, wreg, dreg, bs_loss, gap_loss, reg_dict = self.regularization_terms()
 
         # Calc loss
-        loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
+        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -756,15 +686,14 @@ class pool_CRBM(Base_drelu):
             "free_energy_pos": F_v.sum().detach(),
             "free_energy_neg": F_vp.sum().detach(),
             "free_energy_diff": cd_loss.sum().detach(),
-            # "free_energy_kd": free_energy_kd.detach(),
             "cd_loss": cd_loss.detach(),
         }
 
         # Regularization Terms
-        reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+        freg, wreg, dreg, bs_loss, gap_loss, reg_dict = self.regularization_terms()
 
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss
+        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss
 
         logs = {"loss": loss,
                 "train_free_energy": cd_loss.sum().detach(),
@@ -779,13 +708,6 @@ class pool_CRBM(Base_drelu):
         return logs["loss"]
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
-        # if self.pearson_xvar == "labels" and self.additional_data:
-        #     inds, seqs, one_hot, seq_weights, labels, additional_data = batch
-        # if self.pearson_xvar == "labels":
-        #     inds, seqs, one_hot, seq_weights, labels = batch
-        # if self.additional_data:
-        #     inds, seqs, one_hot, seq_weights, additional_data = batch
-        # else:
         inds, seqs, one_hot, seq_weights = batch
 
         if self.current_epoch == 0 and batch_idx == 0:
@@ -793,44 +715,26 @@ class pool_CRBM(Base_drelu):
 
         if self.current_epoch == 0:
             self.chain[inds] = one_hot.type(torch.get_default_dtype())
-            # batch_min_free_energy = 0.
 
         V_oh_neg, h_neg, input_loss = self.forward_PCD(inds)
 
-
-
-        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
         free_energy_v = self.free_energy(one_hot)
-        # min_free_energy = free_energy_v.max()
 
-        # if min_free_energy < batch_min_free_energy:
-        #     batch_min_free_energy
-
-
-        # raw_energy_weights_v = (free_energy_v/free_energy_v.min())
-        # shift_energy_weights_v = ((raw_energy_weights_v - raw_energy_weights_v.min())*10)
-        # energy_weights_v = shift_energy_weights_v  #/shift_energy_weights_v.sum()  # Sequences with highest energies (lowest free energy, less likely) are given greater weights
         with torch.no_grad():
             sw = self.energy(one_hot, self.sample_from_inputs_h(self.compute_output_v(one_hot)))
             sw -= sw.min()
             sw = (sw*one_hot.shape[0])/sw.sum()
-        # sw = seq_weights
-        F_v = free_energy_v * sw # free energy of training data
 
+        F_v = free_energy_v * sw  # free energy of training data
+        F_vp = self.free_energy(V_oh_neg) * sw  # ) / sw.sum()  # free energy of gibbs sampled visible states
 
-        # F_v = free_energy_v
-        # free_energy_vp = self.free_energy(V_oh_neg)
-        # raw_energy_weights_vp = (1 - free_energy_vp/free_energy_vp.min()).exp()
-        # energy_weights_vp = raw_energy_weights_vp/raw_energy_weights_vp.sum()  # Generated Sequences with lowest energies (most likely) are given greater weights
-        F_vp = self.free_energy(V_oh_neg) # * sw) / sw.sum()  # free energy of gibbs sampled visible states
-        # F_vp = self.free_energy(V_oh_neg)
         cd_loss = (F_v - F_vp).mean()             # (energy_weights_v * (F_v - (F_vp * energy_weights_vp))).mean()  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
 
         # Regularization Terms
-        reg1, reg2, reg3, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+        freg, wreg, dreg, bs_loss, gap_loss, reg_dict = self.regularization_terms()
 
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3 + bs_loss + gap_loss + input_loss*self.lcorr
+        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss + input_loss
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
@@ -867,14 +771,11 @@ class pool_CRBM(Base_drelu):
 
         other_interactions = pearson_mat.triu(diagonal=1).sum() - self_interaction_term - topvals.sum()*0.9
 
-        return other_interactions
+        return other_interactions*self.lcorr
 
     def forward_PCD(self, inds):
         # Gibbs sampling with Persistent Contrastive Divergence
-        # pytorch lightning handles the device
         fantasy_v = self.chain[inds]  # Last sample that was saved to self.chain variable, initialized in training step
-        # h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
-        # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
         for _ in range(self.mc_moves - 1):
             fantasy_v, fantasy_h = self.markov_step(fantasy_v)
 
@@ -912,7 +813,6 @@ class pool_CRBM(Base_drelu):
 
     def forward(self, V_pos_ohe):
         # Gibbs sampling
-        # pytorch lightning handles the device
         fantasy_v, first_h = self.markov_step(V_pos_ohe)
         for _ in range(self.mc_moves - 1):
             fantasy_v, fantasy_h = self.markov_step(fantasy_v)
@@ -970,20 +870,11 @@ class pool_CRBM(Base_drelu):
             weights = seq_weights
             F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
             F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
-            cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+            cd_loss = F_v - F_vp
 
             # Regularization Terms
-            reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
-            reg2 = torch.zeros((1,), device=self.device)
-            reg3 = torch.zeros((1,), device=self.device)
-            for iid, i in enumerate(self.hidden_convolution_keys):
-                W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-                x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-                reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-                # Size of Convolution Filters weight_size = (h_num, input_channels, kernel[0], kernel[1])
-                reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
-
-            loss = cd_loss + reg1 + reg2 + reg3
+            freg, wreg, dreg, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+            loss = cd_loss + freg + wreg + dreg + gap_loss + bs_loss
             loss.backward()
 
             saliency_maps.append(one_hot_v.grad.data.detach())
