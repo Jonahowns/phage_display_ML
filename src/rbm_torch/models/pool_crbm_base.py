@@ -741,7 +741,7 @@ class pool_CRBM(Base_drelu):
                 "free_energy_pos": F_v.mean().detach(),
                 "free_energy_neg": F_vp.mean().detach(),
                 # "free_energy_diff": free_energy_diff.sum().detach(),
-                "Input Correlation Reg": input_loss.detach(),
+                "input_correlation_reg": input_loss.detach(),
                 **reg_dict
                 }
 

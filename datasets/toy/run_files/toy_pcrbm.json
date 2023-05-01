@@ -35,7 +35,7 @@
     "optimizer": "AdamW",
     "weight_decay": 0.0,
     "l1_2": 1.0,
-    "lf": 5.0,
+    "lf": 10.0,
     "lcorr": 0.0,
     "ld": 0.03,
     "data_worker_num": 6,
