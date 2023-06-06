@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 import math
+import sys
 import json
 import numpy as np
 from pytorch_lightning import LightningModule, Trainer
@@ -17,7 +18,7 @@ from multiprocessing import cpu_count # Just to set the worker number
 from torch.autograd import Variable
 
 from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim  #Sequence_logo, gen_data_lowT, gen_data_zeroT, all_weights, Sequence_logo_all,
-
+from rbm_torch.models.base import Base_drelu
 # input_shape = (v_num, q)
 # Lists all possible convolutions that reproduce exactly the input shape
 # Useful for building a convolution topology
@@ -31,117 +32,23 @@ from rbm_torch.utils.utils import Categorical, fasta_read, conv2d_dim  #Sequence
  #    }
 
 
-class CRBM(LightningModule):
+class CRBM(Base_drelu):
     def __init__(self, config, debug=False, precision="double", meminfo=False):
         super().__init__()
-        # self.h_num = config['h_num']  # Number of hidden node clusters, can be variable
-        self.v_num = config['v_num']   # Number of visible nodes
-        self.q = config['q']  # Number of categories the input sequence has (ex. DNA:4 bases + 1 gap)
         self.mc_moves = config['mc_moves']  # Number of MC samples to take to update hidden and visible configurations
-        self.batch_size = config['batch_size']  # Pretty self explanatory
 
-        self.epsilon = 1e-6  # Number added to denominators for numerical stability
-        self.epochs = config['epochs'] # number of training iterations, needed for our weight decay function
+        self.sample_type = config['sample_type']
+        assert self.sample_type in ['gibbs', 'pt', 'pcd']
 
-        # Data Input
-        self.fasta_file = config['fasta_file']
-        self.molecule = config['molecule'] # can be protein, rna or dna currently
-        assert self.molecule in ["dna", "rna", "protein"]
-
-        # Sets worker number for both dataloaders
-        if debug:
-            self.worker_num = 0
-        else:
-            try:
-                self.worker_num = config["data_worker_num"]
-            except KeyError:
-                self.worker_num = cpu_count()
-
-        # Sets Pim Memory when GPU is being used
-        try:
-            if config["gpus"] > 0:
-                self.pin_mem = True
-            else:
-                self.pin_mem = False
-        except KeyError:
-            self.pin_mem = False
-
-        # Sequence Weighting Weights
-        # Not pretty but necessary to either provide the weights or to import from the fasta file
-        # To import from the provided fasta file weights="fasta" in intialization of RBM
-        weights = config['sequence_weights']
-        loss_type = config['loss_type']
-        sample_type = config['sample_type']
-        optimizer = config['optimizer']
-        self.lr = config['lr']
-        lr_final = config['lr_final']
-        self.wd = config['weight_decay'] # Put into weight decay option in configure_optimizer, l2 regularizer
-        self.decay_after = config['decay_after'] # hyperparameter for when the lr decay should occur
         self.l1_2 = config['l1_2']  # regularization on weights, ex. 0.25
         self.lf = config['lf']  # regularization on fields, ex. 0.001
         self.ld = config['ld']
-        self.seed = config['seed']
-
-        # All weights are scaled by this muliplier
-        try:
-            self.stratify = config["stratify_datasets"]
-        except KeyError:
-            self.stratify = False
-
-        if weights is None:
-            self.weights = None
-        elif type(weights) == str:
-            if weights == "fasta": # Assumes weights are in fasta file
-                self.weights = "fasta"
-        elif type(weights) == torch.tensor:
-            self.weights = weights.numpy()
-        elif type(weights) == np.ndarray:
-            self.weights = weights
-        else:
-            print(f"Provided Weights of type {type(weights)} Not Supported, Must be None, a numpy array, torch tensor, or 'fasta'")
-            exit(1)
-
-        # loss types are 'energy' and 'free_energy' for now, controls the loss function primarily
-        # sample types control whether gibbs sampling from the data points or parallel tempering from random configs are used
-        # Switches How the training of the RBM is performed
-
-        assert loss_type in ['energy', 'free_energy']
-        assert sample_type in ['gibbs', 'pt', 'pcd']
-
-        self.loss_type = loss_type
-        self.sample_type = sample_type
-
-        # optimizer options
-        if optimizer == "SGD":
-            self.optimizer = SGD
-        elif optimizer == "AdamW":
-            self.optimizer = AdamW
-        elif optimizer == "Adagrad":
-            self.optimizer = Adagrad
-        elif optimizer == "Adadelta":
-            self.optimizer = Adadelta
-        else:
-            print(f"Optimizer {optimizer} is not supported")
-            exit(1)
-
-        if lr_final is None:
-            self.lrf = self.lr * 1e-2
-        else:
-            self.lrf = lr_final
-
-
-
-        ## Might Need if grad values blow up
-        # self.grad_norm_clip_value = 1000 # i have no context for setting this value at all lol, it isn't in use currently but may be later
-
-        # Pytorch Basic Options
-        torch.manual_seed(self.seed)  # For reproducibility
-        supported_precisions = {"double": torch.float64, "single": torch.float32}
-        try:
-            torch.set_default_dtype(supported_precisions[precision])
-        except:
-            print(f"Precision {precision} not supported.")
-            exit(-1)
+        self.lgap = config['lgap']
+        self.lbs = config['lbs']  # regularization to promote using both sides of the weights
+        self.lcorr = config['lcorr']  # regularization on correlation of weights
+        ###########################################
+        self.lkd = config['lkd']
+        self.kl_div = torch.nn.KLDivLoss(log_target=True, reduction='none')
 
         self.convolution_topology = config["convolution_topology"]
 
@@ -158,13 +65,7 @@ class CRBM(LightningModule):
 
         self.hidden_convolution_keys = list(self.convolution_topology.keys())
 
-        # Hidden Layer Weights, Two options (1) provided weights or (2) learns the weights as a model parameter
-        try:
-            hidden_layer_weights = [v['weight'] for x, v in self.convolution_topology.items()]
-            self.register_parameter("hidden_layer_W", nn.Parameter(torch.tensor(hidden_layer_weights, device=self.device), requires_grad=False))
-        except KeyError:
-            print("Hidden layer weights not provided or incomplete. Attempting to learn instead.")
-            self.register_parameter("hidden_layer_W", nn.Parameter(torch.ones((len(self.hidden_convolution_keys)), device=self.device), requires_grad=True))
+        # self.register_parameter("hidden_layer_W", nn.Parameter(torch.ones((len(self.hidden_convolution_keys)), device=self.device), requires_grad=True))
 
         for key in self.hidden_convolution_keys:
             # Set information about the convolutions that will be useful
@@ -185,6 +86,9 @@ class CRBM(LightningModule):
             self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
             self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
 
+        self.ind_temp_schedule = self.init_temp_schedule(config["ind_temp"])
+        self.seq_temp_schedule = self.init_temp_schedule(config["seq_temp"])
+
         # Saves Our hyperparameter options into the checkpoint file generated for Each Run of the Model
         # i. e. Simplifies loading a model that has already been run
         self.save_hyperparameters()
@@ -199,12 +103,12 @@ class CRBM(LightningModule):
         self.sqrt2 = torch.tensor(1.4142135624, device=self.device, requires_grad=False)
     
         # Initialize PT members
-        if sample_type == "pt":
+        if self.sample_type == "pt":
             try:
                 self.N_PT = config["N_PT"]
             except KeyError:
                 print("No member N_PT found in provided config.")
-                exit(-1)
+                sys.exit(1)
             self.initialize_PT(self.N_PT, n_chains=None, record_acceptance=True, record_swaps=True)
 
         self.meminfo = meminfo
@@ -213,32 +117,6 @@ class CRBM(LightningModule):
     @property
     def h_layer_num(self):
         return len(self.hidden_convolution_keys)
-
-    # Initializes Members for both PT and gen_data functions
-    def initialize_PT(self, N_PT, n_chains=None, record_acceptance=False, record_swaps=False):
-        self.record_acceptance = record_acceptance
-        self.record_swaps = record_swaps
-
-        # self.update_betas()
-        self.betas = torch.arange(N_PT) / (N_PT - 1)
-        self.betas = self.betas.flip(0)
-
-        if n_chains is None:
-            n_chains = self.batch_size
-
-        self.particle_id = [torch.arange(N_PT).unsqueeze(1).expand(N_PT, n_chains)]
-
-        # if self.record_acceptance:
-        self.mavar_gamma = 0.95
-        self.acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
-        self.mav_acceptance_rates = torch.zeros(N_PT - 1, device=self.device)
-
-        # gen data
-        self.count_swaps = 0
-        self.last_at_zero = None
-        self.trip_duration = None
-        # self.update_betas_lr = 0.1
-        # self.update_betas_lr_decay = 1
 
     ############################################################# CRBM Functions
     ## Compute Psuedo likelihood of given visible config
@@ -335,6 +213,9 @@ class CRBM(LightningModule):
     ## Used in our Loss Function
     def free_energy(self, v):
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
+
+    def free_energy_ind(self, v):
+        return self.energy_v(v).unsqueeze(1) - self.logpartition_h_ind(self.compute_output_v(v))
 
     ## Not used but may be useful
     def free_energy_h(self, h):
@@ -600,8 +481,6 @@ class CRBM(LightningModule):
     def compute_output_h(self, Y):  # from h_uk (B, hidden_num, convx_num)
         outputs = []
         nonzero_masks = []
-        hidden_layer_W = getattr(self, "hidden_layer_W")
-        total_weights = hidden_layer_W.sum()
         for iid, i in enumerate(self.hidden_convolution_keys):
             # convx = self.convolution_topology[i]["convolution_dims"][2]
             outputs.append(F.conv_transpose2d(Y[iid].unsqueeze(3), getattr(self, f"{i}_W"),
@@ -609,50 +488,29 @@ class CRBM(LightningModule):
                                               padding=self.convolution_topology[i]["padding"],
                                               dilation=self.convolution_topology[i]["dilation"],
                                               output_padding=self.convolution_topology[i]["output_padding"]).squeeze(1))
-            outputs[-1] *= hidden_layer_W[iid]/total_weights
             nonzero_masks.append((outputs[-1] != 0.).type(torch.get_default_dtype()) * getattr(self, "hidden_layer_W")[iid])  # Used for calculating mean of outputs, don't want zeros to influence mean
-            # outputs[-1] /= convx  # multiply by 10/k to normalize by convolution dimension
         if len(outputs) > 1:
-            # Returns mean output from all hidden layers, zeros are ignored
-            mean_denominator = torch.sum(torch.stack(nonzero_masks), 0)
-            return torch.sum(torch.stack(outputs), 0) / mean_denominator
+            out = torch.sum(torch.stack(outputs), 0)
         else:
-            return outputs[0]
+            out = outputs[0]
+
+        return out
 
     ## Gibbs Sampling of Potts Visbile Layer
     def sample_from_inputs_v(self, psi, beta=1):  # Psi ohe (Batch_size, v_num, q)   fields (self.v_num, self.q)
-        datasize = psi.shape[0]
-
         if beta == 1:
             cum_probas = psi + getattr(self, "fields").unsqueeze(0)
         else:
             cum_probas = beta * psi + beta * getattr(self, "fields").unsqueeze(0) + (1 - beta) * getattr(self, "fields0").unsqueeze(0)
 
-        cum_probas = self.cumulative_probabilities(cum_probas)
+        maxi, max_indices = cum_probas.max(-1)
+        maxi.unsqueeze_(2)
+        cum_probas -= maxi
+        cum_probas.exp_()
+        cum_probas[cum_probas > 1e9] = 1e9  # For numerical stability.
 
-        rng = torch.rand((datasize, self.v_num), dtype=torch.float64, device=self.device)
-        low = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        middle = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        high = torch.zeros((datasize, self.v_num), dtype=torch.long, device=self.device)
-        high.fill_(self.q)
-
-        in_progress = low < high
-        while True in in_progress:
-            # Original Method
-            middle[in_progress] = torch.floor((low[in_progress] + high[in_progress]) / 2).long()
-
-            middle_probs = torch.gather(cum_probas, 2, middle.unsqueeze(2)).squeeze(2)
-            comparisonfull = rng < middle_probs
-
-            gt = torch.logical_and(comparisonfull, in_progress)
-            lt = torch.logical_and(~comparisonfull, in_progress)
-            high[gt] = middle[gt]
-            low[lt] = torch.add(middle[lt], 1)
-
-            in_progress = low < high
-
-        return F.one_hot(high, self.q)
-        # return self.one_hot_tmp.scatter(2, high.unsqueeze(-1), 1)
+        dist = torch.distributions.categorical.Categorical(probs=cum_probas)
+        return F.one_hot(dist.sample(), self.q)
 
     ## Gibbs Sampling of dReLU hidden layer
     def sample_from_inputs_h(self, psi, nancheck=False, beta=1):  # psi is a list of hidden Iuks
@@ -709,38 +567,15 @@ class CRBM(LightningModule):
             h_uks.append(h)
         return h_uks
 
-    ## Visible Potts Supporting Function
-    def cumulative_probabilities(self, X, maxi=1e9):
-        max, max_indices = X.max(-1)
-        max.unsqueeze_(2)
-        X -= max
-        X.exp_()
-        X[X > maxi] = maxi  # For numerical stability.
-        X.cumsum_(-1)
-        return X / X[:, :, -1].unsqueeze(2)
-
-    ## Hidden dReLU supporting Function
-    def erf_times_gauss(self, X):  # This is the "characteristic" function phi
-        m = torch.zeros_like(X, device=self.device)
-        tmp1 = X < -6
-        m[tmp1] = 2 * torch.exp(X[tmp1] ** 2 / 2)
-
-        tmp2 = X > 0
-        t = 1 / (1 + self.pbis * X[tmp2])
-        m[tmp2] = t * (self.a1 + self.a2 * t + self.a3 * t ** 2)
-
-        tmp3 = torch.logical_and(~tmp1, ~tmp2)
-        t2 = 1 / (1 - self.pbis * X[tmp3])
-        m[tmp3] = -t2 * (self.a1 + self.a2 * t2 + self.a3 * t2 ** 2) + 2 * torch.exp(X[tmp3] ** 2 / 2)
-        return m
-
-    ## Hidden dReLU supporting Function
-    def log_erf_times_gauss(self, X):
-        m = torch.zeros_like(X, device=self.device)
-        tmp = X < 4
-        m[tmp] = 0.5 * X[tmp] ** 2 + torch.log(1 - torch.erf(X[tmp] / self.sqrt2)) + self.logsqrtpiover2
-        m[~tmp] = - torch.log(X[~tmp]) + torch.log(1 - 1 / X[~tmp] ** 2 + 3 / X[~tmp] ** 4)
-        return m
+    def markov_step_with_hidden_input(self, v, beta=1):
+        # Gibbs Sampler
+        iv = self.compute_output_v(v)
+        h = self.sample_from_inputs_h(iv, beta=beta)
+        h_w = self.normalize_inputs(iv, key='all')
+        h_w = [h.abs() for h in h_w]
+        vn = self.sample_from_inputs_v(self.compute_output_h(h, h_weights=h_w), beta=beta)
+        Ih = self.compute_output_v(vn)
+        return vn, h, Ih, h_w
 
     ###################################################### Sampling Functions
     ## Samples hidden from visible and vice versa, returns newly sampled hidden and visible
@@ -845,238 +680,193 @@ class CRBM(LightningModule):
                     getattr(self, f"{key}_{param}").data.clamp_(0.05, 1.0)
                 for param in ["theta+", "theta-"]:
                     getattr(self, f"{key}_{param}").data.clamp_(0.0, 1.0)
+                getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
 
-    ## Loads Data to be trained from provided fasta file
-    def setup(self, stage=None):
-        if type(self.fasta_file) is str:
-            self.fasta_file = [self.fasta_file]
-
-        assert type(self.fasta_file) is list
-        data_pds = []
-
-        for file in self.fasta_file:
-            try:
-                if self.worker_num == 0:
-                    threads = 1
-                else:
-                    threads = self.worker_num
-                seqs, seq_read_counts, all_chars, q_data = fasta_read(file, self.molecule, drop_duplicates=True, threads=threads)
-            except IOError:
-                print(f"Provided Fasta File '{file}' Not Found")
-                print(f"Current Directory '{os.getcwd()}'")
-                exit()
-
-            if q_data != self.q:
-                print(
-                    f"State Number mismatch! Expected q={self.q}, in dataset q={q_data}. All observed chars: {all_chars}")
-                exit(-1)
-
-            if type(self.weights) == str and self.weights == "fasta":
-                weights = np.asarray(seq_read_counts)
-                data = pd.DataFrame(data={'sequence': seqs, 'seq_count': weights})
-            else:
-                data = pd.DataFrame(data={'sequence': seqs})
-
-            data_pds.append(data)
-
-        all_data = pd.concat(data_pds)
-        if type(self.weights) is np.ndarray:
-            all_data["seq_count"] = self.weights
-
-        assert len(all_data["sequence"][0]) == self.v_num  # make sure v_num is same as data_length
-
-        if self.stratify:
-            w8s = all_data.seq_count.to_numpy()
-            bin_edges = np.geomspace(np.min(w8s), np.max(w8s), 3)
-            bin_edges = bin_edges[1:]
-
-            def assign_label(x):
-                bin_edge = bin_edges[0]
-                idx = 0
-                while x > bin_edge:
-                    idx += 1
-                    bin_edge = bin_edges[idx]
-
-                return idx
-
-            labels = list(map(assign_label, w8s))
-            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.15, stratify=labels, random_state=self.seed)
-
-        else:
-            self.training_data, self.validation_data = train_test_split(all_data, test_size=0.2, random_state=self.seed)
-
-    def on_train_start(self):
-        # Log which sequences belong to each dataset
-        with open(self.logger.log_dir + "/dataset_indices.json", "w") as f:
-            json.dump({"test_indices": self.training_data.index.to_list(), "val_indices": self.validation_data.index.to_list()}, f)
-
-    ## Sets Up Optimizer as well as Exponential Weight Decasy
-    def configure_optimizers(self):
-        optim = self.optimizer(self.parameters(), lr=self.lr, weight_decay=self.wd)
-        # optim = self.optimizer(self.weight_param)
-        # Exponential Weight Decay after set amount of epochs (set by decay_after)
-        decay_gamma = (self.lrf / self.lr) ** (1 / (self.epochs * (1 - self.decay_after)))
-        decay_milestone = math.floor(self.decay_after * self.epochs)
-        my_lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optim, milestones=[decay_milestone], gamma=decay_gamma)
-        # my_lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=optim, gamma=decay_gamma)
-        optim_dict = {"lr_scheduler": my_lr_scheduler,
-                      "optimizer": optim}
-        return optim_dict
-
-    ## Loads Training Data
-    def train_dataloader(self, init_fields=True):
-        # Get Correct Weights
-        if "seq_count" in self.training_data.columns:
-            training_weights = self.training_data["seq_count"].tolist()
-        else:
-            training_weights = None
-
-        train_reader = Categorical(self.training_data, self.q, weights=training_weights, max_length=self.v_num,
-                                   molecule=self.molecule, device=self.device, one_hot=True)
-
-        # initialize fields from data
-        if init_fields:
-            with torch.no_grad():
-                initial_fields = train_reader.field_init()
-                self.fields += initial_fields
-                self.fields0 += initial_fields
-
-            # Performance was almost identical whether shuffling or not
-        if self.sample_type == "pcd":
-            shuffle = False
-        else:
-            shuffle = True
-
-        return torch.utils.data.DataLoader(
-            train_reader,
-            batch_size=self.batch_size,
-            num_workers=self.worker_num,  # Set to 0 if debug = True
-            pin_memory=self.pin_mem,
-            shuffle=shuffle
-        )
-
-    def val_dataloader(self):
-        # Get Correct Validation weights
-        if "seq_count" in self.validation_data.columns:
-            validation_weights = self.validation_data["seq_count"].tolist()
-        else:
-            validation_weights = None
-
-        val_reader = Categorical(self.validation_data, self.q, weights=validation_weights, max_length=self.v_num,
-                                 molecule=self.molecule, device=self.device, one_hot=True)
-
-        return torch.utils.data.DataLoader(
-            val_reader,
-            batch_size=self.batch_size,
-            num_workers=self.worker_num,  # Set to 0 to view tensors while debugging
-            pin_memory=self.pin_mem,
-            shuffle=False
-        )
 
     ## Calls Corresponding Training Function
     def training_step(self, batch, batch_idx):
         # All other functions use self.W for the weights
-        if self.loss_type == "free_energy":
-            if self.sample_type == "gibbs":
-                return self.training_step_CD_free_energy(batch, batch_idx)
-            elif self.sample_type == "pt":
-                return self.training_step_PT_free_energy(batch, batch_idx)
-            elif self.sample_type == "pcd":
-                return self.training_step_PCD_free_energy(batch, batch_idx)
-        elif self.loss_type == "energy":
-            if self.sample_type == "gibbs":
-                return self.training_step_CD_energy(batch, batch_idx)
-            elif self.sample_type == "pt":
-                print("Energy Loss with Parallel Tempering is currently unsupported")
-                exit(1)
+        if self.sample_type == "gibbs":
+            return self.training_step_CD_free_energy(batch, batch_idx)
+        elif self.sample_type == "pt":
+            return self.training_step_PT_free_energy(batch, batch_idx)
+        elif self.sample_type == "pcd":
+            return self.training_step_PCD_free_energy(batch, batch_idx)
 
     def validation_step(self, batch, batch_idx):
         seqs, one_hot, seq_weights = batch
 
-        # pseudo_likelihood = (self.pseudo_likelihood(one_hot) * seq_weights).sum() / seq_weights.sum()
-        free_energy_avg = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.abs().sum()
+        free_energy = self.free_energy(one_hot)
 
         batch_out = {
              # "val_pseudo_likelihood": pseudo_likelihood.detach()
-             "val_free_energy": free_energy_avg.detach()
+             "val_free_energy": free_energy.mean().detach()
         }
 
         # logging on step, for whatever reason allocates 512 bytes on gpu after every epoch.
         self.log("ptl/val_free_energy", batch_out["val_free_energy"], on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        #
         return batch_out
 
-    def validation_epoch_end(self, outputs):
-        # avg_pl = torch.stack([x['val_pseudo_likelihood'] for x in outputs]).mean()
-        # self.logger.experiment.add_scalar("Validation pseudo_likelihood", avg_pl, self.current_epoch)
-        avg_fe = torch.stack([x['val_free_energy'] for x in outputs]).mean()
-        self.logger.experiment.add_scalar("Validation Free Energy", avg_fe, self.current_epoch)
+    def regularization_terms(self, distance_threshold=0.25):
+        freg = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
+        wreg = torch.zeros((1,), device=self.device)
+        dreg = torch.zeros((1,), device=self.device)  # discourages weights that are alike
 
-    ## On Epoch End Collects Scalar Statistics and Distributions of Parameters for the Tensorboard Logger
-    def training_epoch_end(self, outputs):
-        # These are detached
-        avg_loss = torch.stack([x['loss'].detach() for x in outputs]).mean()
-        avg_dF = torch.stack([x["free_energy_diff"] for x in outputs]).mean()
-        field_reg = torch.stack([x["field_reg"] for x in outputs]).mean()
-        weight_reg = torch.stack([x["weight_reg"] for x in outputs]).mean()
-        distance_reg = torch.stack([x["distance_reg"] for x in outputs]).mean()
-        free_energy = torch.stack([x["train_free_energy"] for x in outputs]).mean()
-        # pseudo_likelihood = torch.stack([x['train_pseudo_likelihood'] for x in outputs]).mean()
+        bs_loss = torch.zeros((1,),
+                              device=self.device)  # encourages weights to use both positive and negative contributions
+        gap_loss = torch.zeros((1,), device=self.device)  # discourages high values for gaps
 
-        self.logger.experiment.add_scalars("All Scalars", {"Loss": avg_loss,
-                                                           "CD_Loss": avg_dF,
-                                                           "Field Reg": field_reg,
-                                                           "Weight Reg": weight_reg,
-                                                           "Distance Reg": distance_reg,
-                                                           # "Train_pseudo_likelihood": pseudo_likelihood,
-                                                           "Train Free Energy": free_energy,
-                                                           }, self.current_epoch)
-
-        for name, p in self.named_parameters():
-            self.logger.experiment.add_histogram(name, p.detach(), self.current_epoch)
-
-        if self.meminfo:
-            # print("GPU Reserved:", torch.cuda.memory_reserved(0))
-            print(f"GPU Allocated Mem Epcoh {self.current_epoch}:", torch.cuda.memory_allocated(0))
-
-    ## Not yet rewritten for crbm
-    def training_step_CD_energy(self, batch, batch_idx):
-        seqs, one_hot, seq_weights = batch
-
-        V_neg_oh, h_neg, V_pos_oh, h_pos = self(one_hot)
-
-        # Calculate CD loss
-        E_p = (self.energy(V_pos_oh, h_pos) * seq_weights).sum() / seq_weights.sum()  # energy of training data
-        # E_p = (self.energy(V_pos_oh, h_pos) * weights).sum()  # energy of training data
-        E_n = (self.energy(V_neg_oh, h_neg) * seq_weights).sum() / seq_weights.sum()  # energy of gibbs sampled visible states
-        # E_n = (self.energy(V_neg_oh, h_neg) * weights).sum()  # energy of gibbs sampled visible states
-        cd_loss = E_p - E_n
-
-        # Regularization Terms
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-        reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
             W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            W = getattr(self, f"{i}_W")
 
-        # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3
+            x = torch.sum(W.abs(), (3, 2, 1)).square()
+            wreg += x.sum() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            # dreg += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
 
-        logs = {"loss": loss,
-                "free_energy_diff": cd_loss.detach(),
-                "train_free_energy": E_p.detach(),
-                "field_reg": reg1.detach(),
-                "weight_reg": reg2.detach(),
-                "distance_reg": reg3.detach()
-                }
+            denom = torch.sum(torch.abs(W), (3, 2, 1))
+            Wpos = torch.clamp(W, min=0.)
+            Wneg = torch.clamp(W, max=0.)
+            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).sum()
 
-        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+            ws = torch.concat([Wpos, Wneg.abs()], dim=0).squeeze(1)
 
-        return logs
+            with torch.no_grad():
+                # compute positional differences for all pairs of weights
+                pdiff = (ws.unsqueeze(0).unsqueeze(2) - ws.unsqueeze(1).unsqueeze(3)).sum(4)
+
+                # concatenate it to itself to make full diagonals
+                wdm = torch.concat([pdiff, pdiff.clone()], dim=2)
+
+                # get stride to get matrix of all diagonals on separate row
+                si, sj, v2, v = wdm.size()
+                i_s, j_s, v2_s, v_s = wdm.stride()
+                wdm_s = torch.as_strided(wdm, (si, sj, v, v), (i_s, j_s, v2_s, v2_s + 1))
+
+                # get the best alignment position
+                best_align = W_shape[2] - torch.argmin(wdm_s.abs().sum(3), -1)
+
+                # get indices for all pairs of i <= j
+                bat_x, bat_y = torch.triu_indices(si, sj, 1)
+
+                # get their alignments
+                bas = best_align[bat_x, bat_y]
+
+                # create shifted weights
+                vt_ind = torch.arange(len(bat_x), device=self.device)[:, None].expand(-1, v)
+                v_ind = torch.arange(v, device=self.device)[None, :].expand(len(bat_y), -1)
+                rolled_j = ws[bat_y][vt_ind, (v_ind + bas[:, None]) % v]
+
+            # norms of all weights
+            w_norms = torch.linalg.norm(ws, dim=(2, 1))
+
+            # inner prod of weights i and shifted weights j
+            inner_prod = torch.tensordot(ws[bat_x], rolled_j, dims=([2, 1], [2, 1]))[0]
+
+            # angles between aligned weights
+            angles = inner_prod / (w_norms[bat_x] * w_norms[bat_y] + 1e-6)
+
+            # threshold
+            angles = angles[angles > distance_threshold]
+
+            dreg += angles.sum()
+
+        dreg *= self.ld
+
+        # Passed to training logger
+        reg_dict = {
+            "field_reg": freg.detach(),
+            "weight_reg": wreg.detach(),
+            "distance_reg": dreg.detach(),
+            "gap_reg": gap_loss.detach(),
+            "both_side_reg": bs_loss.detach()
+        }
+
+        return freg, wreg, dreg, bs_loss, gap_loss, reg_dict
+
+    def init_temp_schedule(self, temps):
+        if type(temps) is float:
+            end_temp, start_temp = temps, temps
+        elif type(temps) is list:
+            start_temp, end_temp = temps
+        vary_epoch = int(self.decay_after * self.epochs)
+        stationary_epochs = self.epochs - vary_epoch
+        vary_temps = torch.tensor(np.geomspace(start_temp, end_temp, vary_epoch), device=self.device)
+        stat_temp = torch.full((stationary_epochs,), vary_temps[-1], device=self.device)
+        return torch.concat([vary_temps, stat_temp], dim=0)
+
+    def altered_sigmoid(self, x, c=10, s=0.5):
+        return 1 / (1 + torch.exp(-c * (x - s)))
+
+    def kurtosis(self, x):
+        mean = torch.mean(x)
+        diffs = (x - mean) + 1e-12
+        std = torch.std(x) + 1e-12
+        zscores = diffs / std
+        return torch.mean(torch.pow(zscores, 4.0)) - 3
+
+    def mask_2d_kurtosis(self, x, mask):
+        n = mask.sum(0) + 2
+        mean = (x * mask).sum(0) / n
+        diffs = (x - mean + 1e-12) * mask
+        stds = torch.sqrt(diffs.square().sum(0) * (1 / (n - 1))) + 1e-12
+        zscores = (diffs / stds) + 1e-12
+        kurt = torch.pow(zscores, 4.0).sum() / n - 3
+        if kurt.isnan().any().item():
+            print('damn it kurt')
+        return kurt
+
+    def pearson_loss(self, Ih, k=2):
+        B, H = Ih.size()
+        mean = Ih.mean(dim=0).unsqueeze(0)
+        diffs = (Ih - mean)
+        prods = torch.matmul(diffs.T, diffs)
+        bcov = prods / (B - 1)  # Unbiased estimate
+        # matrix of stds
+        std = Ih.std(dim=0).unsqueeze(0)
+        std_mat = torch.matmul(std.T, std) + 1e-6
+
+        pearson_mat = (bcov / std_mat).abs()
+        triu_pearson_mat = pearson_mat.triu(diagonal=1)
+
+        self_interaction_term = torch.diagonal(pearson_mat, offset=H // 2).sum()
+
+        topvals, topinds = torch.topk(triu_pearson_mat, k, dim=1)
+
+        other_interactions = pearson_mat.triu(diagonal=1).sum() - self_interaction_term - topvals.sum() * 0.9
+
+        return other_interactions * self.lcorr
+
+    def normalize_inputs(self, h_inputs, key="all"):
+        hi = h_inputs
+
+        if key == "all":
+            for iid, i in enumerate(self.hidden_convolution_keys):
+                ws = getattr(self, f"{i}_W").squeeze(1)
+                # all_ws.append(W)
+
+                in_max_val_pos, _ = ws.clamp(min=0.).max(2)
+                in_max_val_neg, _ = ws.clamp(max=0.).min(2)
+
+                in_max_val_pos = in_max_val_pos.sum(1)[None, :]
+                in_max_val_neg = in_max_val_neg.sum(1)[None, :]
+
+                hi[iid][hi[iid] > 0] /= in_max_val_pos.expand(hi[iid].shape[0], -1)[hi[iid] > 0]
+                hi[iid][hi[iid] < 0] /= in_max_val_neg.expand(hi[iid].shape[0], -1).abs()[hi[iid] < 0]
+        else:
+            ws = getattr(self, f"{key}_W").squeeze(1)
+
+            in_max_val_pos, _ = ws.clamp(min=0.).max(2)
+            in_max_val_neg, _ = ws.clamp(max=0.).min(2)
+
+            in_max_val_pos = in_max_val_pos.sum(1)[None, :]
+            in_max_val_neg = in_max_val_neg.sum(1)[None, :]
+
+            hi[hi > 0] /= in_max_val_pos.expand(hi.shape[0], -1)[hi > 0]
+            hi[hi < 0] /= in_max_val_neg.expand(hi.shape[0], -1).abs()[hi < 0]
+
+        return hi
 
     # Not yet rewritten for CRBM
     def training_step_PT_free_energy(self, batch, batch_idx):
@@ -1183,71 +973,199 @@ class CRBM(LightningModule):
         return logs
 
     def training_step_PCD_free_energy(self, batch, batch_idx):
-        # seqs, V_pos, one_hot, seq_weights = batch
-        seqs, one_hot, seq_weights = batch
+        inds, seqs, one_hot, seq_weights = batch
 
         if self.current_epoch == 0 and batch_idx == 0:
-            self.chain = [one_hot.detach()]
-        elif self.current_epoch == 0:
-            self.chain.append(one_hot.detach())
+            self.chain = torch.zeros((self.training_data.index.__len__(), *one_hot.shape[1:]), device=self.device)
 
-        V_oh_neg, h_neg = self.forward_PCD(batch_idx)
+        if self.current_epoch == 0:
+            self.chain[inds] = one_hot.type(torch.get_default_dtype())
 
-        # delete tensors not involved in loss calculation
-        # pytorch garbage collection does not catch these
-        del h_neg
+        V_oh_neg, h_neg, h_neg_inputs_flat, h_pos, sparsity_penalty, h_w = self.forward_PCD(inds)
 
-        # psuedo likelihood actually minimized, loss sits around 0 but does it's own thing
-        F_v = (self.free_energy(one_hot) * seq_weights).sum() / seq_weights.sum()  # free energy of training data
-        F_vp = (self.free_energy(V_oh_neg) * seq_weights).sum() / seq_weights.sum()  # free energy of gibbs sampled visible states
-        cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+        inputs_flat = torch.concat(self.compute_output_v(one_hot), 1)
+        h_inputs_flat = torch.concat([torch.clamp(inputs_flat, min=0.), torch.clamp(inputs_flat, max=0.).abs()], 1)
+
+        ps = torch.concat(h_w, dim=1)
+
+        with torch.no_grad():
+            # seq_temp = self.seq_temp_schedule[self.current_epoch]
+            # sw = self.energy(one_hot, self.sample_from_inputs_h(self.compute_output_v(one_hot)))
+            # sw = self.free_energy(one_hot)
+            #
+            # sw += sw.min().abs()  # change to positive range with highest value as highest energy values
+            # sw /= sw.max()  # change values to be between 0 and 1
+            # sw = torch.softmax(sw/seq_temp, -1)
+            # sw = self.altered_sigmoid(sw, c=100, s=0.75)
+            # sw /= sw.max()
+
+            pm, _ = ps.max(1)
+            sw = (1 - pm).clamp(min=0)
+            sw = self.altered_sigmoid(sw, c=80, s=0.75).abs()
+            sw /= sw.max()
+
+        # h_pos = [h.detach() for h in h_pos]
+        # for iid, i in enumerate(self.hidden_convolution_keys):
+        #     dot_prods = (torch.mm(h_pos[iid].T, h_pos[iid]) - torch.eye(h_pos[iid].shape[1])) / 2
+        #     orthogonal_loss = dot_prods.sum() * self.lkd
+        # kld_loss = (sw*self.kl_div(h_inputs_flat, h_neg_inputs_flat).abs().sum(1)).mean() * self.lkd
+        # kld_loss = (sw*(h_inputs_flat - h_neg_inputs_flat).square().sum(1)).mean() * self.lkd
+        # kld_loss = sparsity_penalty
+
+        ### Individual Free Energy
+        # F_v_ind = self.free_energy_ind(one_hot)
+        # F_v_vals, F_v_inds = torch.topk(F_v_ind, 1, dim=1, largest=False, sorted=False)
+        # F_v = F_v_vals.sum(1)
+        #
+        # F_vp_ind = self.free_energy_ind(V_oh_neg)
+        # F_vp = F_vp_ind.gather(1, F_v_inds).sum(1)  #F_vp_ind[torch.arange(len(F_v_inds)), F_v_inds.squeeze(1)]
+
+        ### Normal Way
+        F_v = self.free_energy(one_hot)  # free energy of training data
+        F_vp = self.free_energy(V_oh_neg)
+
+        # F_v_total = F_v.sum().abs()
+        # F_vp_total = F_vp.sum().abs()
+        #
+        # F_v = F_v * sw
+        # F_vp = F_vp * sw
+        #
+        # F_v = F_v/F_v.sum().abs() * F_v_total
+        # F_vp = F_vp/F_vp.sum().abs() * F_vp_total
+
+        ### Input Clustering Way
+        # all_flat_ws, hidden_node_parent = [], []
+        #
+        # start_w_count = 0
+        # for iid, i in enumerate(self.hidden_convolution_keys):
+        #     W = getattr(self, f"{i}_W")
+        #     Wpos = torch.clamp(W, min=0.)
+        #     Wneg = torch.clamp(W, max=0.)
+        #
+        #     ws = torch.concat([Wpos, Wneg.abs()], dim=0).squeeze(1)
+        #     all_flat_ws.append(ws)
+        #     hidden_node_parent.append((torch.arange(W.shape[0], device=self.device) + start_w_count).repeat(2))
+        #     start_w_count += W.shape[0]
+        #
+        # hidden_node_parent = torch.concat(hidden_node_parent, dim=0)
+        #
+        # flat_ws = torch.concat(all_flat_ws, dim=0)
+        # in_max_vals, in_max_inds = flat_ws.max(2)
+        #
+        # matching_percentages = h_inputs_flat.div(in_max_vals.sum(1)[None, :])
+        # _, matching_weights = matching_percentages.max(-1)
+        #
+        mp_reg = ps.norm(dim=1, p=1).mean() * self.lkd * 0.0
+        # mp2_reg = matching_percentages.norm(dim=0, p=1).mean() * 0.0 # 0.0002
+
+        # F_v_ind = self.free_energy_ind(one_hot)
+        # F_vp_ind = self.free_energy_ind(V_oh_neg)
+        #
+        # F_v = (F_v_ind * (ps > 0.25)).sum(-1)
+        # F_vp = (F_vp_ind * (ps > 0.25)).sum(-1)
+
+        # ind_contribution = torch.full_like(F_v_ind, 0.0)
+        #
+        # ind_contribution.index_add_(-1, hidden_node_parent, matching_percentages)
+        #
+        # ind_temp = self.ind_temp_schedule[self.current_epoch]
+        # ps = torch.softmax(ps/ind_temp, -1)
+
+        # ps = self.altered_sigmoid(ps, c=50, s=0.5)
+        # ps = (ps - ps.mean(0)[None, :]).clamp(min=1e-6)
+
+        # tk_vals, tk_inds = ps.topk(1) # doesn't work very well
+
+        # F_v = (F_v_ind.gather(1, tk_inds)*tk_vals).sum(-1)
+        # F_vp = (F_vp_ind.gather(1, tk_inds)*tk_vals).sum(-1)
+
+        # F_v_total = F_v_ind.sum(1).abs()
+        # F_vp_total = F_vp_ind.sum(1).abs()
+        #
+        # F_v = (F_v_ind * ps).sum(-1)
+        # F_vp = (F_vp_ind * ps).sum(-1)
+
+        # matching_weights = torch.softmax(matching_weights/temp, -1)
+
+        # F_v = F_v * sw
+        # F_vp = F_vp * sw
+        #
+        # F_v = F_v/F_v.sum().abs() * F_v_total
+        # F_vp = F_vp/F_vp.sum().abs() * F_vp_total
+
+        # F_v = F_v * F_v_total
+        # F_vp = F_vp * F_vp_total
+
+        kld_loss = self.kurtosis(F_v) * self.lkd
+
+        cd_loss = (F_v - F_vp).mean()
 
         # Regularization Terms
-        reg1 = self.lf / (2 * self.v_num * self.q) * getattr(self, "fields").square().sum((0, 1))
-        reg2 = torch.zeros((1,), device=self.device)
-        reg3 = torch.zeros((1,), device=self.device)
-        for iid, i in enumerate(self.hidden_convolution_keys):
-            W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-            x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-            reg2 += x.mean() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-            reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
+        freg, wreg, dreg, bs_loss, gap_loss, reg_dict = self.regularization_terms()
 
         # Calculate Loss
-        loss = cd_loss + reg1 + reg2 + reg3
+        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss + kld_loss + mp_reg  # + sparsity_penalty #  mp_reg + mp2_reg # + input_loss
+
+        if loss.isnan():
+            print("okay")
 
         logs = {"loss": loss,
                 "free_energy_diff": cd_loss.detach(),
-                "train_free_energy": F_v.detach(),
-                "field_reg": reg1.detach(),
-                "weight_reg": reg2.detach(),
-                "distance_reg": reg3.detach()
+                "free_energy_pos": F_v.mean().detach(),
+                "free_energy_neg": F_vp.mean().detach(),
+                # "kl_loss": kld_loss.detach(),
+                #  "input_correlation_reg": input_loss.detach(),
+                **reg_dict
                 }
 
-        self.log("ptl/train_free_energy", logs["train_free_energy"], on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("ptl/free_energy_diff", logs["free_energy_diff"], on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True, batch_size=one_hot.shape[0])
+        self.log("ptl/train_free_energy", logs["free_energy_pos"], on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True, batch_size=one_hot.shape[0])
+        self.log("ptl/train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,
+                 batch_size=one_hot.shape[0])
 
-        return logs
+        self.training_data_logs.append(logs)
+        return logs["loss"]
     ## Gradient Clipping for poor behavior, have no need for it yet
     # def on_after_backward(self):
     #     self.grad_norm_clip_value = 100
     #     torch.nn.utils.clip_grad_norm_(self.parameters(), self.grad_norm_clip_value)
 
-    def forward_PCD(self, batch_idx):
+    def forward_PCD(self, inds):
         # Gibbs sampling with Persistent Contrastive Divergence
-        # pytorch lightning handles the device
-        fantasy_v = self.chain[batch_idx]  # Last sample that was saved to self.chain variable, initialized in training step
-        # h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
-        # with torch.no_grad() # only use last sample for gradient calculation, may be helpful but honestly not the slowest thing rn
+        fantasy_v = self.chain[inds]  # Last sample that was saved to self.chain variable, initialized in training step
+        h_pos = self.sample_from_inputs_h(self.compute_output_v(fantasy_v))
         for _ in range(self.mc_moves - 1):
             fantasy_v, fantasy_h = self.markov_step(fantasy_v)
 
-        V_neg, fantasy_h = self.markov_step(fantasy_v)
+        V_neg, fantasy_h, hidden_input, h_w = self.markov_step_with_hidden_input(fantasy_v)
+
+        flat_hidden_input = torch.cat(hidden_input, dim=1)
+        hidden_inputs = [torch.clamp(flat_hidden_input, min=0.), torch.clamp(flat_hidden_input, max=0.).abs()]
+
+        # input_loss = self.pearson_loss(torch.cat(hidden_inputs, dim=1))
+
         h_neg = self.sample_from_inputs_h(self.compute_output_v(V_neg))
+        #
+        sparsity_penalty = torch.tensor([0.], device=self.device)
+        # for kid, key in enumerate(self.hidden_convolution_keys):
+        #     shw = h_w[kid]
+        #     mask = shw >= 0
+        #     #
+        #     pos_kurt = self.mask_2d_kurtosis(shw, mask)
+        #     # neg_kurt = self.mask_2d_kurtosis(shw, ~mask)
+        #     #
+        #     sparsity_penalty += (pos_kurt+neg_kurt).mean() * self.lkd * 0.0
 
-        self.chain[batch_idx] = V_neg.detach()
+        # sparsity_penalty += torch.sum(h_w[kid].abs(), (-1)).square().mean()/(2*h_w[kid].shape[1])*self.lkd
+        # sparsity_penalty += torch.sum(h_w[kid].abs(), (0)).square().mean()/(2*h_w[kid].shape[0])*self.lkd
+        # sparsity_penalty += torch.sum(h_w[kid].abs(), 1).mean() * self.lkd
+        # sparsity_penalty += torch.linalg.norm(h_w[kid], dim=1).mean()
 
-        return V_neg, h_neg
+        self.chain[inds] = V_neg.detach().type(torch.get_default_dtype())
 
+        return V_neg, h_neg, torch.cat(hidden_inputs, dim=1), h_pos, sparsity_penalty, h_w
 
     def forward(self, V_pos_ohe):
 
@@ -1288,6 +1206,27 @@ class CRBM(LightningModule):
             # V_neg, h_neg, V_pos, h_pos
             return fantasy_v[0], fantasy_h[0], V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
 
+    def forward_PT(self, V_pos_ohe):
+        # Initialize_PT is called before the forward function is called. Therefore, N_PT will be filled
+        # Parallel Tempering
+        n_chains = V_pos_ohe.shape[0]
+
+        with torch.no_grad():
+            fantasy_v = self.random_init_config_v(custom_size=(self.N_PT, n_chains))
+            fantasy_h = self.random_init_config_h(custom_size=(self.N_PT, n_chains))
+            fantasy_E = self.energy_PT(fantasy_v, fantasy_h, self.N_PT)
+
+            for _ in range(self.mc_moves - 1):
+                fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E,self.N_PT)
+                self.update_betas(self.N_PT)
+
+        fantasy_v, fantasy_h, fantasy_E = self.markov_PT_and_exchange(fantasy_v, fantasy_h, fantasy_E, self.N_PT)
+        self.update_betas(self.N_PT)
+
+        # V_neg, h_neg, V_pos, h_pos
+        return fantasy_v[0], fantasy_h[0], V_pos_ohe, self.sample_from_inputs_h(self.compute_output_v(V_pos_ohe))
+
+
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
     def predict(self, X):
@@ -1304,15 +1243,17 @@ class CRBM(LightningModule):
         with torch.no_grad():
             likelihood = []
             for i, batch in enumerate(data_loader):
-                seqs, one_hot, seq_weights = batch
+                inds, seqs, one_hot, seq_weights = batch
                 likelihood += self.likelihood(one_hot).detach().tolist()
 
         return X.sequence.tolist(), likelihood
 
-    # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
-    # Returns the saliency map for all sequences in X
+        # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
+        # Returns the saliency map for all sequences in X
+
     def saliency_map(self, X):
-        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
+        reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device,
+                             one_hot=True)
         data_loader = torch.utils.data.DataLoader(
             reader,
             batch_size=self.batch_size,
@@ -1323,26 +1264,18 @@ class CRBM(LightningModule):
         saliency_maps = []
         self.eval()
         for i, batch in enumerate(data_loader):
-            seqs, one_hot, seq_weights = batch
+            inds, seqs, one_hot, seq_weights = batch
             one_hot_v = Variable(one_hot.type(torch.get_default_dtype()), requires_grad=True)
             V_neg, h_neg, V_pos, h_pos = self(one_hot_v)
             weights = seq_weights
             F_v = (self.free_energy(V_pos) * weights).sum() / weights.sum()  # free energy of training data
-            F_vp = (self.free_energy(V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
-            cd_loss = F_v - F_vp  # Should Give same gradient as Tubiana Implementation minus the batch norm on the hidden unit activations
+            F_vp = (self.free_energy(
+                V_neg) * weights).sum() / weights.sum()  # free energy of gibbs sampled visible states
+            cd_loss = F_v - F_vp
 
             # Regularization Terms
-            reg1 = self.lf / 2 * getattr(self, "fields").square().sum((0, 1))
-            reg2 = torch.zeros((1,), device=self.device)
-            reg3 = torch.zeros((1,), device=self.device)
-            for iid, i in enumerate(self.hidden_convolution_keys):
-                W_shape = self.convolution_topology[i]["weight_dims"]  # (h_num,  input_channels, kernel0, kernel1)
-                x = torch.sum(torch.abs(getattr(self, f"{i}_W")), (3, 2, 1)).square()
-                reg2 += x.sum(0) * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
-                # Size of Convolution Filters weight_size = (h_num, input_channels, kernel[0], kernel[1])
-                reg3 += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
-
-            loss = cd_loss + reg1 + reg2 + reg3
+            freg, wreg, dreg, bs_loss, gap_loss, reg_dict = self.regularization_terms()
+            loss = cd_loss + freg + wreg + dreg + gap_loss + bs_loss
             loss.backward()
 
             saliency_maps.append(one_hot_v.grad.data.detach())
@@ -1473,8 +1406,6 @@ class CRBM(LightningModule):
             if hidden_key not in self.hidden_convolution_keys:
                 print(f"Hidden Convolution Key {hidden_key} not found!")
                 exit(-1)
-
-            Wdims = self.convolution_topology[hidden_key]["weight_dims"]
 
             out = torch.zeros_like(I, device=self.device)
 

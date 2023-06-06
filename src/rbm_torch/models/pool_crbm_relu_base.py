@@ -21,7 +21,7 @@ from rbm_torch.utils.utils import Categorical, conv2d_dim
 from torch.utils.data import WeightedRandomSampler
 from rbm_torch.models.base import Base_drelu
 
-class pool_CRBM(Base_drelu):
+class pool_CRBM_relu(Base_drelu):
     def __init__(self, config, debug=False, precision="double", meminfo=False):
         super().__init__(config, debug=debug, precision=precision)
 
@@ -79,15 +79,11 @@ class pool_CRBM(Base_drelu):
             # Convolution Weights
             self.register_parameter(f"{key}_W", nn.Parameter(self.weight_initial_amplitude * torch.randn(self.convolution_topology[key]["weight_dims"], device=self.device)))
             # hidden layer parameters
-            self.register_parameter(f"{key}_theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
-            self.register_parameter(f"{key}_theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
-            self.register_parameter(f"{key}_gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
-            self.register_parameter(f"{key}_gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{key}_theta", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device)))
+            self.register_parameter(f"{key}_gamma", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device)))
             # Used in PT Sampling / AIS
-            self.register_parameter(f"{key}_0theta+", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            self.register_parameter(f"{key}_0theta-", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            self.register_parameter(f"{key}_0gamma+", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
-            self.register_parameter(f"{key}_0gamma-", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{key}_0theta", nn.Parameter(torch.zeros(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
+            self.register_parameter(f"{key}_0gamma", nn.Parameter(torch.ones(self.convolution_topology[key]["number"], device=self.device), requires_grad=False))
 
         self.ind_temp_schedule = self.init_temp_schedule(config["ind_temp"])
         self.seq_temp_schedule = self.init_temp_schedule(config["seq_temp"])
@@ -153,15 +149,9 @@ class pool_CRBM(Base_drelu):
     def transform_h(self, I):
         output = []
         for kid, key in enumerate(self.hidden_convolution_keys):
-            a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0).unsqueeze(2)
-            a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0).unsqueeze(2)
-            theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0).unsqueeze(2)
-            theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0).unsqueeze(2)
-            tmp = ((I[kid] + theta_minus) * (I[kid] <= torch.minimum(-theta_minus, (theta_plus / torch.sqrt(a_plus) -
-                                                                                    theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / \
-                  a_minus + ((I[kid] - theta_plus) * (I[kid] >= torch.maximum(theta_plus, (theta_plus / torch.sqrt(a_plus) -
-                                                                                           theta_minus / torch.sqrt(a_minus)) / (1 / torch.sqrt(a_plus) + 1 / torch.sqrt(a_minus))))) / a_plus
-            output.append(tmp)
+            gamma = (getattr(self, f'{key}_gamma')).unsqueeze(0).unsqueeze(2)
+            theta = (getattr(self, f'{key}_theta')).unsqueeze(0).unsqueeze(2)
+            output.append(torch.maximum(I - theta, torch.tensor(0, device=self.device)) / gamma)
         return output
 
     ## Computes -g(si) term of potential
@@ -187,29 +177,18 @@ class pool_CRBM(Base_drelu):
 
         for iid, i in enumerate(self.hidden_convolution_keys):
             if remove_init:
-                a_plus = getattr(self, f'{i}_gamma+').sub(getattr(self, f'{i}_0gamma+')).unsqueeze(0)
-                a_minus = getattr(self, f'{i}_gamma-').sub(getattr(self, f'{i}_0gamma-')).unsqueeze(0)
-                theta_plus = getattr(self, f'{i}_theta+').sub(getattr(self, f'{i}_0theta+')).unsqueeze(0)
-                theta_minus = getattr(self, f'{i}_theta-').sub(getattr(self, f'{i}_0theta-')).unsqueeze(0)
+                gamma = getattr(self, f'{i}_gamma').sub(getattr(self, f'{i}_0gamma')).unsqueeze(0)
+                theta = getattr(self, f'{i}_theta').sub(getattr(self, f'{i}_0theta')).unsqueeze(0)
             else:
-                a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0)
-                a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0)
-                theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0)
-                theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0)
+                gamma = getattr(self, f'{i}_gamma').unsqueeze(0)
+                theta = getattr(self, f'{i}_theta').unsqueeze(0)
 
             if sub_index != -1:
                 con = config[iid][sub_index]
             else:
                 con = config[iid]
 
-            # Applies the dReLU activation function
-            # zero = torch.zeros_like(con, device=self.device)
-            config_plus = torch.clamp(con, min=0.)
-            config_minus = -1 * torch.clamp(-con, min=0.)
-            # config_plus = torch.maximum(con, zero)
-            # config_minus = -1*torch.maximum(-con, zero)
-
-            E[iid] = ((config_plus.square() * a_plus) / 2 + (config_minus.square() * a_minus) / 2 + (config_plus * theta_plus) + (config_minus * theta_minus)).sum(1)
+            E[iid] = ((con.square() * gamma) / 2 + (con * theta)).sum(1)
 
         if E.shape[0] > 1:
             return E.sum(0)
@@ -265,41 +244,14 @@ class pool_CRBM(Base_drelu):
         # Input is list of matrices I_uk
         marginal = torch.zeros((len(self.hidden_convolution_keys), inputs[0].shape[0]), device=self.device)
         for iid, i in enumerate(self.hidden_convolution_keys):
-            if beta == 1:
-                a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0)
-                a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0)
-                theta_plus = (getattr(self, f'{i}_theta+')).unsqueeze(0)
-                theta_minus = (getattr(self, f'{i}_theta-')).unsqueeze(0)
-            else:
-                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0)
-                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0)
-                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0)
-                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0)
-
-            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
-                                0.5 * torch.log(a_plus), self.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)).sum(
-                1) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
-            marginal[iid] = y
+            marginal[iid] = self.cgf_from_inputs_h(inputs[iid], hidden_key=i).sum(-1)
         return marginal.sum(0)
 
     def logpartition_h_ind(self, inputs, beta=1):
         # Input is list of matrices I_uk
         ys = []
         for iid, i in enumerate(self.hidden_convolution_keys):
-            if beta == 1:
-                a_plus = (getattr(self, f'{i}_gamma+')).unsqueeze(0)
-                a_minus = (getattr(self, f'{i}_gamma-')).unsqueeze(0)
-                theta_plus = (getattr(self, f'{i}_theta+')).unsqueeze(0)
-                theta_minus = (getattr(self, f'{i}_theta-')).unsqueeze(0)
-            else:
-                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0)
-                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0)
-                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0)
-                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0)
-
-            y = torch.logaddexp(self.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
-                                0.5 * torch.log(a_plus), self.log_erf_times_gauss(
-                (inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)) + 0.5 * np.log(2 * np.pi)
+            y = self.cgf_from_inputs_h(inputs[iid], hidden_key=i)
             ys.append(y)
         return torch.cat(ys, dim=1)
 
@@ -316,65 +268,27 @@ class pool_CRBM(Base_drelu):
             means = []
             for kid, key in enumerate(self.hidden_convolution_keys):
                 if beta == 1:
-                    a_plus = (getattr(self, f'{key}_gamma+')).unsqueeze(0)
-                    a_minus = (getattr(self, f'{key}_gamma-')).unsqueeze(0)
-                    theta_plus = (getattr(self, f'{key}_theta+')).unsqueeze(0)
-                    theta_minus = (getattr(self, f'{key}_theta-')).unsqueeze(0)
+                    gamma = (getattr(self, f'{key}_gamma')).unsqueeze(0)
+                    theta = (getattr(self, f'{key}_theta')).unsqueeze(0)
                 else:
-                    theta_plus = (beta * getattr(self, f'{key}_theta+') + (1 - beta) * getattr(self, f'{key}_0theta+')).unsqueeze(0)
-                    theta_minus = (beta * getattr(self, f'{key}_theta-') + (1 - beta) * getattr(self, f'{key}_0theta-')).unsqueeze(0)
-                    a_plus = (beta * getattr(self, f'{key}_gamma+') + (1 - beta) * getattr(self, f'{key}_0gamma+')).unsqueeze(0)
-                    a_minus = (beta * getattr(self, f'{key}_gamma-') + (1 - beta) * getattr(self, f'{key}_0gamma-')).unsqueeze(0)
+                    theta = (beta * getattr(self, f'{key}_theta') + (1 - beta) * getattr(self, f'{key}_0theta')).unsqueeze(0)
+                    gamma = (beta * getattr(self, f'{key}_gamma') + (1 - beta) * getattr(self, f'{key}_0gamma')).unsqueeze(0)
                     psi[kid] *= beta
 
-                psi_plus = (-psi[kid] + theta_plus) / torch.sqrt(a_plus)
-                psi_minus = (psi[kid] + theta_minus) / torch.sqrt(a_minus)
-
-                etg_plus = self.erf_times_gauss(psi_plus)
-                etg_minus = self.erf_times_gauss(psi_minus)
-
-                p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-                nans = torch.isnan(p_plus)
-                p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-                p_minus = 1 - p_plus
-
-                mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-                mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-                means.append(mean_pos * p_plus + mean_neg * p_minus)
+                sqrt_gamma = torch.sqrt(gamma)
+                means.append((psi[kid] - theta) / gamma + 1. / self.erf_times_gauss((-psi[kid] + theta) / sqrt_gamma) / sqrt_gamma)
             return means
         else:
             if beta == 1:
-                a_plus = (getattr(self, f'{hidden_key}_gamma+')).unsqueeze(0)
-                a_minus = (getattr(self, f'{hidden_key}_gamma-')).unsqueeze(0)
-                theta_plus = (getattr(self, f'{hidden_key}_theta+')).unsqueeze(0)
-                theta_minus = (getattr(self, f'{hidden_key}_theta-')).unsqueeze(0)
+                gamma = (getattr(self, f'{hidden_key}_gamma')).unsqueeze(0)
+                theta = (getattr(self, f'{hidden_key}_theta')).unsqueeze(0)
             else:
-                theta_plus = (beta * getattr(self, f'{hidden_key}_theta+') + (1 - beta) * getattr(self, f'{hidden_key}_0theta+')).unsqueeze(0)
-                theta_minus = (beta * getattr(self, f'{hidden_key}_theta-') + (1 - beta) * getattr(self, f'{hidden_key}_0theta-')).unsqueeze(0)
-                a_plus = (beta * getattr(self, f'{hidden_key}_gamma+') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma+')).unsqueeze(0)
-                a_minus = (beta * getattr(self, f'{hidden_key}_gamma-') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma-')).unsqueeze(0)
+                theta = (beta * getattr(self, f'{hidden_key}_theta') + (1 - beta) * getattr(self, f'{hidden_key}_0theta')).unsqueeze(0)
+                gamma = (beta * getattr(self, f'{hidden_key}_gamma') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma')).unsqueeze(0)
                 psi *= beta
 
-            # if psi.dim() == 3:
-            #     a_plus = a_plus.unsqueeze(2)
-            #     a_minus = a_minus.unsqueeze(2)
-            #     theta_plus = theta_plus.unsqueeze(2)
-            #     theta_minus = theta_minus.unsqueeze(2)
-
-            psi_plus = (psi + theta_plus) / torch.sqrt(a_plus)  #  min pool
-            psi_minus = (psi + theta_minus) / torch.sqrt(a_minus)  # max pool
-
-            etg_plus = self.erf_times_gauss(psi_plus)
-            etg_minus = self.erf_times_gauss(psi_minus)
-
-            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))
-            nans = torch.isnan(p_plus)
-            p_plus[nans] = 1.0 * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-            p_minus = 1 - p_plus
-
-            mean_pos = (-psi_plus + 1 / etg_plus) / torch.sqrt(a_plus)
-            mean_neg = (psi_minus - 1 / etg_minus) / torch.sqrt(a_minus)
-            return mean_pos * p_plus + mean_neg * p_minus
+            sqrt_gamma = torch.sqrt(gamma)
+            return (psi - theta) / gamma + 1. / self.erf_times_gauss((-psi + theta) / sqrt_gamma) / sqrt_gamma
 
     ## Compute Input for Hidden Layer from Visible Potts, Uses one hot vector
     def compute_output_v(self, X):  # X is the one hot vector
@@ -443,12 +357,6 @@ class pool_CRBM(Base_drelu):
         for iid, i in enumerate(self.hidden_convolution_keys):
             reconst = self.unpools[iid](h[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
 
-            # reconst *= h_weights[iid][:, :, None].abs()
-
-            # reconst_total = reconst.sum(2)
-            # reconst *= self.exp_activation(h_weights[iid][:, :, None], y=15)
-            # reconst = reconst / reconst.sum(2).abs()[:, :, None] * reconst_total
-
             if reconst.ndim == 3:
                 reconst.unsqueeze_(3)
 
@@ -486,15 +394,11 @@ class pool_CRBM(Base_drelu):
         h_uks = []
         for iid, i in enumerate(self.hidden_convolution_keys):
             if beta == 1:
-                a_plus = getattr(self, f'{i}_gamma+').unsqueeze(0)
-                a_minus = getattr(self, f'{i}_gamma-').unsqueeze(0)
-                theta_plus = getattr(self, f'{i}_theta+').unsqueeze(0)
-                theta_minus = getattr(self, f'{i}_theta-').unsqueeze(0)
+                gamma = getattr(self, f'{i}_gamma').unsqueeze(0)
+                theta = getattr(self, f'{i}_theta').unsqueeze(0)
             else:
-                theta_plus = (beta * getattr(self, f'{i}_theta+') + (1 - beta) * getattr(self, f'{i}_0theta+')).unsqueeze(0)
-                theta_minus = (beta * getattr(self, f'{i}_theta-') + (1 - beta) * getattr(self, f'{i}_0theta-')).unsqueeze(0)
-                a_plus = (beta * getattr(self, f'{i}_gamma+') + (1 - beta) * getattr(self, f'{i}_0gamma+')).unsqueeze(0)
-                a_minus = (beta * getattr(self, f'{i}_gamma-') + (1 - beta) * getattr(self, f'{i}_0gamma-')).unsqueeze(0)
+                theta = (beta * getattr(self, f'{i}_theta') + (1 - beta) * getattr(self, f'{i}_0theta')).unsqueeze(0)
+                gamma = (beta * getattr(self, f'{i}_gamma') + (1 - beta) * getattr(self, f'{i}_0gamma')).unsqueeze(0)
                 psi[iid] *= beta
 
             if nancheck:
@@ -504,36 +408,16 @@ class pool_CRBM(Base_drelu):
                     print('NAN IN INPUT')
                     print('Hidden units', nan_unit)
 
-            psi_plus = (-psi[iid]).add(theta_plus).div(torch.sqrt(a_plus))
-            psi_minus = psi[iid].add(theta_minus).div(torch.sqrt(a_minus))
-
-            etg_plus = self.erf_times_gauss(psi_plus)  # Z+ * sqrt(a+)
-            etg_minus = self.erf_times_gauss(psi_minus)  # Z- * sqrt(a-)
-
-            p_plus = 1 / (1 + (etg_minus / torch.sqrt(a_minus)) / (etg_plus / torch.sqrt(a_plus)))  # p+ 1 / (1 +( (Z-/sqrt(a-))/(Z+/sqrt(a+))))    =   (Z+/(Z++Z-)
-            nans = torch.isnan(p_plus)
-
-            if nans.any().item():
-                p_plus[nans] = torch.tensor(1.) * (torch.abs(psi_plus[nans]) > torch.abs(psi_minus[nans]))
-            # p_minus = 1 - p_plus
-
-            is_pos = torch.rand(p_plus.shape, device=self.device) < p_plus
-
-            rmax = torch.zeros(p_plus.shape, device=self.device)
-            rmin = torch.zeros(p_plus.shape, device=self.device)
-            rmin[is_pos] = torch.erf(psi_plus[is_pos].mul(self.invsqrt2))  # Part of Phi(x)
-            rmax[is_pos] = 1  # pos values rmax set to one
-            rmin[~is_pos] = -1  # neg samples rmin set to -1
-            rmax[~is_pos] = torch.erf((-psi_minus[~is_pos]).mul(self.invsqrt2))  # Part of Phi(x)
-
-            h = torch.zeros(psi[iid].shape, dtype=torch.float64, device=self.device)
-            tmp = (rmax - rmin > 1e-14)
-            h = self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(h.shape, device=self.device))
-            h[is_pos] -= psi_plus[is_pos]
-            h[~is_pos] += psi_minus[~is_pos]
-            h /= torch.sqrt(is_pos * a_plus + ~is_pos * a_minus)
-            h[torch.isinf(h) | torch.isnan(h) | ~tmp] = 0
+            sqrt_gamma = torch.sqrt(gamma)
+            I_plus = (-psi[iid] + theta) / sqrt_gamma
+            rmin = torch.erf(I_plus / self.sqrt2)
+            rmax = 1
+            tmp = (rmax - rmin < 1e-14)
+            h = (self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(psi[iid].shape, device=self.device)) - I_plus) / sqrt_gamma
+            h = torch.clamp(h, min=0)  # Due to numerical error of erfinv, erf,  erfinv(rmin) is not exactly I_plus/sqrt(2).
+            h[np.isinf(h) | np.isnan(h) | tmp] = 0
             h_uks.append(h)
+
         return h_uks
 
     ###################################################### Sampling Functions
@@ -603,10 +487,8 @@ class pool_CRBM(Base_drelu):
     def on_before_zero_grad(self, optimizer):
         with torch.no_grad():
             for key in self.hidden_convolution_keys:
-                for param in ["gamma+", "gamma-"]:
-                    getattr(self, f"{key}_{param}").data.clamp_(min=0.05)
-                for param in ["theta+", "theta-"]:
-                    getattr(self, f"{key}_{param}").data.clamp_(min=0.0)
+                getattr(self, f"{key}_gamma").data.clamp_(min=0.05)
+                getattr(self, f"{key}_theta").data.clamp_(min=0.0)
                 getattr(self, f"{key}_W").data.clamp_(-1.0, 1.0)
 
     ## Calls Corresponding Training Function
@@ -1220,28 +1102,20 @@ class pool_CRBM(Base_drelu):
             self.AIS()
         return -self.free_energy(data) - self.log_Z_AIS
 
-    def cgf_from_inputs_h(self, I, hidden_key):
-        with torch.no_grad():
-            B = I.shape[0]
+    def cgf_from_inputs_h(self, I, hidden_key, beta=1):
+        B = I.shape[0]
 
-            if hidden_key not in self.hidden_convolution_keys:
-                print(f"Hidden Convolution Key {hidden_key} not found!")
-                sys.exit(1)
+        if hidden_key not in self.hidden_convolution_keys:
+            print(f"Hidden Convolution Key {hidden_key} not found!")
+            sys.exit(1)
 
-            out = torch.zeros_like(I, device=self.device)
+        gamma = beta * getattr(self, f'{hidden_key}_gamma') + (1 - beta) * getattr(self, f'{hidden_key}_gamma0')
+        theta = beta * getattr(self, f'{hidden_key}_theta') + (1 - beta) * getattr(self, f'{hidden_key}_theta0')
 
-            sqrt_gamma_plus = torch.sqrt(getattr(self, f"{hidden_key}_gamma+")).expand(B, -1)
-            sqrt_gamma_minus = torch.sqrt(getattr(self, f"{hidden_key}_gamma-")).expand(B, -1)
-            log_gamma_plus = torch.log(getattr(self, f"{hidden_key}_gamma+")).expand(B, -1)
-            log_gamma_minus = torch.log(getattr(self, f"{hidden_key}_gamma-")).expand(B, -1)
-
-            Z_plus = -self.log_erf_times_gauss((-I + getattr(self, f'{hidden_key}_theta+').expand(B, -1)) / sqrt_gamma_plus) - 0.5 * log_gamma_plus
-            Z_minus = self.log_erf_times_gauss((I + getattr(self, f'{hidden_key}_theta-').expand(B, -1)) / sqrt_gamma_minus) - 0.5 * log_gamma_minus
-            map = Z_plus > Z_minus
-            out[map] = Z_plus[map] + torch.log(1 + torch.exp(Z_minus[map] - Z_plus[map]))
-            out[~map] = Z_minus[~map] + torch.log(1 + torch.exp(Z_plus[~map] - Z_minus[~map]))
-
-            return out
+        sqrt_gamma = torch.sqrt(gamma).expand(B, -1)
+        log_gamma = torch.log(gamma).expand(B, -1)
+        out = self.log_erf_times_gauss((-I + theta) / sqrt_gamma) - 0.5 * log_gamma
+        return out
 
     def gen_data(self, Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, config_init=[], beta=1, batches=None, reshape=True, record_replica=False, record_acceptance=None, update_betas=None, record_swaps=False):
         """

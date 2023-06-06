@@ -3,8 +3,9 @@ from pytorch_lightning import Trainer
 
 import argparse
 import os
-from rbm_torch.models.crbm import CRBM
+from rbm_torch.models.crbm_base import CRBM
 from rbm_torch.models.pool_crbm_base import pool_CRBM
+from rbm_torch.models.pool_crbm_base_relu import pool_CRBM_relu
 from rbm_torch.models.pool_crbm_classification import pool_class_CRBM
 from rbm_torch.models.pool_crbm_cluster import pcrbm_cluster
 
@@ -42,6 +43,8 @@ if __name__ == '__main__':
         model = CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pool_crbm":
         model = pool_CRBM(config, debug=debug_flag, precision=config["precision"])
+    elif model_type == "pool_crbm_relu":
+        model = pool_CRBM_relu(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pool_class_crbm":
         model = pool_class_CRBM(config, debug=debug_flag, precision=config["precision"])
     elif model_type == "pcrbm_cluster":
