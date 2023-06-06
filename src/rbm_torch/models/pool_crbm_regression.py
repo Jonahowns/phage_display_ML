@@ -127,12 +127,9 @@ class FeatureNet(nn.Module):
                 a_plus = (beta * getattr(self.pcrbm, f'{i}_gamma+') + (1 - beta) * getattr(self.pcrbm, f'{i}_0gamma+')).unsqueeze(0)
                 a_minus = (beta * getattr(self.pcrbm, f'{i}_gamma-') + (1 - beta) * getattr(self.pcrbm, f'{i}_0gamma-')).unsqueeze(0)
 
-            # in_neg = inputs[iid][:, :, 1]
-            # in_pos = inputs[iid][:, :, 0]
             y = torch.logaddexp(self.pcrbm.log_erf_times_gauss((-inputs[iid] + theta_plus) / torch.sqrt(a_plus)) -
                                 0.5 * torch.log(a_plus), self.pcrbm.log_erf_times_gauss((inputs[iid] + theta_minus) / torch.sqrt(a_minus)) - 0.5 * torch.log(a_minus)) + 0.5 * np.log(2 * np.pi) * inputs[iid].shape[1]
-            ys.append(y)  # 10 added so hidden layer has stronger effect on free energy, also in energy_h
-            # marginal[iid] /= self.convolution_topology[i]["convolution_dims"][2]
+            ys.append(y)
         return torch.cat(ys, dim=1)
 
     def forward(self, x):
