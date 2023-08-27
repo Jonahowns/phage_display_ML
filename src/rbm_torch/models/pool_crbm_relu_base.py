@@ -111,7 +111,8 @@ class pool_CRBM_relu(Base_drelu):
         return self.energy_v(v) - self.logpartition_h(self.compute_output_v(v))
 
     def free_energy_ind(self, v):
-        return self.energy_v(v).unsqueeze(1) - self.logpartition_h_ind(self.compute_output_v(v))
+        h_ind = self.logpartition_h_ind(self.compute_output_v(v))
+        return (self.energy_v(v)/h_ind.shape[1]).unsqueeze(1) - h_ind
 
     ## Not used but may be useful
     def free_energy_h(self, h):
@@ -357,6 +358,8 @@ class pool_CRBM_relu(Base_drelu):
         for iid, i in enumerate(self.hidden_convolution_keys):
             reconst = self.unpools[iid](h[iid].view_as(self.max_inds[iid]), self.max_inds[iid])
 
+            # reconst *= h_weights[iid][:, :, None].abs()
+
             if reconst.ndim == 3:
                 reconst.unsqueeze_(3)
 
@@ -415,7 +418,7 @@ class pool_CRBM_relu(Base_drelu):
             tmp = (rmax - rmin < 1e-14)
             h = (self.sqrt2 * torch.erfinv(rmin + (rmax - rmin) * torch.rand(psi[iid].shape, device=self.device)) - I_plus) / sqrt_gamma
             h = torch.clamp(h, min=0)  # Due to numerical error of erfinv, erf,  erfinv(rmin) is not exactly I_plus/sqrt(2).
-            h[np.isinf(h) | np.isnan(h) | tmp] = 0
+            h[torch.isinf(h) | torch.isnan(h) | tmp] = 0
             h_uks.append(h)
 
         return h_uks
@@ -529,16 +532,13 @@ class pool_CRBM_relu(Base_drelu):
             W = getattr(self, f"{i}_W")
 
             x = torch.sum(W.abs(), (3, 2, 1)).square()
-            wreg += x.sum() * self.l1_2 / (2 * W_shape[1] * W_shape[2] * W_shape[3])
+            wreg += x.sum() * self.l1_2 / (W_shape[0] * W_shape[1] * W_shape[2] * W_shape[3])
             # dreg += self.ld / ((getattr(self, f"{i}_W").abs() - getattr(self, f"{i}_W").squeeze(1).abs()).abs().sum((1, 2, 3)).mean() + 1)
-            gap_loss += self.lgap * W[:, :, :, -1].abs().sum()
+            gap_loss += self.lgap * W[:, :, :, -1].abs().mean()
 
-            denom = torch.sum(torch.abs(W), (3, 2, 1))
             Wpos = torch.clamp(W, min=0.)
-            Wneg = torch.clamp(W, max=0.)
-            bs_loss += self.lbs * torch.abs(Wpos.sum((1, 2, 3)) / denom - torch.abs(Wneg.sum((1, 2, 3))) / denom).sum()
 
-            ws = torch.concat([Wpos, Wneg.abs()], dim=0).squeeze(1)
+            ws = Wpos.squeeze(1)
 
             with torch.no_grad():
 
@@ -579,7 +579,7 @@ class pool_CRBM_relu(Base_drelu):
             # threshold
             angles = angles[angles > distance_threshold]
 
-            dreg += angles.sum()
+            dreg += angles.mean()
 
         dreg *= self.ld
 
@@ -682,11 +682,11 @@ class pool_CRBM_relu(Base_drelu):
 
 
         inputs_flat = torch.concat(self.compute_output_v(one_hot), 1)
-        h_inputs_flat = torch.concat([torch.clamp(inputs_flat, min=0.), torch.clamp(inputs_flat, max=0.).abs()], 1)
+        # h_inputs_flat = torch.concat([torch.clamp(inputs_flat, min=0.), torch.clamp(inputs_flat, max=0.).abs()], 1)
+        #
+        # ps = torch.concat(h_w, dim=1)
 
-        ps = torch.concat(h_w, dim=1)
-
-        with torch.no_grad():
+        # with torch.no_grad():
             # seq_temp = self.seq_temp_schedule[self.current_epoch]
             # sw = self.energy(one_hot, self.sample_from_inputs_h(self.compute_output_v(one_hot)))
             # sw = self.free_energy(one_hot)
@@ -697,10 +697,10 @@ class pool_CRBM_relu(Base_drelu):
             # sw = self.altered_sigmoid(sw, c=100, s=0.75)
             # sw /= sw.max()
 
-            pm, _ = ps.max(1)
-            sw = (1 - pm).clamp(min=0)
-            sw = self.altered_sigmoid(sw, c=80, s=0.75).abs()
-            sw /= sw.max()
+            # pm, _ = ps.max(1)
+            # sw = (1 - pm).clamp(min=0)
+            # sw = self.altered_sigmoid(sw, c=80, s=0.75).abs()
+            # sw /= sw.max()
 
         # h_pos = [h.detach() for h in h_pos]
         # for iid, i in enumerate(self.hidden_convolution_keys):
@@ -712,6 +712,8 @@ class pool_CRBM_relu(Base_drelu):
 
         ### Individual Free Energy
         # F_v_ind = self.free_energy_ind(one_hot)
+        # lh_v_ind = - self.logpartition_h_ind(self.compute_output_v(one_hot))
+        # lh_vp_ind = - self.logpartition_h_ind(self.compute_output_v(V_oh_neg))
         # F_v_vals, F_v_inds = torch.topk(F_v_ind, 1, dim=1, largest=False, sorted=False)
         # F_v = F_v_vals.sum(1)
         #
@@ -719,8 +721,19 @@ class pool_CRBM_relu(Base_drelu):
         # F_vp = F_vp_ind.gather(1, F_v_inds).sum(1)  #F_vp_ind[torch.arange(len(F_v_inds)), F_v_inds.squeeze(1)]
 
         ### Normal Way
-        F_v = self.free_energy(one_hot)  # free energy of training data
+        F_v = self.free_energy(one_hot)
         F_vp = self.free_energy(V_oh_neg)
+
+
+        # med_val, _ = ps.median(1)
+        # med_map = ps < med_val.unsqueeze(1)
+        # lh_v_ind[med_map] = 0.
+        # lh_vp_ind[med_map] = 0.
+        # F_v = self.energy_v(one_hot) + lh_v_ind.sum(1)  # free energy of training data
+        # F_vp = self.energy_v(V_oh_neg) + lh_vp_ind.sum(1)
+        # #
+        # lh_v_max, _ = lh_v_ind.max(1)
+        # Fdis = ((lh_v_max - (lh_v_ind.sum() - lh_v_max)/(lh_v_ind.shape[0] - 1)) * 0.05).mean()
 
         # F_v_total = F_v.sum().abs()
         # F_vp_total = F_vp.sum().abs()
@@ -754,7 +767,7 @@ class pool_CRBM_relu(Base_drelu):
         # matching_percentages = h_inputs_flat.div(in_max_vals.sum(1)[None, :])
         # _, matching_weights = matching_percentages.max(-1)
         #
-        mp_reg = ps.norm(dim=1, p=1).mean() * self.lkd * 0.0
+        # mp_reg = ps.norm(dim=1, p=1).mean() * self.lkd * 0.0
         # mp2_reg = matching_percentages.norm(dim=0, p=1).mean() * 0.0 # 0.0002
 
         # F_v_ind = self.free_energy_ind(one_hot)
@@ -797,7 +810,20 @@ class pool_CRBM_relu(Base_drelu):
         # F_v = F_v * F_v_total
         # F_vp = F_vp * F_vp_total
 
-        kld_loss = self.kurtosis(F_v) * self.lkd
+        kld_loss = self.kurtosis(F_v).clamp(min=0) * self.lkd
+        # cov_loss = torch.stack([torch.cov(h.T).triu().sum() for h in h_pos], dim=0).sum(0) * 0.1
+        cov_loss = (torch.cov(inputs_flat.T).triu().abs().sum())/((inputs_flat.shape[1]*(inputs_flat.shape[1]+1))/2) * self.lcorr
+        # cov_loss = (((torch.cov(torch.stack([-F_v, seq_weights], dim=0)) / (torch.std(-F_v)*torch.std(seq_weights)))+1)-2).abs()[0][1]
+        # cov_loss *= self.lcorr
+
+        # f_v_pos = F_v*-1
+        # f_v_pos = f_v_pos - f_v_pos.min()
+        # f_v_pos = f_v_pos/f_v_pos.std()
+        #
+        # seq_weights = seq_weights - seq_weights.min()
+        # seq_weights = seq_weights/seq_weights.std()
+
+        # cov_loss = (seq_weights - f_v_pos).square().mean() * self.lcorr
 
         cd_loss = (F_v - F_vp).mean()
 
@@ -806,7 +832,10 @@ class pool_CRBM_relu(Base_drelu):
 
 
         # Calculate Loss
-        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss + kld_loss + mp_reg  # + sparsity_penalty #  mp_reg + mp2_reg # + input_loss
+        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss + kld_loss + cov_loss  # + sparsity_penalty #  mp_reg + mp2_reg # + input_loss
+
+        if self.current_epoch == 600:
+            print("hi")
 
         if loss.isnan():
             print("okay")
@@ -815,7 +844,8 @@ class pool_CRBM_relu(Base_drelu):
                 "free_energy_diff": cd_loss.detach(),
                 "free_energy_pos": F_v.mean().detach(),
                 "free_energy_neg": F_vp.mean().detach(),
-                # "kl_loss": kld_loss.detach(),
+                "kl_loss": kld_loss.detach(),
+                "cov_loss": cov_loss.detach(),
                 #  "input_correlation_reg": input_loss.detach(),
                 **reg_dict
                 }
@@ -832,7 +862,11 @@ class pool_CRBM_relu(Base_drelu):
         diffs = (x - mean) + 1e-12
         std = torch.std(x) + 1e-12
         zscores = diffs/std
-        return torch.mean(torch.pow(zscores, 4.0)) - 3
+        skew = torch.mean(torch.pow(zscores, 3.0), 0)
+        kurtosis = torch.mean(torch.pow(zscores, 4.0), 0)
+        dm = diffs.max()
+        # bimodality = (skew.square() + 1) / kurtosis
+        return (std-2)  # + ((dm.abs()-5)/5).clamp(min=0) #(std-4).clamp(min=0) + skew.abs()*3 (kurtosis - 2).clamp(min=0)*3
 
     def mask_2d_kurtosis(self, x, mask):
         n = mask.sum(0) + 2
@@ -873,26 +907,16 @@ class pool_CRBM_relu(Base_drelu):
             for iid, i in enumerate(self.hidden_convolution_keys):
                 ws = getattr(self, f"{i}_W").squeeze(1)
                 # all_ws.append(W)
-
                 in_max_val_pos, _ = ws.clamp(min=0.).max(2)
-                in_max_val_neg, _ = ws.clamp(max=0.).min(2)
-
                 in_max_val_pos = in_max_val_pos.sum(1)[None, :]
-                in_max_val_neg = in_max_val_neg.sum(1)[None, :]
+                hi[iid] /= in_max_val_pos.expand(hi[iid].shape[0], -1)
 
-                hi[iid][hi[iid] > 0] /= in_max_val_pos.expand(hi[iid].shape[0], -1)[hi[iid] > 0]
-                hi[iid][hi[iid] < 0] /= in_max_val_neg.expand(hi[iid].shape[0], -1).abs()[hi[iid] < 0]
         else:
             ws = getattr(self, f"{key}_W").squeeze(1)
 
             in_max_val_pos, _ = ws.clamp(min=0.).max(2)
-            in_max_val_neg, _ = ws.clamp(max=0.).min(2)
-
             in_max_val_pos = in_max_val_pos.sum(1)[None, :]
-            in_max_val_neg = in_max_val_neg.sum(1)[None, :]
-
-            hi[hi > 0] /= in_max_val_pos.expand(hi.shape[0], -1)[hi > 0]
-            hi[hi < 0] /= in_max_val_neg.expand(hi.shape[0], -1).abs()[hi < 0]
+            hi /= in_max_val_pos.expand(hi.shape[0], -1)
 
         return hi
 
@@ -961,7 +985,7 @@ class pool_CRBM_relu(Base_drelu):
 
     # X must be a pandas dataframe with the sequences in string format under the column 'sequence'
     # Returns the likelihood for each sequence in an array
-    def predict(self, X):
+    def predict(self, X, individual_hiddens=False):
         # Read in data
         reader = Categorical(X, self.q, weights=None, max_length=self.v_num, molecule=self.molecule, device=self.device, one_hot=True)
         data_loader = torch.utils.data.DataLoader(
@@ -976,7 +1000,7 @@ class pool_CRBM_relu(Base_drelu):
             likelihood = []
             for i, batch in enumerate(data_loader):
                 inds, seqs, one_hot, seq_weights = batch
-                likelihood += self.likelihood(one_hot).detach().tolist()
+                likelihood += self.likelihood(one_hot, individual_hiddens=individual_hiddens).detach().tolist()
 
         return X.sequence.tolist(), likelihood
 
@@ -1097,10 +1121,13 @@ class pool_CRBM_relu(Base_drelu):
                 print('Final evaluation: log(Z)= %s +- %s' % (self.log_Z_AIS, self.log_Z_AIS_std))
             return self.log_Z_AIS, self.log_Z_AIS_std
 
-    def likelihood(self, data, recompute_Z=False):
+    def likelihood(self, data, recompute_Z=False, individual_hiddens=False):
         if (not hasattr(self, 'log_Z_AIS')) | recompute_Z:
             self.AIS()
-        return -self.free_energy(data) - self.log_Z_AIS
+        if individual_hiddens:
+            return -self.free_energy_ind(data)
+        else:
+            return -self.free_energy(data) - self.log_Z_AIS
 
     def cgf_from_inputs_h(self, I, hidden_key, beta=1):
         B = I.shape[0]
@@ -1109,8 +1136,8 @@ class pool_CRBM_relu(Base_drelu):
             print(f"Hidden Convolution Key {hidden_key} not found!")
             sys.exit(1)
 
-        gamma = beta * getattr(self, f'{hidden_key}_gamma') + (1 - beta) * getattr(self, f'{hidden_key}_gamma0')
-        theta = beta * getattr(self, f'{hidden_key}_theta') + (1 - beta) * getattr(self, f'{hidden_key}_theta0')
+        gamma = beta * getattr(self, f'{hidden_key}_gamma') + (1 - beta) * getattr(self, f'{hidden_key}_0gamma')
+        theta = beta * getattr(self, f'{hidden_key}_theta') + (1 - beta) * getattr(self, f'{hidden_key}_0theta')
 
         sqrt_gamma = torch.sqrt(gamma).expand(B, -1)
         log_gamma = torch.log(gamma).expand(B, -1)

@@ -36,9 +36,12 @@ class Base(LightningModule):
         except:
             print(f"Precision {precision} not supported.")
             sys.exit(-1)
+
+        matmul_precisions = {"single": "medium", "double": "high"}
+        torch.set_float32_matmul_precision(matmul_precisions[precision])
         ################################
 
-        self.batch_size = config['batch_size']  # Pretty self explanatory
+        self.batch_size = config['batch_size']  # Pretty self-explanatory
         self.epochs = config['epochs']  # number of training iterations, needed for our weight decay function
 
         # Data Input Options #
@@ -74,7 +77,7 @@ class Base(LightningModule):
                 self.worker_num = cpu_count()
 
         # Sets Pim Memory when GPU is being used
-        # this attribute is set in load_run_file
+        # this attribute is set in load_run
         try:
             if config["gpus"] > 0:
                 self.pin_mem = True
@@ -223,7 +226,11 @@ class Base(LightningModule):
         self.validation_data = all_data.iloc[val_sets]
 
         if self.sampling_weights is not None:
+            if self.sampling_weights == "fasta":
+                self.sampling_weights = np.exp(all_data["fasta_count"].to_numpy())
             self.sampling_weights = self.sampling_weights[train_sets]
+
+            self.sampling_weights = torch.tensor(self.sampling_weights)
 
         self.dataset_indices = {"train_indices": train_sets, "val_indices": val_sets}
         if self.test_size > 0:

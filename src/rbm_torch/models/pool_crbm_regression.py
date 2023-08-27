@@ -285,12 +285,12 @@ class RegressionNet(LightningModule):
                 getattr(self.feature_net.pcrbm, f"{key}_W").data.clamp_(-1.0, 1.0)
 
 if __name__ == "__main__":
-    from rbm_torch.utils.utils import load_run_file
+    from rbm_torch.utils.utils import load_run
 
     run_file_dir = "/home/jonah/PycharmProjects/phage_display_ML/example_run_files/"
     run_file = run_file_dir + "example_pool_crbm_regression.json"
 
-    run_data, config = load_run_file(run_file)
+    run_data, config = load_run(run_file)
     config["fasta_file"] = "/home/jonah/PycharmProjects/phage_display_ML/regression_model_comparison/cov/cov_z_full_norm.fasta"
 
     debug = False

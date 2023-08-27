@@ -43,10 +43,10 @@
     "sequence_weights": "None",
     "optimizer": "Adam",
     "weight_decay": 0.01,
-    "l1_2": 1,
+    "l1_2": 50,
     "lf": 100,
     "lcorr": 0.0,
-    "ld": 0,
+    "ld": 20,
     "data_worker_num": 6,
     "convolution_topology": {
       "hidden_8": {

@@ -99,12 +99,18 @@ import time
 optimizer_dict = {"SGD": SGD, "AdamW": AdamW, "Adadelta": Adadelta, "Adagrad": Adagrad, "Adam": Adam}
 
 
-def load_run_file(runfile):
-    try:
-        with open(runfile, "r") as f:
-            run_data = json.load(f)
-    except IOError:
-        print(f"Runfile {runfile} not found or empty! Please check!")
+def load_run(runfile):
+    if type(runfile) is str:
+        try:
+            with open(runfile, "r") as f:
+                run_data = json.load(f)
+        except IOError:
+            print(f"Runfile {runfile} not found or empty! Please check!")
+            exit(1)
+    elif type(runfile) is dict:
+        run_data = runfile
+    else:
+        print("Unsupported Format for run configuration. Must be filename of json config file or dictionary")
         exit(1)
 
     # Get info needed for all models
@@ -118,7 +124,7 @@ def load_run_file(runfile):
     # Deal with weights
     # Deal with weights
     weights = None
-    config["sampling_weights"] = None
+    # config["sampling_weights"] = None
     config["sample_stds"] = None
     if "fasta" in run_data["weights"]:
         weights = run_data["weights"]  # All weights are already in the processed fasta files
@@ -133,17 +139,20 @@ def load_run_file(runfile):
 
             # Deal with Sampling Weights
             try:
+                if type(config["sampling_weights"]) is not str:
+                    config["sampling_weights"] = np.asarray(config["sampling_weights"])
+
                 sampling_weights = np.asarray(data["sampling_weights"])
                 config["sampling_weights"] = sampling_weights
             except KeyError:
-                sampling_weights = None
+                config['sampling_weights'] = None
 
             # Deal with Sample Stds
-            try:
-                sample_stds = np.asarray(data["sample_stds"])
-                config["sample_stds"] = sample_stds
-            except KeyError:
-                sample_stds = None
+            # try:
+            #     sample_stds = np.asarray(data["sample_stds"])
+            #     config["sample_stds"] = sample_stds
+            # except KeyError:
+            #     sample_stds = None
 
         except IOError:
             print(f"Could not load provided weight file {config['weights']}")
@@ -152,7 +161,10 @@ def load_run_file(runfile):
     config["sequence_weights"] = weights
 
     # Edit config for dataset specific hyperparameters
-    config["fasta_file"] = data_dir + fasta_file
+    if type(fasta_file) is not list:
+        fasta_file = [fasta_file]
+
+    config["fasta_file"] = [data_dir + f for f in fasta_file]
 
     seed = np.random.randint(0, 10000, 1)[0]
     config["seed"] = int(seed)
@@ -700,6 +712,66 @@ def fasta_read_serial(fastafile, seq_read_counts=False, drop_duplicates=False, c
 
 
 ######### Data Generation Methods #########
+def extract_cluster_crbm_pool(model, hidden_indices):
+    tmp_model = copy.deepcopy(model)
+    if "relu" in tmp_model._get_name():
+        param_keys = ["gamma", "theta", "W", "0gamma", "0theta"]
+    else:
+        param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W",  "0gamma+", "0theta+", "0gamma-", "0theta-"]
+
+    assert len(hidden_indices) == len(model.hidden_convolution_keys)
+    for kid, key in enumerate(tmp_model.hidden_convolution_keys):
+        for pkey in param_keys:
+            setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}")[hidden_indices[kid]], requires_grad=False))
+        tmp_model.max_inds[kid] = (tmp_model.max_inds[kid])[hidden_indices[kid]]
+
+    # edit keys
+    keys_to_del = []
+    for kid, key in enumerate(tmp_model.hidden_convolution_keys):
+        new_hidden_number = len(hidden_indices[kid])
+        if new_hidden_number == 0:
+            keys_to_del.append(key)
+        else:
+            tmp_model.convolution_topology[key]["number"] = new_hidden_number
+            wdims = list(tmp_model.convolution_topology[key]["weight_dims"])
+            wdims[0] = new_hidden_number
+            tmp_model.convolution_topology[key]["weight_dims"] = tuple(wdims)
+            cdims = list(tmp_model.convolution_topology[key]["convolution_dims"])
+            cdims[1] = new_hidden_number
+            tmp_model.convolution_topology[key]["convolution_dims"] = tuple(cdims)
+
+    for key in keys_to_del:
+        tmp_model.convolution_topology.pop(key)
+        tmp_model.hidden_convolution_keys.pop(key)
+
+    return tmp_model
+
+def gen_data_biased_ih(model, ih_means, ih_stds, samples=500):
+    if type(ih_means) is not list:
+        ih_means = [ih_means]
+        ih_stds = [ih_stds]
+
+    v_out = []
+    for i in range(len(ih_means)):
+        v_out.append(ih_means[i][None, :] + torch.randn((samples, 1)) * ih_stds[i][None, :])
+
+    hs = model.sample_from_inputs_h(v_out)
+    return model.sample_from_inputs_v(model.compute_output_h(hs))
+
+
+def gen_data_biased_h(model, h_means, h_stds, samples=500):
+    if type(h_means) is not list:
+        h_means = [h_means]
+        h_stds = [h_stds]
+
+    sampled_h = []
+    for i in range(len(h_means)):
+        sampled_h.append(h_means[i][None, :] + torch.randn((samples, 1)) * h_stds[i][None, :])
+
+    return model.sample_from_inputs_v(model.compute_output_h(sampled_h))
+
+
+
 
 def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nthermalize=0, Nstep=1, N_PT=1, reshape=True, update_betas=False, config_init=[]):
     tmp_model = copy.deepcopy(model)
@@ -710,14 +782,20 @@ def gen_data_lowT(model, beta=1, which = 'marginal' ,Nchains=10, Lchains=100, Nt
             setattr(tmp_model, "y_bias", torch.nn.Parameter(getattr(tmp_model, "y_bias") * beta, requires_grad=False))
 
         if which == 'joint':
-            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
+            if "relu" in "name":
+                param_keys = ["gamma", "theta", "W"]
+            else:
+                param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W"]
             if "class" in name:
                 param_keys.append("M")
             for key in tmp_model.hidden_convolution_keys:
                 for pkey in param_keys:
                     setattr(tmp_model, f"{key}_{pkey}", torch.nn.Parameter(getattr(tmp_model, f"{key}_{pkey}") * beta, requires_grad=False))
         elif which == "marginal":
-            param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            if "relu" in "name":
+                param_keys = ["gamma+", "gamma-", "theta+", "theta-", "W", "0gamma+", "0gamma-", "0theta+", "0theta-"]
+            else:
+                param_keys = ["gamma", "0gamma", "theta", "0theta", "W"]
             if "class" in name:
                 param_keys.append("M")
             new_convolution_keys = copy.deepcopy(tmp_model.hidden_convolution_keys)

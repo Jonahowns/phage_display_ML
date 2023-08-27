@@ -106,7 +106,7 @@ def get_checkpoint_path(round, version=None, rbmdir="./"):
 
 
 # Returns dictionary of arrays of likelihoods
-def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="./generated/", cluster_indx=None):
+def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="./generated/", cluster_indx=None, individual_hiddens=False):
     """ Calculates Likelihood of sequences in provided for the provided model
 
       Parameters
@@ -144,7 +144,7 @@ def generate_likelihoods(rounds, model, all_data, identifier, key="round", dir="
         elif cluster_indx is not None:
             seqs, likeli = model.predict_cluster(all_data[all_data[key] == x], cluster_indx)
         else:
-            seqs, likeli = model.predict(all_data[all_data[key] == x])
+            seqs, likeli = model.predict(all_data[all_data[key] == x], individual_hiddens=individual_hiddens)
         likelihoods[x] = likeli
         sequences[x] = seqs
 
@@ -171,14 +171,19 @@ def get_likelihoods(likelihoodfile):
 
 
 # Plot Likelihoods as kde curves with each round in a new row
-def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False, yscale=None):
+def plot_likelihoods(likeli,  order, labels, weights=None, title=None, xaxislabel="log-likelihood", xlim=None, cdf=False, yscale=None):
     colors = supported_colors
     plot_num = len(order)
+    assert len(labels) == plot_num
+    if weights is not None:
+        assert len(weights) == plot_num
+    else:
+        weights = [None for _ in range(plot_num)]
     fig, axs = plt.subplots(plot_num, 1, sharex=True, sharey=False)
     if plot_num == 1:
         if xlim is not None:
             axs.set_xlim(*xlim)
-        y = sns.kdeplot(likeli[order[0]], shade=False, alpha=0.5, color=colors[0], ax=axs, label=labels[0], cumulative=cdf)
+        y = sns.kdeplot(likeli[order[0]], fill=False, alpha=0.5, color=colors[0], ax=axs, label=labels[0], weights=weights, cumulative=cdf)
         y.set(xlabel=xaxislabel)
         if yscale is not None:
             axs.set_yscale(yscale)
@@ -187,7 +192,7 @@ def plot_likelihoods(likeli,  order, labels, title=None, xaxislabel="log-likelih
         for xid, x in enumerate(order):
             if xlim is not None:
                 axs[xid].set_xlim(*xlim)
-            y = sns.kdeplot(likeli[x], shade=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], cumulative=cdf)
+            y = sns.kdeplot(likeli[x], fill=False, alpha=0.5, color=colors[xid], ax=axs[xid], label=labels[xid], weights=weights[xid], cumulative=cdf)
             if yscale is not None:
                 axs[xid].set_yscale(yscale)
             if xid == len(order) - 1:
@@ -220,10 +225,10 @@ def plot_likelihoods_multiple(likeli,  order, labels, title=None, xaxislabel="lo
         plot_ymax = 0.
         for yid, y in enumerate(x): # each label in the subplot labels
             if plot_num == 1:
-                z = sns.kdeplot(likeli[y], shade=False, alpha=0.5, color=colors[yid], ax=axs, label=labels[xid][yid], cumulative=cdf)
+                z = sns.kdeplot(likeli[y], fill=False, alpha=0.5, color=colors[yid], ax=axs, label=labels[xid][yid], cumulative=cdf)
                 kdeplot = axs.lines[-1]
             else:
-                z = sns.kdeplot(likeli[y], shade=False, alpha=0.5, color=colors[yid], ax=axs[xid], label=labels[xid][yid], cumulative=cdf)
+                z = sns.kdeplot(likeli[y], fill=False, alpha=0.5, color=colors[yid], ax=axs[xid], label=labels[xid][yid], cumulative=cdf)
                 kdeplot = axs[xid].lines[-1]
             ydata = kdeplot.get_ydata()
             ymax = round(ydata.max(), 3)
@@ -299,7 +304,7 @@ def seq_logo(dataframe, output_file, weight=False, outdir=""):
         return out
 
 
-def view_weights(rbm, type="top", selected=None, molecule="protein", title=None, view="full"):
+def view_weights(rbm, type="top", selected=None, molecule="protein", title=None, view="full", remove_gaps=False):
     beta, W = utils.get_beta_and_W(rbm)
     order = np.argsort(beta)[::-1]
     assert type in ["top", "unordered"]
@@ -324,11 +329,14 @@ def view_weights(rbm, type="top", selected=None, molecule="protein", title=None,
         selected_weights = np.maximum(selected_weights, 0.)
     elif view == "negative":
         selected_weights = np.minimum(selected_weights, 0.)
+
+    if remove_gaps:
+        selected_weights[:, :, -1] = 0.
     # Assume we want weights
     fig = utils.Sequence_logo_multiple(selected_weights, data_type="weights", title=title, ncols=1, molecule=molecule)
 
 
-def view_weights_crbm(crbm, hidden_key, sort="top", selected=None, molecule="protein", title=None, view="full"):
+def view_weights_crbm(crbm, hidden_key, sort="top", selected=None, molecule="protein", title=None, view="full", ax=None):
     beta, W = utils.get_beta_and_W(crbm, hidden_key=hidden_key)
     order = np.argsort(beta)[::-1]
     assert sort in ["top", "unordered"]
@@ -552,7 +560,6 @@ def cluster_inputs(I, hidden_unit_2d_combo, padding=0.05, size_to=None, hue_to=N
     # new_labels = ['label 1', 'label 2']
     # for t, l in zip(leg.texts, new_labels):
     #     t.set_text(l)
-
     plt.show()
 
 

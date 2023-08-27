@@ -96,7 +96,7 @@ class pool_CRBM(LightningModule):
                 self.worker_num = cpu_count()
 
         # Sets Pim Memory when GPU is being used
-        # this attribute is set in load_run_file
+        # this attribute is set in load_run
         try:
             if config["gpus"] > 0:
                 self.pin_mem = True

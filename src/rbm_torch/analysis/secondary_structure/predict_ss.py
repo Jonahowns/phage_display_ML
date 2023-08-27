@@ -1,8 +1,8 @@
-# from nupack import *
+from nupack import *
 import pandas as pd
 
-# config.parallelism = True
-# config.cache = 8.0 # GB
+config.parallelism = True
+config.cache = 8.0 # GB
 
 
 from rbm_torch.utils.utils import fasta_read
@@ -21,12 +21,13 @@ from copy import copy
 
 # sodium range [0.05,1.1]
 # magnesium range [0.0, 0.2]
-def nupack_predict_ss(file, format="csv", molecule="dna", ensemble="stacking", celsius=25, sodium=0.157, magnesium=0.03):
+def nupack_predict_ss_file(file, format="csv", molecule="dna", ensemble="stacking", celsius=25, sodium=0.157, magnesium=0.03):
     assert molecule in ["dna", "rna"]
     if format == "fasta":
         all_seqs, all_counts, all_chars, q = fasta_read(file, molecule, threads=6, drop_duplicates=True)
         no_wildcards = [seq for seq in all_seqs if "N" not in seq and "-" not in seq]  # Must remove all wildcard sequences or nupack won't work
         df = pd.DataFrame({"sequence": no_wildcards})
+        no_wildcards = df["sequence"].tolist()
 
     elif format == "csv":
         in_df = pd.read_csv(file)
@@ -51,6 +52,28 @@ def nupack_predict_ss(file, format="csv", molecule="dna", ensemble="stacking", c
     df["mfe"] = energies
     outfilename = file.split("/")[-1].split('.')[0] + "_sspred.csv"
     df.to_csv(outfilename)
+
+def nupack_predict_ss(seqs, molecule="dna", ensemble="stacking", celsius=25, sodium=0.157, magnesium=0.03):
+    no_wildcards = [seq if "N" not in seq and "-" not in seq else False for seq in seqs]
+    strands = [Strand(seq, name=str(i)) for i, seq in enumerate(no_wildcards)]
+    model = Model(material=molecule.upper(), celsius=celsius, sodium=sodium, magnesium=magnesium)
+    batch_size = 1
+    total_batches = math.ceil(len(strands) / batch_size)
+    secondary_structures, energies = [], []
+    for i in range(len(strands)):
+        if i % 2 == 0:
+            print(f"Progress {i / (total_batches - 1) * 100}")
+        t = Tube(strands={strands[i]: 1e-6}, name="Tube 1")
+        tr = tube_analysis(tubes=[t], compute=['mfe'], model=model)
+        secondary_structures.append(str(tr[f"({strands[i].name})"].mfe[0].structure))
+        energies.append(float(tr[f"({strands[i].name})"].mfe[0].energy))
+
+        ## The below worked prior to 4.0.1.8, can't find a place to report error of course
+        # mfe_res = mfe(strands=strands[i], model=model)  # Calculate mfe for all provided sequences
+        # secondary_structures.append(mfe_res[0].structure)
+        # energies.append(mfe_res[0].energy)
+
+    return energies, secondary_structures
 
 
 def read_data(file, molecule="dna", format="csv"):

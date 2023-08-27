@@ -15,7 +15,7 @@ from copy import deepcopy
 # from rbm_torch.models.crbm_net import CRBM_net
 # from rbm_torch.models.rbm_experimental import ExpRBM
 
-from rbm_torch.utils.utils import load_run_file
+from rbm_torch.utils.utils import load_run
 from rbm_torch.hyperparam.hyp_configs import hconfigs
 from rbm_torch.hyperparam.optimize import optimize
 
@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    run_data, config = load_run_file(args.runfile)
+    run_data, config = load_run(args.runfile)
     config["model_type"] = run_data["model_type"]
     config["fasta_file"] = os.path.join(os.getcwd(), config["fasta_file"])
 

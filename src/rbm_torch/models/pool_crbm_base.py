@@ -412,8 +412,8 @@ class pool_CRBM(Base_drelu):
 
     def exp_activation(self, x, y=3):
         # assumes input is between -1 and 1
-        # act = (y*(-1+x.abs())).abs()
-        act = x.abs()
+        act = (y*(-1+x.abs())).abs()
+        # act = x.abs()
 
         # batch_normed = (act - (act.mean(0)).clamp(min=0)).clamp(min=0)
 
@@ -422,8 +422,8 @@ class pool_CRBM(Base_drelu):
 
         # h_normed = (batch_normed + 1e-8)/(batch_normed.sum(1)[:, None] + 1e-8)
 
-        ind_temp = self.ind_temp_schedule[self.current_epoch]
-        batch_normed = torch.softmax(act / ind_temp, -1)
+        # ind_temp = self.ind_temp_schedule[self.current_epoch]
+        # batch_normed = torch.softmax(act / ind_temp, -1)
 
         # z score
         # z_act = (act-act.mean(0)).div(act.std(0))
@@ -803,6 +803,8 @@ class pool_CRBM(Base_drelu):
         h_inputs_flat = torch.concat([torch.clamp(inputs_flat, min=0.), torch.clamp(inputs_flat, max=0.).abs()], 1)
 
         ps = torch.concat(h_w, dim=1)
+        # ps = self.exp_activation(ps, y=1)
+        # ps = ps/ps.max()
 
         with torch.no_grad():
             # seq_temp = self.seq_temp_schedule[self.current_epoch]
@@ -872,11 +874,20 @@ class pool_CRBM(Base_drelu):
         # matching_percentages = h_inputs_flat.div(in_max_vals.sum(1)[None, :])
         # _, matching_weights = matching_percentages.max(-1)
         #
-        mp_reg = ps.norm(dim=1, p=1).mean() * self.lkd * 0.0
+        # mp_reg = ps.norm(dim=1, p=1).mean() * self.lkd * 0.0
         # mp2_reg = matching_percentages.norm(dim=0, p=1).mean() * 0.0 # 0.0002
+        #
+        # F_v_ind = self.free_energy_ind(one_hot) * ps
+        # F_vp_ind = self.free_energy_ind(V_oh_neg) * ps
+        #
+        # F_v = F_v_ind.sum(1)
+        # F_vp = F_vp_ind.sum(1)
+        # bimodal_h = self.bimodality_2d(F_v_ind) + self.bimodality_2d(F_vp_ind)
+        # bimodal_loss = -1*bimodal_h.mean() * 0.5
 
-        # F_v_ind = self.free_energy_ind(one_hot)
-        # F_vp_ind = self.free_energy_ind(V_oh_neg)
+
+
+
         #
         # F_v = (F_v_ind * (ps > 0.25)).sum(-1)
         # F_vp = (F_vp_ind * (ps > 0.25)).sum(-1)
@@ -915,7 +926,9 @@ class pool_CRBM(Base_drelu):
         # F_v = F_v * F_v_total
         # F_vp = F_vp * F_vp_total
 
-        kld_loss = self.kurtosis(F_v) * self.lkd
+        kld_loss = self.excess_kurtosis(F_v) * self.lkd
+
+
 
         cd_loss = (F_v - F_vp).mean()
 
@@ -924,7 +937,7 @@ class pool_CRBM(Base_drelu):
 
 
         # Calculate Loss
-        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss + kld_loss + mp_reg  # + sparsity_penalty #  mp_reg + mp2_reg # + input_loss
+        loss = cd_loss + freg + wreg + dreg + bs_loss + gap_loss + kld_loss  # + bimodal_loss  # + sparsity_penalty #  mp_reg + mp2_reg # + input_loss
 
         if loss.isnan():
             print("okay")
@@ -945,12 +958,22 @@ class pool_CRBM(Base_drelu):
         self.training_data_logs.append(logs)
         return logs["loss"]
 
-    def kurtosis(self, x):
+    def excess_kurtosis(self, x):
         mean = torch.mean(x)
         diffs = (x - mean) + 1e-12
         std = torch.std(x) + 1e-12
         zscores = diffs/std
         return torch.mean(torch.pow(zscores, 4.0)) - 3
+
+    def bimodality_2d(self, x):
+        mean = torch.mean(x, 0)
+        diffs = (x - mean) + 1e-12
+        std = torch.std(x, 0) + 1e-12
+        zscores = diffs / std
+        skew = torch.mean(torch.pow(zscores, 3.0), 0)
+        kurtosis = torch.mean(torch.pow(zscores, 4.0), 0)
+        return (skew.square() + 1)/kurtosis  # sarle's bimodality constant
+
 
     def mask_2d_kurtosis(self, x, mask):
         n = mask.sum(0) + 2
